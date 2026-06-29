@@ -637,6 +637,7 @@
 
   // src/content.ts
   var PANEL_ID = "markonverter-panel-root";
+  var MENU_ASSIST_ID = "markonverter-ozon-delivery-assist";
   var COLLECT_PICKUP_EVENT = "markonverter:collect-ozon-pickup";
   var PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
   var activeUrl = "";
@@ -660,6 +661,7 @@
     if (document.readyState === "loading") {
       await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
     }
+    installOzonDeliveryMenuAssist();
     await runIfProductPage();
     setInterval(() => {
       if (location.href !== activeUrl) {
@@ -834,6 +836,17 @@
       renderLastPanel();
       return { ok: false, error: captureStatus.message };
     }
+    const response = await savePickupCandidate(candidate, product);
+    if (!response.ok || !("settings" in response)) {
+      captureStatus = { tone: "error", message: response.ok ? "Pickup point was not saved" : response.error };
+      renderLastPanel();
+      return { ok: false, error: captureStatus.message };
+    }
+    captureStatus = { tone: "normal", message: `Saved: ${candidate.name}` };
+    await runIfProductPage();
+    return response;
+  }
+  async function savePickupCandidate(candidate, product) {
     const pickupPoint = {
       id: crypto.randomUUID(),
       name: candidate.name,
@@ -843,15 +856,7 @@
       externalLocationId: candidate.externalLocationId,
       comment: candidate.comment || `Captured from ${product.url}`
     };
-    const response = await runtimeRequest({ type: "UPSERT_PICKUP_POINT", pickupPoint });
-    if (!response.ok || !("settings" in response)) {
-      captureStatus = { tone: "error", message: response.ok ? "Pickup point was not saved" : response.error };
-      renderLastPanel();
-      return { ok: false, error: captureStatus.message };
-    }
-    captureStatus = { tone: "normal", message: `Saved: ${candidate.name}` };
-    await runIfProductPage();
-    return response;
+    return runtimeRequest({ type: "UPSERT_PICKUP_POINT", pickupPoint });
   }
   async function deleteSavedPickupPoint(pickupPoint, product) {
     if (!window.confirm(`Delete "${pickupPoint.name}" from saved pickup points?`)) {
@@ -912,6 +917,111 @@
   function removePanel() {
     document.getElementById(PANEL_ID)?.remove();
   }
+  function installOzonDeliveryMenuAssist() {
+    const sync = () => {
+      if (!getCurrentProduct()) {
+        document.getElementById(MENU_ASSIST_ID)?.remove();
+        return;
+      }
+      ensureOzonDeliveryMenuAssist();
+    };
+    sync();
+    new MutationObserver(sync).observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+    setInterval(sync, 1500);
+  }
+  function ensureOzonDeliveryMenuAssist() {
+    const target = findOzonDeliveryContainer();
+    const existing = document.getElementById(MENU_ASSIST_ID);
+    if (!target) {
+      existing?.remove();
+      return;
+    }
+    if (existing && existing.parentElement === target) {
+      return;
+    }
+    existing?.remove();
+    const product = getCurrentProduct();
+    if (!product) {
+      return;
+    }
+    const assist = document.createElement("div");
+    assist.id = MENU_ASSIST_ID;
+    assist.setAttribute(
+      "style",
+      [
+        "display:flex",
+        "align-items:center",
+        "gap:8px",
+        "margin:8px 0",
+        "padding:8px",
+        "border:1px solid #ccd5df",
+        "border-radius:8px",
+        "background:#fff",
+        "box-shadow:0 8px 18px rgba(15,23,42,.12)",
+        "font:13px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
+        "z-index:2147483647"
+      ].join(";")
+    );
+    const saveButton = pageButton("Save to Markonverter");
+    saveButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void saveSelectedPickupPoint(product);
+    });
+    const showButton = pageButton("Show detected PVZ");
+    showButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      isPointManagerOpen = true;
+      requestPagePickupCandidates();
+      renderLastPanel();
+      document.getElementById(PANEL_ID)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    assist.append(saveButton, showButton);
+    target.prepend(assist);
+  }
+  function findOzonDeliveryContainer() {
+    const candidates = Array.from(
+      document.querySelectorAll('[role="dialog"], [data-widget*="delivery" i], [data-widget*="address" i], [data-widget*="geo" i]')
+    );
+    return candidates.find((element) => {
+      if (element.id === PANEL_ID || element.closest(`#${PANEL_ID}`) || element.id === MENU_ASSIST_ID) {
+        return false;
+      }
+      if (!isVisible(element)) {
+        return false;
+      }
+      const text = (element.innerText || element.textContent || "").slice(0, 3e3);
+      return /(пункт|пвз|получ|достав|адрес|город|pickup|delivery|address)/i.test(text);
+    }) || null;
+  }
+  function isVisible(element) {
+    const rect = element.getBoundingClientRect();
+    return rect.width > 120 && rect.height > 40 && rect.bottom > 0 && rect.right > 0;
+  }
+  function pageButton(text) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = text;
+    button.setAttribute(
+      "style",
+      [
+        "min-height:32px",
+        "padding:0 10px",
+        "border:1px solid #1166cc",
+        "border-radius:6px",
+        "background:#1166cc",
+        "color:#fff",
+        "cursor:pointer",
+        "font:inherit",
+        "white-space:nowrap"
+      ].join(";")
+    );
+    return button;
+  }
   function renderPanel(shadow, model) {
     lastPanelModel = model;
     shadow.innerHTML = "";
@@ -964,6 +1074,9 @@
     } else if (model.state === "empty") {
       root.append(messageNode("No Ozon pickup points configured."));
       root.append(captureControl(model.product));
+      if (isPointManagerOpen || latestPickupCandidates.length > 0) {
+        root.append(pointManager(model.settings, [], model.product));
+      }
     } else if (model.state === "noSelection") {
       root.append(messageNode("No saved pickup points selected for comparison."));
       root.append(pointManager(model.settings, model.allPickupPoints, model.product));
@@ -1022,11 +1135,12 @@
   function pointManager(settings, visiblePickupPoints, product) {
     const allPickupPoints = settings.pickupPoints.filter((point) => point.marketplace === "ozon");
     const selectedIds = settings.comparisonPickupPointIds ? new Set(settings.comparisonPickupPointIds) : null;
+    const savedExternalIds = new Set(allPickupPoints.map((point) => point.externalLocationId));
     const wrapper = document.createElement("div");
     wrapper.className = "pointManager";
     const top = document.createElement("div");
     top.className = "pointManagerTop";
-    top.innerHTML = `<strong>Saved points</strong><span>${allPickupPoints.length} total</span>`;
+    top.innerHTML = `<strong>Saved in Markonverter</strong><span>${allPickupPoints.length} total</span>`;
     const controls = document.createElement("div");
     controls.className = "pointManagerControls";
     const allButton = document.createElement("button");
@@ -1045,6 +1159,12 @@
     top.append(controls);
     wrapper.append(top);
     const points = visiblePickupPoints.length === allPickupPoints.length ? visiblePickupPoints : allPickupPoints;
+    if (points.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "pointManagerHint";
+      empty.textContent = "No saved Markonverter points yet.";
+      wrapper.append(empty);
+    }
     for (const point of points) {
       const row = document.createElement("label");
       row.className = "pointChoice";
@@ -1068,7 +1188,48 @@
       row.append(checkbox, label, deleteButton);
       wrapper.append(row);
     }
+    const detected = latestPickupCandidates.slice(0, 8);
+    const detectedHeader = document.createElement("div");
+    detectedHeader.className = "pointManagerTop detectedHeader";
+    detectedHeader.innerHTML = `<strong>Detected on Ozon</strong><span>${detected.length} found</span>`;
+    wrapper.append(detectedHeader);
+    if (detected.length === 0) {
+      const hint = document.createElement("p");
+      hint.className = "pointManagerHint";
+      hint.textContent = "Open Ozon delivery selection, then choose or view a point so Markonverter can detect it.";
+      wrapper.append(hint);
+    }
+    for (const candidate of detected) {
+      const row = document.createElement("div");
+      row.className = "pointChoice detectedChoice";
+      const text = document.createElement("span");
+      text.className = "pointChoiceText";
+      const alreadySaved = savedExternalIds.has(candidate.externalLocationId);
+      text.innerHTML = `<strong>${escapeHtml(candidate.name)}</strong><span>${escapeHtml(candidate.country)} - ${escapeHtml(candidate.currency)}${alreadySaved ? " - saved" : ""}</span>`;
+      const saveButton = document.createElement("button");
+      saveButton.type = "button";
+      saveButton.className = "saveSmallButton";
+      saveButton.textContent = alreadySaved ? "Saved" : "Save";
+      saveButton.disabled = alreadySaved;
+      saveButton.addEventListener("click", () => {
+        void saveDetectedPickupCandidate(candidate, product);
+      });
+      row.append(text, saveButton);
+      wrapper.append(row);
+    }
     return wrapper;
+  }
+  async function saveDetectedPickupCandidate(candidate, product) {
+    captureStatus = { tone: "normal", message: `Saving: ${candidate.name}` };
+    renderLastPanel();
+    const response = await savePickupCandidate(candidate, product);
+    if (!response.ok || !("settings" in response)) {
+      captureStatus = { tone: "error", message: response.ok ? "Pickup point was not saved" : response.error };
+      renderLastPanel();
+      return;
+    }
+    captureStatus = { tone: "normal", message: `Saved: ${candidate.name}` };
+    await runIfProductPage();
   }
   function captureControl(product) {
     const wrapper = document.createElement("div");
@@ -1248,6 +1409,11 @@
     .pointManagerTop {
       justify-content: space-between;
     }
+    .detectedHeader {
+      margin-top: 6px;
+      padding-top: 10px;
+      border-top: 1px solid #edf1f5;
+    }
     .pointManagerTop strong,
     .pointChoiceText strong {
       color: #172033;
@@ -1265,7 +1431,8 @@
       gap: 6px;
     }
     .pointManagerControls button,
-    .deleteButton {
+    .deleteButton,
+    .saveSmallButton {
       min-height: 28px;
       padding: 0 8px;
       border: 1px solid #ccd5df;
@@ -1302,6 +1469,20 @@
     .deleteButton {
       border-color: #f0c5c5;
       color: #9a2f2f;
+    }
+    .saveSmallButton {
+      border-color: #1166cc;
+      color: #1166cc;
+    }
+    .saveSmallButton:disabled {
+      border-color: #ccd5df;
+      color: #647084;
+      cursor: default;
+    }
+    .pointManagerHint {
+      margin: 0;
+      color: #647084;
+      font-size: 12px;
     }
     .rows {
       display: grid;

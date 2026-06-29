@@ -47,7 +47,7 @@ async function handleRequest(request: RuntimeRequest): Promise<RuntimeResponse> 
     return { ok: true, settings };
   }
   if (request.type === "OPEN_OPTIONS") {
-    await chrome.runtime.openOptionsPage();
+    await openOptionsPage();
     return { ok: true };
   }
   if (request.type === "SAVE_SELECTED_OZON_PICKUP") {
@@ -58,7 +58,7 @@ async function handleRequest(request: RuntimeRequest): Promise<RuntimeResponse> 
 
 async function handleActionClick(tab: chrome.tabs.Tab): Promise<void> {
   if (!tab.id || !tab.url || !isOzonProductUrl(tab.url)) {
-    await chrome.runtime.openOptionsPage();
+    await openOptionsPage();
     return;
   }
 
@@ -73,6 +73,15 @@ async function handleActionClick(tab: chrome.tabs.Tab): Promise<void> {
   } catch (error) {
     await showActionFeedback(tab.id, "!");
     console.warn("Markonverter pickup save failed", error);
+  }
+}
+
+async function openOptionsPage(): Promise<void> {
+  const url = chrome.runtime.getURL("options.html");
+  try {
+    await chrome.tabs.create({ url });
+  } catch {
+    await chrome.runtime.openOptionsPage();
   }
 }
 

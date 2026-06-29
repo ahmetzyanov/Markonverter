@@ -48,6 +48,8 @@ Always cover these browser-visible states:
 - Current-address reuse: two saved points exist, but API responses confirm only `kz-456`; the RU row must be `Unavailable`, not a duplicated KZ price.
 - Confirmed two-point success: API response confirms the requested id for each point; the panel shows different converted prices, delta from cheapest, and delivery text if present.
 - Inline management: `Points` opens saved points, checkbox changes the compared subset, row-level `Delete` removes a saved point after confirmation, and `Options` opens `options.html`.
+- Ozon-detected list: fake an Ozon delivery response with pickup point data; `Points` must show `Detected on Ozon`, and `Save` must move that candidate into saved Markonverter points.
+- Ozon delivery selector helper: fake a visible delivery dialog; the page must show `Save to Markonverter` and `Show detected PVZ` near that dialog.
 - Non-Ozon page: no Markonverter panel is injected.
 
 For the reuse regression, seed:
@@ -83,5 +85,6 @@ Before saying the extension works, verify:
 - The extension service worker is present.
 - Screenshots or visible text confirm the reuse regression and the two-point success scenario.
 - Inline point selection and deletion have been clicked in the panel, not only inspected in storage.
+- Ozon-detected candidates can be saved from the panel, and the delivery selector helper appears when a delivery dialog is visible.
 - Live Ozon status is stated separately: verified if the real page loaded, blocked if Ozon returned antibot/403.
 - The browser context is closed unless the user asked to keep it open.

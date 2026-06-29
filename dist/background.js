@@ -131,7 +131,7 @@ async function handleRequest(request) {
     return { ok: true, settings };
   }
   if (request.type === "OPEN_OPTIONS") {
-    await chrome.runtime.openOptionsPage();
+    await openOptionsPage();
     return { ok: true };
   }
   if (request.type === "SAVE_SELECTED_OZON_PICKUP") {
@@ -141,7 +141,7 @@ async function handleRequest(request) {
 }
 async function handleActionClick(tab) {
   if (!tab.id || !tab.url || !isOzonProductUrl(tab.url)) {
-    await chrome.runtime.openOptionsPage();
+    await openOptionsPage();
     return;
   }
   try {
@@ -153,6 +153,14 @@ async function handleActionClick(tab) {
   } catch (error) {
     await showActionFeedback(tab.id, "!");
     console.warn("Markonverter pickup save failed", error);
+  }
+}
+async function openOptionsPage() {
+  const url = chrome.runtime.getURL("options.html");
+  try {
+    await chrome.tabs.create({ url });
+  } catch {
+    await chrome.runtime.openOptionsPage();
   }
 }
 async function showActionFeedback(tabId, text) {
