@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, ExtensionSettings, PickupPoint, SUPPORTED_CURRENCIES } from "./types";
+import { Currency, DEFAULT_SETTINGS, ExtensionSettings, ManualQuote, PickupPoint, PriceQuote, SUPPORTED_CURRENCIES } from "./types";
 
 export function normalizeSettings(value: unknown): ExtensionSettings {
   const candidate = value as Partial<ExtensionSettings> | undefined;
@@ -15,7 +15,8 @@ export function normalizeSettings(value: unknown): ExtensionSettings {
       KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT)
     },
     pickupPoints,
-    comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints)
+    comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints),
+    manualQuotes: normalizeManualQuotes(candidate?.manualQuotes, pickupPoints)
   };
 }
 
@@ -67,4 +68,75 @@ function normalizeComparisonPickupPointIds(value: unknown, pickupPoints: PickupP
 
   const knownIds = new Set(pickupPoints.map((point) => point.id));
   return [...new Set(value.filter((id): id is string => typeof id === "string" && knownIds.has(id)))];
+}
+
+function normalizeManualQuotes(value: unknown, pickupPoints: PickupPoint[]): Record<string, ManualQuote> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const knownIds = new Set(pickupPoints.map((point) => point.id));
+  const quotes: Record<string, ManualQuote> = {};
+  for (const rawQuote of Object.values(value as Record<string, unknown>)) {
+    const quote = normalizeManualQuote(rawQuote, knownIds);
+    if (quote) {
+      quotes[`${quote.productId}:${quote.pickupPointId}`] = quote;
+    }
+  }
+  return quotes;
+}
+
+function normalizeManualQuote(value: unknown, knownPickupPointIds: Set<string>): ManualQuote | null {
+  const candidate = value as Partial<ManualQuote> | undefined;
+  if (
+    !candidate ||
+    typeof candidate.productId !== "string" ||
+    typeof candidate.productUrl !== "string" ||
+    typeof candidate.pickupPointId !== "string" ||
+    typeof candidate.capturedAt !== "string" ||
+    !knownPickupPointIds.has(candidate.pickupPointId)
+  ) {
+    return null;
+  }
+
+  const quote = normalizePriceQuote(candidate.quote);
+  if (!quote) {
+    return null;
+  }
+
+  return {
+    productId: candidate.productId,
+    productUrl: candidate.productUrl,
+    pickupPointId: candidate.pickupPointId,
+    quote: {
+      ...quote,
+      source: "manual",
+      capturedAt: candidate.capturedAt
+    },
+    capturedAt: candidate.capturedAt
+  };
+}
+
+function normalizePriceQuote(value: unknown): PriceQuote | null {
+  const candidate = value as Partial<PriceQuote> | undefined;
+  const currency =
+    typeof candidate?.currency === "string" && SUPPORTED_CURRENCIES.includes(candidate.currency as Currency)
+      ? (candidate.currency as Currency)
+      : null;
+  if (
+    !candidate ||
+    typeof candidate.amount !== "number" ||
+    !Number.isFinite(candidate.amount) ||
+    candidate.amount <= 0 ||
+    !currency
+  ) {
+    return null;
+  }
+
+  return {
+    amount: candidate.amount,
+    currency,
+    rawText: typeof candidate.rawText === "string" ? candidate.rawText : undefined,
+    deliveryText: typeof candidate.deliveryText === "string" ? candidate.deliveryText : undefined
+  };
 }

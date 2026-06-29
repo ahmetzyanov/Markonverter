@@ -1,4 +1,4 @@
-import { deletePickupPoint, setComparisonPickupPointIds, upsertPickupPoint } from "../src/shared/settings";
+import { deletePickupPoint, manualQuoteKey, setComparisonPickupPointIds, upsertManualQuote, upsertPickupPoint } from "../src/shared/settings";
 import { DEFAULT_SETTINGS } from "../src/shared/types";
 
 describe("settings helpers", () => {
@@ -56,6 +56,34 @@ describe("settings helpers", () => {
       pickupPoints: [{ id: "kz" }],
       comparisonPickupPointIds: ["kz"]
     });
+  });
+
+  it("removes deleted pickup points from captured product quotes", () => {
+    const settings = upsertManualQuote(
+      {
+        ...DEFAULT_SETTINGS,
+        pickupPoints: [
+          {
+            id: "ru",
+            name: "Moscow",
+            marketplace: "ozon",
+            country: "RU",
+            currency: "RUB",
+            externalLocationId: "ru-pvz-1"
+          }
+        ]
+      },
+      {
+        productId: "2229282395",
+        productUrl: "https://ozon.ru/product/example-2229282395/",
+        pickupPointId: "ru",
+        quote: { amount: 1000, currency: "RUB", source: "manual", capturedAt: "2026-06-29T21:00:00.000Z" },
+        capturedAt: "2026-06-29T21:00:00.000Z"
+      }
+    );
+
+    expect(settings.manualQuotes[manualQuoteKey("2229282395", "ru")]).toBeDefined();
+    expect(deletePickupPoint(settings, "ru").manualQuotes).toEqual({});
   });
 
   it("stores null comparison selection as all saved pickup points", () => {

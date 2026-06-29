@@ -57,6 +57,11 @@
     });
   }
 
+  // src/shared/settings.ts
+  function manualQuoteKey(productId, pickupPointId) {
+    return `${productId}:${pickupPointId}`;
+  }
+
   // src/marketplaces/ozon.ts
   var OZON_PRODUCT_RE = /\/product\/(?:[^/?#]+-)?(\d+)(?:[/?#]|$)/;
   function createOzonAdapter(context) {
@@ -580,6 +585,12 @@
     return sourceLabel ? compact(sourceLabel) : "";
   }
   function inferCountry(text) {
+    if (/https?:\/\/(?:[^/]+\.)?ozon\.kz\b/i.test(text) || /\bozon\.kz\b/i.test(text)) {
+      return "KZ";
+    }
+    if (/https?:\/\/(?:[^/]+\.)?ozon\.ru\b/i.test(text) || /\bozon\.ru\b/i.test(text)) {
+      return "RU";
+    }
     if (KZ_RE.test(text) || /\.kz\b/i.test(text)) {
       return "KZ";
     }
@@ -619,7 +630,8 @@
     return typeof value === "string" ? value.trim() : "";
   }
   function isUsefulLabel(value) {
-    return value.length >= 3 && value.length <= 180 && !/^[a-z0-9_-]{4,80}$/i.test(value);
+    const ozonPointMatches = value.match(/Пункт\s+Ozon\s*№/gi);
+    return value.length >= 3 && value.length <= 180 && !/^[a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
   }
   function compact(value) {
     return value.replace(/\s+/g, " ").trim();
@@ -710,8 +722,21 @@
       pickupPoints.map(async (pickupPoint) => {
         try {
           const price = await adapter.fetchPrice(product, pickupPoint, settings);
-          return makeSuccessResult(pickupPoint.id, price, settings.defaultCurrency, settings);
+          return makeSuccessResult(pickupPoint.id, { ...price, source: "api" }, settings.defaultCurrency, settings);
         } catch (error) {
+          const manualQuote = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
+          if (manualQuote) {
+            return makeSuccessResult(
+              pickupPoint.id,
+              {
+                ...manualQuote.quote,
+                source: "manual",
+                capturedAt: manualQuote.capturedAt
+              },
+              settings.defaultCurrency,
+              settings
+            );
+          }
           return makeErrorResult(pickupPoint.id, adapter.formatError(error));
         }
       })
@@ -817,6 +842,90 @@
     });
     return chunks.slice(0, 30).join(" | ").slice(0, 8e3);
   }
+  function extractVisibleOzonPrice(currencyHint) {
+    const selectors = ['[data-widget="webPrice"]', '[data-widget*="webPrice" i]', '[data-widget*="price" i]'];
+    const seen = /* @__PURE__ */ new Set();
+    const candidates = [];
+    for (const selector of selectors) {
+      document.querySelectorAll(selector).forEach((element) => {
+        if (seen.has(element) || !isVisibleEnough(element)) {
+          return;
+        }
+        seen.add(element);
+        const text = compactText2(element.innerText || element.textContent || "");
+        if (!text) {
+          return;
+        }
+        candidates.push(...parseVisiblePriceCandidates(text, currencyHint));
+      });
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates[0];
+    if (!best) {
+      return null;
+    }
+    const deliveryText = extractVisibleDeliverySummary();
+    return {
+      amount: best.amount,
+      currency: best.currency,
+      rawText: best.rawText,
+      ...deliveryText ? { deliveryText } : {}
+    };
+  }
+  function parseVisiblePriceCandidates(text, currencyHint) {
+    const candidates = [];
+    const pricePattern = /(\d[\d\s\u00a0]{1,14}(?:[,.]\d{1,2})?)\s*(₽|руб\.?|рублей|RUB|₸|тг|тенге|KZT)?/gi;
+    let match;
+    let index = 0;
+    while (match = pricePattern.exec(text)) {
+      const rawAmount = match[1];
+      const amount = Number.parseFloat(rawAmount.replace(/[\s\u00a0]/g, "").replace(",", "."));
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 1e8) {
+        continue;
+      }
+      const currency = parseCurrencyMarker(match[2] || text, currencyHint);
+      const rawText = match[0].trim();
+      candidates.push({
+        amount,
+        currency,
+        rawText,
+        score: 100 + (match[2] ? 30 : 0) + (amount >= 100 ? 10 : 0) - index
+      });
+      index += 1;
+    }
+    return candidates;
+  }
+  function parseCurrencyMarker(value, fallback) {
+    if (/₽|руб|RUB/i.test(value)) {
+      return "RUB";
+    }
+    if (/₸|тг|тенге|KZT/i.test(value)) {
+      return "KZT";
+    }
+    return fallback;
+  }
+  function extractVisibleDeliverySummary() {
+    const selectors = ['[data-widget*="delivery" i]', '[data-widget*="address" i]'];
+    for (const selector of selectors) {
+      for (const element of Array.from(document.querySelectorAll(selector))) {
+        if (!isVisibleEnough(element)) {
+          continue;
+        }
+        const text = compactText2(element.innerText || element.textContent || "");
+        if (text && text.length <= 160 && /(сегодня|завтра|достав|получ|today|tomorrow|delivery|\d)/i.test(text)) {
+          return text;
+        }
+      }
+    }
+    return null;
+  }
+  function isVisibleEnough(element) {
+    const rect = element.getBoundingClientRect();
+    return rect.width > 20 && rect.height > 8 && rect.bottom > 0 && rect.right > 0;
+  }
+  function compactText2(value) {
+    return value.replace(/\s+/g, " ").trim();
+  }
   async function saveCurrentSelectedPickupPoint() {
     const product = getCurrentProduct();
     if (!product) {
@@ -842,7 +951,14 @@
       renderLastPanel();
       return { ok: false, error: captureStatus.message };
     }
-    captureStatus = { tone: "normal", message: `Saved: ${candidate.name}` };
+    const savedPoint = response.settings.pickupPoints.find(
+      (point) => point.marketplace === "ozon" && point.externalLocationId === candidate.externalLocationId
+    );
+    const quoteCaptured = savedPoint ? await saveCurrentVisibleQuoteForPoint(savedPoint, product, { requireConfirmation: false }) : false;
+    captureStatus = {
+      tone: "normal",
+      message: quoteCaptured ? `Saved and captured current price: ${candidate.name}` : `Saved: ${candidate.name}`
+    };
     await runIfProductPage();
     return response;
   }
@@ -857,6 +973,60 @@
       comment: candidate.comment || `Captured from ${product.url}`
     };
     return runtimeRequest({ type: "UPSERT_PICKUP_POINT", pickupPoint });
+  }
+  async function captureCurrentPriceForPickupPoint(pickupPoint, product) {
+    const saved = await saveCurrentVisibleQuoteForPoint(pickupPoint, product, { requireConfirmation: true });
+    if (saved) {
+      captureStatus = { tone: "normal", message: `Captured current page price for ${pickupPoint.name}` };
+      await runIfProductPage();
+    } else {
+      renderLastPanel();
+    }
+  }
+  async function saveCurrentVisibleQuoteForPoint(pickupPoint, product, options) {
+    if (options.requireConfirmation) {
+      const currentCandidate = await getBestPickupCandidate();
+      if (currentCandidate && currentCandidate.externalLocationId !== pickupPoint.externalLocationId) {
+        const shouldContinue = window.confirm(
+          `The currently detected Ozon point looks like "${currentCandidate.name}", not "${pickupPoint.name}". Capture the visible page price for "${pickupPoint.name}" anyway?`
+        );
+        if (!shouldContinue) {
+          captureStatus = { tone: "normal", message: "Price capture cancelled" };
+          return false;
+        }
+      } else if (!currentCandidate) {
+        const shouldContinue = window.confirm(
+          `I could not verify the selected Ozon point. Capture the visible page price for "${pickupPoint.name}" anyway?`
+        );
+        if (!shouldContinue) {
+          captureStatus = { tone: "normal", message: "Price capture cancelled" };
+          return false;
+        }
+      }
+    }
+    const quote = extractVisibleOzonPrice(pickupPoint.currency);
+    if (!quote) {
+      captureStatus = { tone: "error", message: "Could not find a visible product price on the current Ozon page." };
+      return false;
+    }
+    const capturedAt = (/* @__PURE__ */ new Date()).toISOString();
+    const manualQuote = {
+      productId: product.productId,
+      productUrl: product.url,
+      pickupPointId: pickupPoint.id,
+      quote: {
+        ...quote,
+        source: "manual",
+        capturedAt
+      },
+      capturedAt
+    };
+    const response = await runtimeRequest({ type: "SAVE_MANUAL_QUOTE", manualQuote });
+    if (!response.ok || !("settings" in response)) {
+      captureStatus = { tone: "error", message: response.ok ? "Captured price was not saved" : response.error };
+      return false;
+    }
+    return true;
   }
   async function deleteSavedPickupPoint(pickupPoint, product) {
     if (!window.confirm(`Delete "${pickupPoint.name}" from saved pickup points?`)) {
@@ -1113,11 +1283,36 @@
           const original = formatCurrency(row.result.originalPrice.amount, row.result.originalPrice.currency);
           const converted = formatCurrency(row.result.convertedAmount, row.result.convertedCurrency);
           const delivery = row.result.originalPrice.deliveryText;
+          const manualLabel = row.result.originalPrice.source === "manual" ? `Captured ${formatCapturedAt(row.result.originalPrice.capturedAt)}` : "";
           const delta = row.deltaFromCheapest && row.deltaFromCheapest > 0 ? `+${formatCurrency(row.deltaFromCheapest, row.result.convertedCurrency)}` : row.isCheapest ? "best" : "";
-          value.innerHTML = `<strong>${converted}</strong><span>${escapeHtml(original)} ${escapeHtml(delta)}</span>${delivery ? `<span>${escapeHtml(delivery)}</span>` : ""}`;
+          value.innerHTML = `<strong>${converted}</strong><span>${escapeHtml(original)} ${escapeHtml(delta)}</span>${delivery ? `<span>${escapeHtml(delivery)}</span>` : ""}${manualLabel ? `<span>${escapeHtml(manualLabel)}</span>` : ""}`;
         } else {
-          value.title = row.result.error;
-          value.innerHTML = `<strong>Unavailable</strong><span>${escapeHtml(readableResultError(row.result.error))}</span>`;
+          const error = row.result.error;
+          value.title = error;
+          const unavailable = document.createElement("strong");
+          unavailable.textContent = "Unavailable";
+          const reason = document.createElement("span");
+          reason.textContent = readableResultError(error);
+          const actions = document.createElement("div");
+          actions.className = "failureActions";
+          const captureButton = document.createElement("button");
+          captureButton.type = "button";
+          captureButton.className = "saveSmallButton";
+          captureButton.textContent = "Capture current";
+          captureButton.title = "After selecting this pickup point in Ozon, capture the visible page price for this product.";
+          captureButton.addEventListener("click", () => {
+            void captureCurrentPriceForPickupPoint(row.pickupPoint, model.product);
+          });
+          const detailsButton = document.createElement("button");
+          detailsButton.type = "button";
+          detailsButton.className = "detailsButton";
+          detailsButton.textContent = "Copy details";
+          detailsButton.title = "Copy technical details for debugging this pickup point.";
+          detailsButton.addEventListener("click", () => {
+            void copyFailureDiagnostics(row.pickupPoint, error, model.product);
+          });
+          actions.append(captureButton, detailsButton);
+          value.append(unavailable, reason, actions);
         }
         item.append(meta, value);
         list.append(item);
@@ -1269,6 +1464,53 @@
       return "Ozon did not confirm this pickup point, so the current address may have been reused.";
     }
     return error.length > 150 ? `${error.slice(0, 147)}...` : error;
+  }
+  function formatCapturedAt(value) {
+    if (!value) {
+      return "from page";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "from page";
+    }
+    return date.toLocaleString(void 0, {
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  }
+  async function copyFailureDiagnostics(pickupPoint, error, product) {
+    const diagnostics = {
+      product,
+      pickupPoint: {
+        id: pickupPoint.id,
+        name: pickupPoint.name,
+        country: pickupPoint.country,
+        currency: pickupPoint.currency,
+        externalLocationId: pickupPoint.externalLocationId,
+        comment: pickupPoint.comment
+      },
+      error,
+      detectedPickupCandidates: latestPickupCandidates.slice(0, 5).map((candidate) => ({
+        externalLocationId: candidate.externalLocationId,
+        name: candidate.name,
+        country: candidate.country,
+        currency: candidate.currency,
+        source: candidate.source,
+        score: candidate.score,
+        comment: candidate.comment
+      })),
+      pageUrl: location.href,
+      copiedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2));
+      captureStatus = { tone: "normal", message: "Copied pickup-point diagnostics" };
+    } catch {
+      captureStatus = { tone: "error", message: "Could not copy diagnostics. Browser clipboard access is blocked." };
+    }
+    renderLastPanel();
   }
   async function runtimeRequest(request) {
     return chrome.runtime.sendMessage(request);
@@ -1432,7 +1674,8 @@
     }
     .pointManagerControls button,
     .deleteButton,
-    .saveSmallButton {
+    .saveSmallButton,
+    .detailsButton {
       min-height: 28px;
       padding: 0 8px;
       border: 1px solid #ccd5df;
@@ -1474,6 +1717,10 @@
       border-color: #1166cc;
       color: #1166cc;
     }
+    .detailsButton {
+      border-color: #ccd5df;
+      color: #415066;
+    }
     .saveSmallButton:disabled {
       border-color: #ccd5df;
       color: #647084;
@@ -1507,6 +1754,16 @@
     .value {
       text-align: right;
       max-width: 150px;
+    }
+    .row.failed .value {
+      max-width: 190px;
+    }
+    .failureActions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+      margin-top: 8px;
+      flex-wrap: wrap;
     }
   `;
   }

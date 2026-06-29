@@ -46,6 +46,8 @@ Always cover these browser-visible states:
 
 - No pickup points: panel says no Ozon pickup points are configured and shows `Save point`.
 - Current-address reuse: two saved points exist, but API responses confirm only `kz-456`; the RU row must be `Unavailable`, not a duplicated KZ price.
+- Manual capture fallback: when a row is unavailable, clicking `Capture current` after the visible product page shows a price must store a product-specific manual quote and rerender that row as a timestamped captured result. This must not loosen location confirmation.
+- Failure diagnostics: unavailable rows must expose `Copy details`; after clicking it, the panel should show a copied-diagnostics status or a clear clipboard-blocked error.
 - Confirmed two-point success: API response confirms the requested id for each point; the panel shows different converted prices, delta from cheapest, and delivery text if present.
 - Inline management: `Points` opens saved points, checkbox changes the compared subset, row-level `Delete` removes a saved point after confirmation, and `Options` opens `options.html`.
 - Ozon-detected list: fake an Ozon delivery response with pickup point data; `Points` must show `Detected on Ozon`, and `Save` must move that candidate into saved Markonverter points.
@@ -77,6 +79,10 @@ The reused-location API response should echo the requested id under a request-li
 
 Expected visible result: Moscow is unavailable with a concise warning that Ozon did not confirm the pickup point; Astana shows `17 000,00 RUB`, original `100 000 KZT`, and delivery time.
 
+For manual fallback, keep the API response unconfirmed, set the fake page price widget to a known current price, click `Capture current` for the unavailable row, accept any confirmation dialog, and verify that `chrome.storage.local["markonverter.settings"].manualQuotes` contains a key like `2229282395:ru`. The row should then display the captured converted price and a `Captured ...` timestamp.
+
+When inspecting a user's real Arc/Chrome profile, narrow searches to Markonverter keys only. Useful evidence is `chrome.storage.local["markonverter.settings"]`, especially saved `externalLocationId`, `comment`, `country`, `currency`, and `manualQuotes`. Address-book modal sources like `/modal/addressbook?select_address=...` are not proof that the id can be used as a direct product-price selector.
+
 ## Signoff
 
 Before saying the extension works, verify:
@@ -84,6 +90,7 @@ Before saying the extension works, verify:
 - `npm run typecheck`, `npm test`, and `npm run build` pass.
 - The extension service worker is present.
 - Screenshots or visible text confirm the reuse regression and the two-point success scenario.
+- Screenshots or visible text confirm the manual capture fallback and copied-diagnostics status.
 - Inline point selection and deletion have been clicked in the panel, not only inspected in storage.
 - Ozon-detected candidates can be saved from the panel, and the delivery selector helper appears when a delivery dialog is visible.
 - Live Ozon status is stated separately: verified if the real page loaded, blocked if Ozon returned antibot/403.

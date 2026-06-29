@@ -28,6 +28,7 @@ export interface ExtensionSettings {
   ratesToRub: Record<Currency, number>;
   pickupPoints: PickupPoint[];
   comparisonPickupPointIds: string[] | null;
+  manualQuotes: Record<string, ManualQuote>;
 }
 
 export interface ProductIdentity {
@@ -42,6 +43,16 @@ export interface PriceQuote {
   currency: Currency;
   rawText?: string;
   deliveryText?: string;
+  source?: "api" | "manual";
+  capturedAt?: string;
+}
+
+export interface ManualQuote {
+  productId: string;
+  productUrl: string;
+  pickupPointId: string;
+  quote: PriceQuote;
+  capturedAt: string;
 }
 
 export type ComparisonResult =
@@ -80,5 +91,6 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
     KZT: 0.17
   },
   pickupPoints: [],
-  comparisonPickupPointIds: null
+  comparisonPickupPointIds: null,
+  manualQuotes: {}
 };

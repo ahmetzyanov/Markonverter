@@ -7,7 +7,8 @@ var DEFAULT_SETTINGS = {
     KZT: 0.17
   },
   pickupPoints: [],
-  comparisonPickupPointIds: null
+  comparisonPickupPointIds: null,
+  manualQuotes: {}
 };
 
 // src/shared/validation.ts
@@ -21,7 +22,8 @@ function normalizeSettings(value) {
       KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT)
     },
     pickupPoints,
-    comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints)
+    comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints),
+    manualQuotes: normalizeManualQuotes(candidate?.manualQuotes, pickupPoints)
   };
 }
 function sanitizeRate(value, fallback) {
@@ -49,8 +51,59 @@ function normalizeComparisonPickupPointIds(value, pickupPoints) {
   const knownIds = new Set(pickupPoints.map((point) => point.id));
   return [...new Set(value.filter((id) => typeof id === "string" && knownIds.has(id)))];
 }
+function normalizeManualQuotes(value, pickupPoints) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const knownIds = new Set(pickupPoints.map((point) => point.id));
+  const quotes = {};
+  for (const rawQuote of Object.values(value)) {
+    const quote = normalizeManualQuote(rawQuote, knownIds);
+    if (quote) {
+      quotes[`${quote.productId}:${quote.pickupPointId}`] = quote;
+    }
+  }
+  return quotes;
+}
+function normalizeManualQuote(value, knownPickupPointIds) {
+  const candidate = value;
+  if (!candidate || typeof candidate.productId !== "string" || typeof candidate.productUrl !== "string" || typeof candidate.pickupPointId !== "string" || typeof candidate.capturedAt !== "string" || !knownPickupPointIds.has(candidate.pickupPointId)) {
+    return null;
+  }
+  const quote = normalizePriceQuote(candidate.quote);
+  if (!quote) {
+    return null;
+  }
+  return {
+    productId: candidate.productId,
+    productUrl: candidate.productUrl,
+    pickupPointId: candidate.pickupPointId,
+    quote: {
+      ...quote,
+      source: "manual",
+      capturedAt: candidate.capturedAt
+    },
+    capturedAt: candidate.capturedAt
+  };
+}
+function normalizePriceQuote(value) {
+  const candidate = value;
+  const currency = typeof candidate?.currency === "string" && SUPPORTED_CURRENCIES.includes(candidate.currency) ? candidate.currency : null;
+  if (!candidate || typeof candidate.amount !== "number" || !Number.isFinite(candidate.amount) || candidate.amount <= 0 || !currency) {
+    return null;
+  }
+  return {
+    amount: candidate.amount,
+    currency,
+    rawText: typeof candidate.rawText === "string" ? candidate.rawText : void 0,
+    deliveryText: typeof candidate.deliveryText === "string" ? candidate.deliveryText : void 0
+  };
+}
 
 // src/shared/settings.ts
+function manualQuoteKey(productId, pickupPointId) {
+  return `${productId}:${pickupPointId}`;
+}
 function upsertPickupPoint(settings, pickupPoint) {
   const normalized = normalizeSettings(settings);
   const nextPoint = normalizeSettings({ ...normalized, pickupPoints: [pickupPoint] }).pickupPoints[0];
@@ -78,10 +131,14 @@ function deletePickupPoint(settings, pickupPointId) {
   const normalized = normalizeSettings(settings);
   const pickupPoints = normalized.pickupPoints.filter((point) => point.id !== pickupPointId);
   const comparisonPickupPointIds = normalized.comparisonPickupPointIds?.filter((id) => id !== pickupPointId) ?? null;
+  const manualQuotes = Object.fromEntries(
+    Object.entries(normalized.manualQuotes).filter(([, quote]) => quote.pickupPointId !== pickupPointId)
+  );
   return normalizeSettings({
     ...normalized,
     pickupPoints,
-    comparisonPickupPointIds
+    comparisonPickupPointIds,
+    manualQuotes
   });
 }
 function setComparisonPickupPointIds(settings, pickupPointIds) {
@@ -89,6 +146,16 @@ function setComparisonPickupPointIds(settings, pickupPointIds) {
   return normalizeSettings({
     ...normalized,
     comparisonPickupPointIds: pickupPointIds
+  });
+}
+function upsertManualQuote(settings, manualQuote) {
+  const normalized = normalizeSettings(settings);
+  return normalizeSettings({
+    ...normalized,
+    manualQuotes: {
+      ...normalized.manualQuotes,
+      [manualQuoteKey(manualQuote.productId, manualQuote.pickupPointId)]: manualQuote
+    }
   });
 }
 
@@ -127,6 +194,11 @@ async function handleRequest(request) {
   }
   if (request.type === "SET_COMPARISON_PICKUP_POINT_IDS") {
     const settings = setComparisonPickupPointIds(await getSettings(), request.pickupPointIds);
+    await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
+    return { ok: true, settings };
+  }
+  if (request.type === "SAVE_MANUAL_QUOTE") {
+    const settings = upsertManualQuote(await getSettings(), request.manualQuote);
     await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
     return { ok: true, settings };
   }

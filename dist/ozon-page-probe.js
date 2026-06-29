@@ -155,6 +155,12 @@
     return sourceLabel ? compact(sourceLabel) : "";
   }
   function inferCountry(text) {
+    if (/https?:\/\/(?:[^/]+\.)?ozon\.kz\b/i.test(text) || /\bozon\.kz\b/i.test(text)) {
+      return "KZ";
+    }
+    if (/https?:\/\/(?:[^/]+\.)?ozon\.ru\b/i.test(text) || /\bozon\.ru\b/i.test(text)) {
+      return "RU";
+    }
     if (KZ_RE.test(text) || /\.kz\b/i.test(text)) {
       return "KZ";
     }
@@ -194,7 +200,8 @@
     return typeof value === "string" ? value.trim() : "";
   }
   function isUsefulLabel(value) {
-    return value.length >= 3 && value.length <= 180 && !/^[a-z0-9_-]{4,80}$/i.test(value);
+    const ozonPointMatches = value.match(/Пункт\s+Ozon\s*№/gi);
+    return value.length >= 3 && value.length <= 180 && !/^[a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
   }
   function compact(value) {
     return value.replace(/\s+/g, " ").trim();

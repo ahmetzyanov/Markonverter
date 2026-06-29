@@ -10,6 +10,8 @@ Chrome/Chromium Manifest V3 extension for comparing an Ozon product price across
 - Lets you choose and delete saved pickup points directly in the product-page panel.
 - Shows pickup points detected from Ozon page/network data when Ozon loads them.
 - Adds Markonverter save controls near Ozon's delivery selection UI when it is visible.
+- Falls back to product-specific captured prices when Ozon refuses to verify a saved point through its private product API.
+- Copies per-point diagnostics for failed Ozon API attempts.
 - Converts prices between RUB and KZT.
 - Uses RUB as the default comparison currency.
 - Keeps marketplace support behind adapters so Wildberries can be added later.
@@ -40,6 +42,8 @@ Recommended flow:
 3. Press `Save point` in the Markonverter panel header, or click the Markonverter toolbar icon.
 4. Repeat for each RU/KZ point you want to compare.
 
+When the selected point is saved from the product page, Markonverter also captures the visible product price for that product and point. If a saved row still says `Unavailable`, select that point in Ozon and use `Capture current` on the row. Captured prices are shown with a timestamp and are only reused for the same product and saved point.
+
 The settings page still allows manual editing. Each pickup point stores:
 
 - name
@@ -57,6 +61,8 @@ When Ozon's delivery selector is open, Markonverter also tries to inject `Save t
 ## Ozon API note
 
 The extension calls Ozon same-origin JSON endpoints from the extension content script and passes the configured pickup location id. It only accepts a price when the response also confirms the requested location id. Ozon private API payloads are not stable public contracts, so a failed endpoint, missing location confirmation, or ambiguous price appears as a per-pickup-point error in the page panel instead of changing the user's visible delivery point.
+
+Some Ozon address-book ids are only confirmed by Ozon after the user selects that point in the page session. Markonverter keeps the strict confirmation check to avoid showing the current address price under the wrong saved point. Use `Capture current` as the safe fallback for those rows, and `Copy details` when debugging a failed point.
 
 ## Checks
 

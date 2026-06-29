@@ -9,7 +9,8 @@
       KZT: 0.17
     },
     pickupPoints: [],
-    comparisonPickupPointIds: null
+    comparisonPickupPointIds: null,
+    manualQuotes: {}
   };
 
   // src/shared/validation.ts
@@ -23,7 +24,8 @@
         KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT)
       },
       pickupPoints,
-      comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints)
+      comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints),
+      manualQuotes: normalizeManualQuotes(candidate?.manualQuotes, pickupPoints)
     };
   }
   function validatePickupPoint(pickupPoint) {
@@ -69,6 +71,54 @@
     }
     const knownIds = new Set(pickupPoints.map((point) => point.id));
     return [...new Set(value.filter((id) => typeof id === "string" && knownIds.has(id)))];
+  }
+  function normalizeManualQuotes(value, pickupPoints) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return {};
+    }
+    const knownIds = new Set(pickupPoints.map((point) => point.id));
+    const quotes = {};
+    for (const rawQuote of Object.values(value)) {
+      const quote = normalizeManualQuote(rawQuote, knownIds);
+      if (quote) {
+        quotes[`${quote.productId}:${quote.pickupPointId}`] = quote;
+      }
+    }
+    return quotes;
+  }
+  function normalizeManualQuote(value, knownPickupPointIds) {
+    const candidate = value;
+    if (!candidate || typeof candidate.productId !== "string" || typeof candidate.productUrl !== "string" || typeof candidate.pickupPointId !== "string" || typeof candidate.capturedAt !== "string" || !knownPickupPointIds.has(candidate.pickupPointId)) {
+      return null;
+    }
+    const quote = normalizePriceQuote(candidate.quote);
+    if (!quote) {
+      return null;
+    }
+    return {
+      productId: candidate.productId,
+      productUrl: candidate.productUrl,
+      pickupPointId: candidate.pickupPointId,
+      quote: {
+        ...quote,
+        source: "manual",
+        capturedAt: candidate.capturedAt
+      },
+      capturedAt: candidate.capturedAt
+    };
+  }
+  function normalizePriceQuote(value) {
+    const candidate = value;
+    const currency = typeof candidate?.currency === "string" && SUPPORTED_CURRENCIES.includes(candidate.currency) ? candidate.currency : null;
+    if (!candidate || typeof candidate.amount !== "number" || !Number.isFinite(candidate.amount) || candidate.amount <= 0 || !currency) {
+      return null;
+    }
+    return {
+      amount: candidate.amount,
+      currency,
+      rawText: typeof candidate.rawText === "string" ? candidate.rawText : void 0,
+      deliveryText: typeof candidate.deliveryText === "string" ? candidate.deliveryText : void 0
+    };
   }
 
   // src/options.ts

@@ -1,6 +1,6 @@
 import { RuntimeRequest, RuntimeResponse } from "./shared/messages";
 import { DEFAULT_SETTINGS, ExtensionSettings } from "./shared/types";
-import { deletePickupPoint, setComparisonPickupPointIds, upsertPickupPoint } from "./shared/settings";
+import { deletePickupPoint, setComparisonPickupPointIds, upsertManualQuote, upsertPickupPoint } from "./shared/settings";
 import { normalizeSettings } from "./shared/validation";
 
 const SETTINGS_KEY = "markonverter.settings";
@@ -43,6 +43,11 @@ async function handleRequest(request: RuntimeRequest): Promise<RuntimeResponse> 
   }
   if (request.type === "SET_COMPARISON_PICKUP_POINT_IDS") {
     const settings = setComparisonPickupPointIds(await getSettings(), request.pickupPointIds);
+    await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
+    return { ok: true, settings };
+  }
+  if (request.type === "SAVE_MANUAL_QUOTE") {
+    const settings = upsertManualQuote(await getSettings(), request.manualQuote);
     await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
     return { ok: true, settings };
   }

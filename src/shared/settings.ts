@@ -1,5 +1,9 @@
-import { ExtensionSettings, PickupPoint } from "./types";
+import { ExtensionSettings, ManualQuote, PickupPoint } from "./types";
 import { normalizeSettings } from "./validation";
+
+export function manualQuoteKey(productId: string, pickupPointId: string): string {
+  return `${productId}:${pickupPointId}`;
+}
 
 export function upsertPickupPoint(settings: ExtensionSettings, pickupPoint: PickupPoint): ExtensionSettings {
   const normalized = normalizeSettings(settings);
@@ -36,10 +40,14 @@ export function deletePickupPoint(settings: ExtensionSettings, pickupPointId: st
   const normalized = normalizeSettings(settings);
   const pickupPoints = normalized.pickupPoints.filter((point) => point.id !== pickupPointId);
   const comparisonPickupPointIds = normalized.comparisonPickupPointIds?.filter((id) => id !== pickupPointId) ?? null;
+  const manualQuotes = Object.fromEntries(
+    Object.entries(normalized.manualQuotes).filter(([, quote]) => quote.pickupPointId !== pickupPointId)
+  );
   return normalizeSettings({
     ...normalized,
     pickupPoints,
-    comparisonPickupPointIds
+    comparisonPickupPointIds,
+    manualQuotes
   });
 }
 
@@ -48,5 +56,16 @@ export function setComparisonPickupPointIds(settings: ExtensionSettings, pickupP
   return normalizeSettings({
     ...normalized,
     comparisonPickupPointIds: pickupPointIds
+  });
+}
+
+export function upsertManualQuote(settings: ExtensionSettings, manualQuote: ManualQuote): ExtensionSettings {
+  const normalized = normalizeSettings(settings);
+  return normalizeSettings({
+    ...normalized,
+    manualQuotes: {
+      ...normalized.manualQuotes,
+      [manualQuoteKey(manualQuote.productId, manualQuote.pickupPointId)]: manualQuote
+    }
   });
 }
