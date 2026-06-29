@@ -31,3 +31,22 @@ export function upsertPickupPoint(settings: ExtensionSettings, pickupPoint: Pick
     pickupPoints: nextPickupPoints
   });
 }
+
+export function deletePickupPoint(settings: ExtensionSettings, pickupPointId: string): ExtensionSettings {
+  const normalized = normalizeSettings(settings);
+  const pickupPoints = normalized.pickupPoints.filter((point) => point.id !== pickupPointId);
+  const comparisonPickupPointIds = normalized.comparisonPickupPointIds?.filter((id) => id !== pickupPointId) ?? null;
+  return normalizeSettings({
+    ...normalized,
+    pickupPoints,
+    comparisonPickupPointIds
+  });
+}
+
+export function setComparisonPickupPointIds(settings: ExtensionSettings, pickupPointIds: string[] | null): ExtensionSettings {
+  const normalized = normalizeSettings(settings);
+  return normalizeSettings({
+    ...normalized,
+    comparisonPickupPointIds: pickupPointIds
+  });
+}

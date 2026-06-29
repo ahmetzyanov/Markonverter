@@ -8,19 +8,22 @@
       RUB: 1,
       KZT: 0.17
     },
-    pickupPoints: []
+    pickupPoints: [],
+    comparisonPickupPointIds: null
   };
 
   // src/shared/validation.ts
   function normalizeSettings(value) {
     const candidate = value;
+    const pickupPoints = Array.isArray(candidate?.pickupPoints) ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint) : [];
     return {
       defaultCurrency: candidate?.defaultCurrency && SUPPORTED_CURRENCIES.includes(candidate.defaultCurrency) ? candidate.defaultCurrency : DEFAULT_SETTINGS.defaultCurrency,
       ratesToRub: {
         RUB: sanitizeRate(candidate?.ratesToRub?.RUB, DEFAULT_SETTINGS.ratesToRub.RUB),
         KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT)
       },
-      pickupPoints: Array.isArray(candidate?.pickupPoints) ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint) : []
+      pickupPoints,
+      comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints)
     };
   }
   function validatePickupPoint(pickupPoint) {
@@ -59,6 +62,13 @@
       externalLocationId: pickupPoint.externalLocationId || "",
       comment: pickupPoint.comment || ""
     };
+  }
+  function normalizeComparisonPickupPointIds(value, pickupPoints) {
+    if (!Array.isArray(value)) {
+      return null;
+    }
+    const knownIds = new Set(pickupPoints.map((point) => point.id));
+    return [...new Set(value.filter((id) => typeof id === "string" && knownIds.has(id)))];
   }
 
   // src/options.ts

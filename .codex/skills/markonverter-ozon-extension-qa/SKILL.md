@@ -47,6 +47,7 @@ Always cover these browser-visible states:
 - No pickup points: panel says no Ozon pickup points are configured and shows `Save point`.
 - Current-address reuse: two saved points exist, but API responses confirm only `kz-456`; the RU row must be `Unavailable`, not a duplicated KZ price.
 - Confirmed two-point success: API response confirms the requested id for each point; the panel shows different converted prices, delta from cheapest, and delivery text if present.
+- Inline management: `Points` opens saved points, checkbox changes the compared subset, row-level `Delete` removes a saved point after confirmation, and `Options` opens `options.html`.
 - Non-Ozon page: no Markonverter panel is injected.
 
 For the reuse regression, seed:
@@ -81,5 +82,6 @@ Before saying the extension works, verify:
 - `npm run typecheck`, `npm test`, and `npm run build` pass.
 - The extension service worker is present.
 - Screenshots or visible text confirm the reuse regression and the two-point success scenario.
+- Inline point selection and deletion have been clicked in the panel, not only inspected in storage.
 - Live Ozon status is stated separately: verified if the real page loaded, blocked if Ozon returned antibot/403.
 - The browser context is closed unless the user asked to keep it open.

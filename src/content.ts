@@ -19,6 +19,7 @@ let activeRun = 0;
 let latestPickupCandidates: OzonPickupCandidate[] = [];
 let lastPanelModel: PanelModel | null = null;
 let captureStatus: { tone: "normal" | "error"; message: string } | null = null;
+let isPointManagerOpen = false;
 
 void boot();
 
@@ -77,9 +78,15 @@ async function runIfProductPage(): Promise<void> {
   }
 
   const settings = settingsResponse.settings;
-  const pickupPoints = settings.pickupPoints.filter((point) => point.marketplace === "ozon");
-  if (pickupPoints.length === 0) {
+  const allPickupPoints = settings.pickupPoints.filter((point) => point.marketplace === "ozon");
+  if (allPickupPoints.length === 0) {
     renderPanel(panel, { state: "empty", product, settings });
+    return;
+  }
+
+  const pickupPoints = getComparisonPickupPoints(settings, allPickupPoints);
+  if (pickupPoints.length === 0) {
+    renderPanel(panel, { state: "noSelection", product, settings, allPickupPoints });
     return;
   }
 
@@ -106,6 +113,14 @@ async function runIfProductPage(): Promise<void> {
     pickupPoints,
     results
   });
+}
+
+function getComparisonPickupPoints(settings: ExtensionSettings, allPickupPoints: PickupPoint[]): PickupPoint[] {
+  if (!settings.comparisonPickupPointIds) {
+    return allPickupPoints;
+  }
+  const selectedIds = new Set(settings.comparisonPickupPointIds);
+  return allPickupPoints.filter((point) => selectedIds.has(point.id));
 }
 
 async function requestOzonPrice(request: {
@@ -253,6 +268,56 @@ async function saveSelectedPickupPoint(product: ProductIdentity): Promise<Runtim
   return response;
 }
 
+async function deleteSavedPickupPoint(pickupPoint: PickupPoint, product: ProductIdentity): Promise<void> {
+  if (!window.confirm(`Delete "${pickupPoint.name}" from saved pickup points?`)) {
+    return;
+  }
+
+  captureStatus = { tone: "normal", message: `Deleted: ${pickupPoint.name}` };
+  const response = await runtimeRequest({ type: "DELETE_PICKUP_POINT", pickupPointId: pickupPoint.id });
+  if (!response.ok || !("settings" in response)) {
+    captureStatus = { tone: "error", message: response.ok ? "Pickup point was not deleted" : response.error };
+    renderLastPanel();
+    return;
+  }
+  await runIfProductPage();
+  if (getCurrentProduct()?.productId === product.productId) {
+    renderLastPanel();
+  }
+}
+
+async function toggleComparisonPoint(
+  pickupPointId: string,
+  isSelected: boolean,
+  settings: ExtensionSettings,
+  product: ProductIdentity
+): Promise<void> {
+  const allIds = settings.pickupPoints.filter((point) => point.marketplace === "ozon").map((point) => point.id);
+  const selected = new Set(settings.comparisonPickupPointIds ?? allIds);
+  if (isSelected) {
+    selected.add(pickupPointId);
+  } else {
+    selected.delete(pickupPointId);
+  }
+
+  const nextIds = allIds.filter((id) => selected.has(id));
+  await updateComparisonSelection(nextIds.length === allIds.length ? null : nextIds, product);
+}
+
+async function updateComparisonSelection(pickupPointIds: string[] | null, product: ProductIdentity): Promise<void> {
+  captureStatus = { tone: "normal", message: pickupPointIds === null ? "Comparing all saved points" : "Comparison points updated" };
+  const response = await runtimeRequest({ type: "SET_COMPARISON_PICKUP_POINT_IDS", pickupPointIds });
+  if (!response.ok || !("settings" in response)) {
+    captureStatus = { tone: "error", message: response.ok ? "Comparison selection was not saved" : response.error };
+    renderLastPanel();
+    return;
+  }
+  await runIfProductPage();
+  if (getCurrentProduct()?.productId === product.productId) {
+    renderLastPanel();
+  }
+}
+
 function ensurePanel(): ShadowRoot {
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot) {
@@ -282,6 +347,7 @@ function removePanel(): void {
 type PanelModel =
   | { state: "loading"; product: ProductIdentity; settings?: ExtensionSettings; pickupPoints?: PickupPoint[] }
   | { state: "empty"; product: ProductIdentity; settings: ExtensionSettings }
+  | { state: "noSelection"; product: ProductIdentity; settings: ExtensionSettings; allPickupPoints: PickupPoint[] }
   | { state: "fatal"; product: ProductIdentity; message: string }
   | {
       state: "results";
@@ -320,15 +386,25 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
     void saveSelectedPickupPoint(model.product);
   });
 
+  const pointsButton = document.createElement("button");
+  pointsButton.type = "button";
+  pointsButton.className = "secondaryButton";
+  pointsButton.title = "Choose saved pickup points";
+  pointsButton.textContent = "Points";
+  pointsButton.addEventListener("click", () => {
+    isPointManagerOpen = !isPointManagerOpen;
+    renderLastPanel();
+  });
+
   const settingsButton = document.createElement("button");
   settingsButton.type = "button";
   settingsButton.className = "iconButton";
   settingsButton.title = "Settings";
-  settingsButton.textContent = "...";
+  settingsButton.textContent = "Options";
   settingsButton.addEventListener("click", () => {
-    void runtimeRequest({ type: "OPEN_OPTIONS" });
+    openOptionsPage();
   });
-  headerActions.append(saveButton, settingsButton);
+  headerActions.append(saveButton, pointsButton, settingsButton);
   header.append(headerActions);
   root.append(header);
 
@@ -340,9 +416,15 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   } else if (model.state === "empty") {
     root.append(messageNode("No Ozon pickup points configured."));
     root.append(captureControl(model.product));
+  } else if (model.state === "noSelection") {
+    root.append(messageNode("No saved pickup points selected for comparison."));
+    root.append(pointManager(model.settings, model.allPickupPoints, model.product));
   } else if (model.state === "fatal") {
     root.append(messageNode(model.message, "error"));
   } else {
+    if (isPointManagerOpen) {
+      root.append(pointManager(model.settings, model.pickupPoints, model.product));
+    }
     const rows = buildComparisonRows(model.pickupPoints, model.results);
     const list = document.createElement("div");
     list.className = "rows";
@@ -354,6 +436,19 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.innerHTML = `<strong>${escapeHtml(row.pickupPoint.name)}</strong><span>${escapeHtml(row.pickupPoint.country)}</span>`;
+
+      const rowActions = document.createElement("div");
+      rowActions.className = "rowActions";
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "deleteButton";
+      deleteButton.textContent = "Delete";
+      deleteButton.title = "Delete saved pickup point";
+      deleteButton.addEventListener("click", () => {
+        void deleteSavedPickupPoint(row.pickupPoint, model.product);
+      });
+      rowActions.append(deleteButton);
+      meta.append(rowActions);
 
       const value = document.createElement("div");
       value.className = "value";
@@ -391,6 +486,67 @@ function renderLastPanel(): void {
   }
 }
 
+function pointManager(settings: ExtensionSettings, visiblePickupPoints: PickupPoint[], product: ProductIdentity): HTMLElement {
+  const allPickupPoints = settings.pickupPoints.filter((point) => point.marketplace === "ozon");
+  const selectedIds = settings.comparisonPickupPointIds ? new Set(settings.comparisonPickupPointIds) : null;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "pointManager";
+
+  const top = document.createElement("div");
+  top.className = "pointManagerTop";
+  top.innerHTML = `<strong>Saved points</strong><span>${allPickupPoints.length} total</span>`;
+
+  const controls = document.createElement("div");
+  controls.className = "pointManagerControls";
+  const allButton = document.createElement("button");
+  allButton.type = "button";
+  allButton.textContent = "All";
+  allButton.addEventListener("click", () => {
+    void updateComparisonSelection(null, product);
+  });
+  const noneButton = document.createElement("button");
+  noneButton.type = "button";
+  noneButton.textContent = "None";
+  noneButton.addEventListener("click", () => {
+    void updateComparisonSelection([], product);
+  });
+  controls.append(allButton, noneButton);
+  top.append(controls);
+  wrapper.append(top);
+
+  const points = visiblePickupPoints.length === allPickupPoints.length ? visiblePickupPoints : allPickupPoints;
+  for (const point of points) {
+    const row = document.createElement("label");
+    row.className = "pointChoice";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = selectedIds ? selectedIds.has(point.id) : true;
+    checkbox.addEventListener("change", () => {
+      void toggleComparisonPoint(point.id, checkbox.checked, settings, product);
+    });
+
+    const label = document.createElement("span");
+    label.className = "pointChoiceText";
+    label.innerHTML = `<strong>${escapeHtml(point.name)}</strong><span>${escapeHtml(point.country)} - ${escapeHtml(point.currency)}</span>`;
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "deleteButton";
+    deleteButton.textContent = "Delete";
+    deleteButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      void deleteSavedPickupPoint(point, product);
+    });
+
+    row.append(checkbox, label, deleteButton);
+    wrapper.append(row);
+  }
+
+  return wrapper;
+}
+
 function captureControl(product: ProductIdentity): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.className = "capture";
@@ -418,6 +574,18 @@ function messageNode(text: string, tone: "normal" | "error" = "normal"): HTMLEle
   node.className = `message ${tone}`;
   node.textContent = text;
   return node;
+}
+
+function openOptionsPage(): void {
+  void runtimeRequest({ type: "OPEN_OPTIONS" })
+    .then((response) => {
+      if (!response.ok) {
+        window.open(chrome.runtime.getURL("options.html"), "_blank", "noopener");
+      }
+    })
+    .catch(() => {
+      window.open(chrome.runtime.getURL("options.html"), "_blank", "noopener");
+    });
 }
 
 function readableResultError(error: string): string {
@@ -492,9 +660,14 @@ function panelCss(): string {
       align-items: center;
       gap: 6px;
       flex: 0 0 auto;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
-    .saveHeaderButton {
+    .saveHeaderButton,
+    .secondaryButton,
+    .iconButton {
       min-height: 32px;
+      padding: 0 9px;
       border: 1px solid #1166cc;
       border-radius: 6px;
       background: #1166cc;
@@ -504,14 +677,16 @@ function panelCss(): string {
       font-size: 12px;
       white-space: nowrap;
     }
-    .iconButton {
-      width: 32px;
-      height: 32px;
-      border: 1px solid #ccd5df;
-      border-radius: 6px;
+    .secondaryButton {
+      border-color: #ccd5df;
       background: #ffffff;
+      color: #172033;
+    }
+    .iconButton {
+      border: 1px solid #ccd5df;
+      background: #ffffff;
+      color: #172033;
       cursor: pointer;
-      font-size: 15px;
     }
     .message {
       margin: 0;
@@ -544,6 +719,77 @@ function panelCss(): string {
       color: #ffffff;
       font: inherit;
       cursor: pointer;
+    }
+    .pointManager {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border-bottom: 1px solid #edf1f5;
+      background: #fbfcfe;
+    }
+    .pointManagerTop,
+    .pointChoice {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+    .pointManagerTop {
+      justify-content: space-between;
+    }
+    .pointManagerTop strong,
+    .pointChoiceText strong {
+      color: #172033;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .pointManagerTop span,
+    .pointChoiceText span {
+      display: block;
+      color: #647084;
+      font-size: 11px;
+    }
+    .pointManagerControls {
+      display: flex;
+      gap: 6px;
+    }
+    .pointManagerControls button,
+    .deleteButton {
+      min-height: 28px;
+      padding: 0 8px;
+      border: 1px solid #ccd5df;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #172033;
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .pointChoice {
+      min-height: 32px;
+    }
+    .pointChoice input {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      flex: 0 0 auto;
+    }
+    .pointChoiceText {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .rowActions {
+      margin-top: 7px;
+    }
+    .rowActions .deleteButton {
+      min-height: 24px;
+      padding: 0 7px;
+      font-size: 11px;
+    }
+    .deleteButton {
+      border-color: #f0c5c5;
+      color: #9a2f2f;
     }
     .rows {
       display: grid;

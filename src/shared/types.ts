@@ -27,6 +27,7 @@ export interface ExtensionSettings {
   defaultCurrency: Currency;
   ratesToRub: Record<Currency, number>;
   pickupPoints: PickupPoint[];
+  comparisonPickupPointIds: string[] | null;
 }
 
 export interface ProductIdentity {
@@ -78,5 +79,6 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
     RUB: 1,
     KZT: 0.17
   },
-  pickupPoints: []
+  pickupPoints: [],
+  comparisonPickupPointIds: null
 };

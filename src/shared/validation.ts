@@ -2,6 +2,9 @@ import { DEFAULT_SETTINGS, ExtensionSettings, PickupPoint, SUPPORTED_CURRENCIES 
 
 export function normalizeSettings(value: unknown): ExtensionSettings {
   const candidate = value as Partial<ExtensionSettings> | undefined;
+  const pickupPoints = Array.isArray(candidate?.pickupPoints)
+    ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint)
+    : [];
   return {
     defaultCurrency:
       candidate?.defaultCurrency && SUPPORTED_CURRENCIES.includes(candidate.defaultCurrency)
@@ -11,9 +14,8 @@ export function normalizeSettings(value: unknown): ExtensionSettings {
       RUB: sanitizeRate(candidate?.ratesToRub?.RUB, DEFAULT_SETTINGS.ratesToRub.RUB),
       KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT)
     },
-    pickupPoints: Array.isArray(candidate?.pickupPoints)
-      ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint)
-      : []
+    pickupPoints,
+    comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints)
   };
 }
 
@@ -56,4 +58,13 @@ function normalizePickupPoint(pickupPoint: PickupPoint): PickupPoint {
     externalLocationId: pickupPoint.externalLocationId || "",
     comment: pickupPoint.comment || ""
   };
+}
+
+function normalizeComparisonPickupPointIds(value: unknown, pickupPoints: PickupPoint[]): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const knownIds = new Set(pickupPoints.map((point) => point.id));
+  return [...new Set(value.filter((id): id is string => typeof id === "string" && knownIds.has(id)))];
 }

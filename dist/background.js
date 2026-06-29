@@ -6,19 +6,22 @@ var DEFAULT_SETTINGS = {
     RUB: 1,
     KZT: 0.17
   },
-  pickupPoints: []
+  pickupPoints: [],
+  comparisonPickupPointIds: null
 };
 
 // src/shared/validation.ts
 function normalizeSettings(value) {
   const candidate = value;
+  const pickupPoints = Array.isArray(candidate?.pickupPoints) ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint) : [];
   return {
     defaultCurrency: candidate?.defaultCurrency && SUPPORTED_CURRENCIES.includes(candidate.defaultCurrency) ? candidate.defaultCurrency : DEFAULT_SETTINGS.defaultCurrency,
     ratesToRub: {
       RUB: sanitizeRate(candidate?.ratesToRub?.RUB, DEFAULT_SETTINGS.ratesToRub.RUB),
       KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT)
     },
-    pickupPoints: Array.isArray(candidate?.pickupPoints) ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint) : []
+    pickupPoints,
+    comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints)
   };
 }
 function sanitizeRate(value, fallback) {
@@ -38,6 +41,13 @@ function normalizePickupPoint(pickupPoint) {
     externalLocationId: pickupPoint.externalLocationId || "",
     comment: pickupPoint.comment || ""
   };
+}
+function normalizeComparisonPickupPointIds(value, pickupPoints) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const knownIds = new Set(pickupPoints.map((point) => point.id));
+  return [...new Set(value.filter((id) => typeof id === "string" && knownIds.has(id)))];
 }
 
 // src/shared/settings.ts
@@ -62,6 +72,23 @@ function upsertPickupPoint(settings, pickupPoint) {
   return normalizeSettings({
     ...normalized,
     pickupPoints: nextPickupPoints
+  });
+}
+function deletePickupPoint(settings, pickupPointId) {
+  const normalized = normalizeSettings(settings);
+  const pickupPoints = normalized.pickupPoints.filter((point) => point.id !== pickupPointId);
+  const comparisonPickupPointIds = normalized.comparisonPickupPointIds?.filter((id) => id !== pickupPointId) ?? null;
+  return normalizeSettings({
+    ...normalized,
+    pickupPoints,
+    comparisonPickupPointIds
+  });
+}
+function setComparisonPickupPointIds(settings, pickupPointIds) {
+  const normalized = normalizeSettings(settings);
+  return normalizeSettings({
+    ...normalized,
+    comparisonPickupPointIds: pickupPointIds
   });
 }
 
@@ -90,6 +117,16 @@ async function handleRequest(request) {
   }
   if (request.type === "UPSERT_PICKUP_POINT") {
     const settings = upsertPickupPoint(await getSettings(), request.pickupPoint);
+    await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
+    return { ok: true, settings };
+  }
+  if (request.type === "DELETE_PICKUP_POINT") {
+    const settings = deletePickupPoint(await getSettings(), request.pickupPointId);
+    await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
+    return { ok: true, settings };
+  }
+  if (request.type === "SET_COMPARISON_PICKUP_POINT_IDS") {
+    const settings = setComparisonPickupPointIds(await getSettings(), request.pickupPointIds);
     await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
     return { ok: true, settings };
   }
