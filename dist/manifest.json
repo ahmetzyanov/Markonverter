@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Markonverter",
+  "description": "Compare Ozon product prices across configured pickup points with RUB/KZT conversion.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Markonverter"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options.html",
+  "permissions": ["storage"],
+  "host_permissions": ["https://*.ozon.ru/*", "https://*.ozon.kz/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://*.ozon.ru/*", "https://*.ozon.kz/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

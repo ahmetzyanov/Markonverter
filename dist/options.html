@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Markonverter settings</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #172033;
+        background: #f5f7fa;
+        letter-spacing: 0;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 28px 20px 44px;
+      }
+      h1 {
+        margin: 0 0 20px;
+        font-size: 28px;
+        line-height: 1.1;
+      }
+      h2 {
+        margin: 0 0 14px;
+        font-size: 18px;
+      }
+      section {
+        margin-top: 18px;
+        padding: 18px;
+        border: 1px solid #d8e0ea;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 13px;
+        color: #4a5668;
+      }
+      input,
+      select,
+      textarea,
+      button {
+        font: inherit;
+      }
+      input,
+      select,
+      textarea {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 38px;
+        border: 1px solid #c9d3df;
+        border-radius: 6px;
+        padding: 8px 10px;
+        color: #172033;
+        background: #ffffff;
+      }
+      textarea {
+        resize: vertical;
+      }
+      button {
+        min-height: 36px;
+        border: 1px solid #b8c4d2;
+        border-radius: 6px;
+        padding: 8px 12px;
+        background: #ffffff;
+        color: #172033;
+        cursor: pointer;
+      }
+      button.primary {
+        border-color: #1166cc;
+        background: #1166cc;
+        color: #ffffff;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .wide {
+        grid-column: 1 / -1;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      .list {
+        display: grid;
+        gap: 10px;
+      }
+      .point {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        padding: 12px;
+        border: 1px solid #e1e7ef;
+        border-radius: 8px;
+      }
+      .point strong,
+      .point span {
+        display: block;
+      }
+      .point span {
+        margin-top: 3px;
+        color: #647084;
+        font-size: 13px;
+      }
+      .status {
+        min-height: 20px;
+        margin-top: 12px;
+        color: #2f6846;
+      }
+      .status.error {
+        color: #a33131;
+      }
+      @media (max-width: 760px) {
+        .grid,
+        .point {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Markonverter</h1>
+
+      <section>
+        <h2>Currency</h2>
+        <div class="grid">
+          <label>
+            Default comparison
+            <select id="defaultCurrency">
+              <option value="RUB">RUB</option>
+              <option value="KZT">KZT</option>
+            </select>
+          </label>
+          <label>
+            1 RUB in RUB
+            <input id="rateRub" type="number" min="0.0001" step="0.0001" />
+          </label>
+          <label>
+            1 KZT in RUB
+            <input id="rateKzt" type="number" min="0.0001" step="0.0001" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="saveCurrency" class="primary" type="button">Save currency</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Pickup point</h2>
+        <form id="pointForm">
+          <input id="pointId" type="hidden" />
+          <div class="grid">
+            <label>
+              Name
+              <input id="pointName" required />
+            </label>
+            <label>
+              Marketplace
+              <select id="pointMarketplace">
+                <option value="ozon">Ozon</option>
+                <option value="wildberries" disabled>Wildberries</option>
+              </select>
+            </label>
+            <label>
+              Country
+              <select id="pointCountry">
+                <option value="RU">Russia</option>
+                <option value="KZ">Kazakhstan</option>
+              </select>
+            </label>
+            <label>
+              Currency
+              <select id="pointCurrency">
+                <option value="RUB">RUB</option>
+                <option value="KZT">KZT</option>
+              </select>
+            </label>
+            <label>
+              Ozon location id
+              <input id="pointExternalId" required />
+            </label>
+            <label class="wide">
+              Comment
+              <textarea id="pointComment" rows="2"></textarea>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="savePoint" class="primary" type="submit">Save pickup point</button>
+            <button id="resetPoint" type="button">Clear</button>
+          </div>
+        </form>
+      </section>
+
+      <section>
+        <h2>Configured pickup points</h2>
+        <div id="pointList" class="list"></div>
+      </section>
+
+      <div id="status" class="status" role="status"></div>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>
