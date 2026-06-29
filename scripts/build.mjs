@@ -27,6 +27,12 @@ await Promise.all([
   }),
   build({
     ...shared,
+    entryPoints: ["src/ozon-page-probe.ts"],
+    outfile: "dist/ozon-page-probe.js",
+    format: "iife"
+  }),
+  build({
+    ...shared,
     entryPoints: ["src/options.ts"],
     outfile: "dist/options.js",
     format: "iife"

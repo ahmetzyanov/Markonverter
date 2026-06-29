@@ -14,6 +14,15 @@ export interface PickupPoint {
   comment?: string;
 }
 
+export interface CapturedPickupPoint {
+  name: string;
+  marketplace: MarketplaceId;
+  country: PickupCountry;
+  currency: Currency;
+  externalLocationId: string;
+  comment?: string;
+}
+
 export interface ExtensionSettings {
   defaultCurrency: Currency;
   ratesToRub: Record<Currency, number>;
@@ -31,6 +40,7 @@ export interface PriceQuote {
   amount: number;
   currency: Currency;
   rawText?: string;
+  deliveryText?: string;
 }
 
 export type ComparisonResult =

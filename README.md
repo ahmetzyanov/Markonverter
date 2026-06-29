@@ -1,11 +1,12 @@
 # Markonverter
 
-Chrome/Chromium Manifest V3 extension for comparing an Ozon product price across manually configured pickup points.
+Chrome/Chromium Manifest V3 extension for comparing an Ozon product price across saved pickup points.
 
 ## What it does
 
 - Injects a compact comparison panel on Ozon product pages.
 - Compares configured Ozon pickup points automatically when a product page opens.
+- Saves the currently selected Ozon delivery point from the product page panel.
 - Converts prices between RUB and KZT.
 - Uses RUB as the default comparison currency.
 - Keeps marketplace support behind adapters so Wildberries can be added later.
@@ -25,11 +26,18 @@ The loadable extension is written to `dist/`.
 2. Enable Developer mode.
 3. Click Load unpacked.
 4. Select `/Users/gogla/PycharmProjects/markonverter/dist`.
-5. Open the extension settings and add Ozon pickup points.
+5. Open an Ozon product page and save pickup points from the injected Markonverter panel.
 
 ## Pickup point setup
 
-Each pickup point needs:
+Recommended flow:
+
+1. Open an Ozon product page.
+2. Select the delivery point in Ozon itself.
+3. Press `Save point` in the Markonverter panel header, or click the Markonverter toolbar icon.
+4. Repeat for each RU/KZ point you want to compare.
+
+The settings page still allows manual editing. Each pickup point stores:
 
 - name
 - marketplace
@@ -37,7 +45,7 @@ Each pickup point needs:
 - currency
 - Ozon location id
 
-The first version does not discover Ozon pickup points automatically. The `Ozon location id` must be supplied manually.
+The extension does not change the selected delivery point automatically. It captures the currently selected Ozon point from page state/network data after you choose it.
 
 ## Ozon API note
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Markonverter Ozon Extension QA"
+  short_description: "QA Ozon extension in Chromium"
+  default_prompt: "Use $markonverter-ozon-extension-qa to test the Markonverter Ozon extension end to end."

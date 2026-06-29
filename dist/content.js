@@ -149,7 +149,7 @@
         }
         const json = await response.json();
         if (!responseContainsLocation(json, request.pickupExternalLocationId)) {
-          errors.push(`${candidate.label}: response did not confirm requested pickup location`);
+          errors.push(`${candidate.label}: response did not confirm requested pickup point`);
           continue;
         }
         const price = extractOzonPrice(json, request.currencyHint);
@@ -174,25 +174,58 @@
     };
     return [
       {
-        label: "composer-get-location",
+        label: "composer-get-delivery-address",
         method: "GET",
         url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
         headers: jsonHeaders
       },
       {
-        label: "entrypoint-get-location",
+        label: "entrypoint-get-delivery-address",
         method: "GET",
         url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
         headers: jsonHeaders
       },
       {
-        label: "composer-post-location",
+        label: "composer-get-selected-location",
+        method: "GET",
+        url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
+        headers: jsonHeaders
+      },
+      {
+        label: "entrypoint-get-selected-location",
+        method: "GET",
+        url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
+        headers: jsonHeaders
+      },
+      {
+        label: "composer-post-delivery-address",
         method: "POST",
         url: "/api/composer-api.bx/page/json/v2",
         headers: jsonHeaders,
         body: JSON.stringify({
           url: pathWithSearch,
           deliveryAddressOid: pickupExternalLocationId
+        })
+      },
+      {
+        label: "composer-post-selected-location",
+        method: "POST",
+        url: "/api/composer-api.bx/page/json/v2",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          url: pathWithSearch,
+          select_location: pickupExternalLocationId
+        })
+      },
+      {
+        label: "composer-post-location-both",
+        method: "POST",
+        url: "/api/composer-api.bx/page/json/v2",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          url: pathWithSearch,
+          deliveryAddressOid: pickupExternalLocationId,
+          select_location: pickupExternalLocationId
         })
       }
     ];
@@ -204,10 +237,14 @@
     }
     let found = false;
     walk(json, [], (_path, value) => {
-      if (found || typeof value !== "string") {
+      if (found || typeof value !== "string" && typeof value !== "number") {
         return;
       }
-      found = value.includes(needle);
+      const path = _path.join(".").toLowerCase();
+      if (!locationConfirmationPathScore(path)) {
+        return;
+      }
+      found = String(value).includes(needle);
     });
     return found;
   }
@@ -246,7 +283,33 @@
     if (second && best.score === second.score && best.amount !== second.amount) {
       return null;
     }
-    return { amount: best.amount, currency: best.currency, rawText: best.rawText };
+    const deliveryText = extractOzonDeliveryText(json);
+    return { amount: best.amount, currency: best.currency, rawText: best.rawText, ...deliveryText ? { deliveryText } : {} };
+  }
+  function extractOzonDeliveryText(json) {
+    const candidates = [];
+    walk(json, [], (path, value) => {
+      if (typeof value !== "string") {
+        return;
+      }
+      const text = compactText(value);
+      if (!text || text.length < 3 || text.length > 160 || !/\p{L}|\d/u.test(text)) {
+        return;
+      }
+      const joined = path.join(".").toLowerCase();
+      if (!joined.includes("deliver") && !joined.includes("\u0434\u043E\u0441\u0442\u0430\u0432") && !joined.includes("eta") && !joined.includes("time")) {
+        return;
+      }
+      if (/(price|amount|cost|address|coordinates|geo|url|request|tracking|analytics)/i.test(joined) || /(^|\.)(oid|uid|id)$/i.test(joined)) {
+        return;
+      }
+      candidates.push({
+        text,
+        score: (/(eta|time|date|period|interval|deadline|subtitle|title|text)/i.test(joined) ? 20 : 0) + (/(today|tomorrow|сегодня|завтра|дн|час|мин|\d)/i.test(text) ? 15 : 0) + (joined.includes("widgetstates") ? 5 : 0)
+      });
+    });
+    candidates.sort((a, b) => b.score - a.score || a.text.length - b.text.length);
+    return candidates[0]?.text || null;
   }
   function preferredPricePaths(json) {
     const roots = findWidgetStates(json);
@@ -331,6 +394,21 @@
       walk(child, [...path, key], visitor);
     }
   }
+  function locationConfirmationPathScore(path) {
+    if (/(request|url|href|referrer|referer|query|param|tracking|analytics|debug|log|metrika|route)/i.test(path)) {
+      return 0;
+    }
+    if (/(selected|current|active|chosen)/i.test(path) && /(delivery|address|pickup|pickpoint|pvz|location|geo|city|region)/i.test(path)) {
+      return 2;
+    }
+    if (/(delivery|address|pickup|pickpoint|pvz|location|geo|city|region)/i.test(path)) {
+      return 1;
+    }
+    return 0;
+  }
+  function compactText(value) {
+    return value.replace(/\s+/g, " ").trim();
+  }
   function parsePrice(value, currencyHint) {
     if (typeof value === "number") {
       return Number.isFinite(value) ? { amount: value, currency: currencyHint } : null;
@@ -347,12 +425,240 @@
     return Number.isFinite(amount) ? { amount, currency, rawText: value } : null;
   }
 
+  // src/marketplaces/ozon-pickup-capture.ts
+  var STRONG_ID_KEYS = /* @__PURE__ */ new Set([
+    "deliveryAddressOid",
+    "deliveryAddressId",
+    "addressOid",
+    "addressId",
+    "locationUid",
+    "pickupPointId",
+    "pickPointId",
+    "pvzId",
+    "pointId"
+  ]);
+  var WEAK_ID_KEYS = /* @__PURE__ */ new Set(["locationId", "cityId", "geoId", "regionId"]);
+  var RELEVANCE_RE = /(delivery|address|pickup|pickpoint|pvz|пвз|пункт|получ|достав|location|geo|city|region)/i;
+  var BAD_ID_RE = /(product|sku|item|seller|brand|category|image|price|cart|widget|layout|session|fingerprint|analytics|banner)/i;
+  var KZ_RE = /(kazakhstan|казахстан|kz\b|алматы|астана|караганда|шымкент|атырау|актобе|павлодар|усть-каменогорск)/i;
+  var RU_RE = /(russia|россия|ru\b|москва|санкт-петербург|екатеринбург|казань|новосибирск|краснодар)/i;
+  function extractOzonPickupCandidatesFromSources(sources) {
+    const candidates = [];
+    for (const source of sources) {
+      const sourceText = `${source.source} ${source.urlHint || ""} ${source.textHint || ""}`;
+      collectFromUnknown(parseMaybeJson2(source.value), source.source, sourceText, candidates);
+      if (typeof source.value === "string") {
+        collectFromText(source.value, source.source, sourceText, candidates);
+      }
+    }
+    return dedupeCandidates2(candidates).sort((a, b) => b.score - a.score);
+  }
+  function collectFromUnknown(value, source, sourceText, candidates, path = [], depth = 0) {
+    if (depth > 8 || value == null) {
+      return;
+    }
+    if (typeof value === "string") {
+      const parsed = parseMaybeJson2(value);
+      if (parsed !== value) {
+        collectFromUnknown(parsed, source, sourceText, candidates, path, depth + 1);
+      } else {
+        collectFromText(value, source, sourceText, candidates);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.slice(0, 150).forEach((item, index) => {
+        collectFromUnknown(item, source, sourceText, candidates, [...path, String(index)], depth + 1);
+      });
+      return;
+    }
+    if (typeof value !== "object") {
+      return;
+    }
+    const object = value;
+    collectFromObject(object, source, sourceText, path, candidates);
+    for (const [key, child] of Object.entries(object).slice(0, 250)) {
+      collectFromUnknown(child, source, sourceText, candidates, [...path, key], depth + 1);
+    }
+  }
+  function collectFromObject(object, source, sourceText, path, candidates) {
+    const keys = Object.keys(object);
+    const pathText = [...path, ...keys].join(".");
+    const relevantObject = RELEVANCE_RE.test(pathText) || RELEVANCE_RE.test(sourceText);
+    const objectText = objectStrings(object).join(" ");
+    const name = extractName(object, sourceText);
+    const country = inferCountry(`${sourceText} ${objectText}`);
+    const currency = country === "KZ" ? "KZT" : "RUB";
+    for (const [key, rawValue] of Object.entries(object)) {
+      const id = normalizeId(rawValue);
+      if (!id || BAD_ID_RE.test(key)) {
+        continue;
+      }
+      const keyScore = scoreIdKey(key);
+      if (keyScore === 0 || keyScore < 35 && !relevantObject) {
+        continue;
+      }
+      candidates.push({
+        externalLocationId: id,
+        name: name || `Ozon pickup ${id}`,
+        country,
+        currency,
+        source,
+        score: keyScore + (relevantObject ? 20 : 0) + (name ? 10 : 0) + (country === "KZ" ? 2 : 0),
+        comment: `Captured from ${source}`
+      });
+    }
+  }
+  function collectFromText(text, source, sourceText, candidates) {
+    if (!RELEVANCE_RE.test(`${source} ${sourceText} ${text.slice(0, 2e3)}`)) {
+      return;
+    }
+    const patterns = [
+      /(?:deliveryAddressOid|deliveryAddressId|addressOid|addressId|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'=:\s]+([a-z0-9_-]{4,80})/gi,
+      /(?:deliveryAddressOid|deliveryAddressId|addressOid|addressId|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'\s]*[:=]["'\s]*([a-z0-9_-]{4,80})/gi
+    ];
+    for (const pattern of patterns) {
+      let match;
+      while (match = pattern.exec(text)) {
+        const id = normalizeId(match[1]);
+        if (!id) {
+          continue;
+        }
+        const country = inferCountry(`${sourceText} ${text.slice(Math.max(0, match.index - 200), match.index + 300)}`);
+        candidates.push({
+          externalLocationId: id,
+          name: `Ozon pickup ${id}`,
+          country,
+          currency: country === "KZ" ? "KZT" : "RUB",
+          source,
+          score: 35,
+          comment: `Captured from ${source}`
+        });
+      }
+    }
+  }
+  function scoreIdKey(key) {
+    if (STRONG_ID_KEYS.has(key)) {
+      return 60;
+    }
+    if (WEAK_ID_KEYS.has(key)) {
+      return 20;
+    }
+    if (/(delivery|address|pickup|pick|pvz|location).*(oid|id|uid)$/i.test(key)) {
+      return 45;
+    }
+    if (/(oid|id|uid)$/i.test(key) && RELEVANCE_RE.test(key)) {
+      return 25;
+    }
+    return 0;
+  }
+  function extractName(object, sourceText) {
+    const exactKeys = [
+      "fullAddress",
+      "formattedAddress",
+      "address",
+      "addressText",
+      "shortAddress",
+      "displayName",
+      "name",
+      "title",
+      "city"
+    ];
+    for (const key of exactKeys) {
+      const value = stringValue(object[key]);
+      if (value && isUsefulLabel(value)) {
+        return compact(value);
+      }
+    }
+    for (const [key, rawValue] of Object.entries(object)) {
+      const value = stringValue(rawValue);
+      if (value && /(address|name|title|city|street|пвз|пункт)/i.test(key) && isUsefulLabel(value)) {
+        return compact(value);
+      }
+    }
+    const sourceLabel = sourceText.match(/(?:пункт выдачи|пвз|pickup point|адрес)[:\s-]+([^|]{8,120})/i)?.[1];
+    return sourceLabel ? compact(sourceLabel) : "";
+  }
+  function inferCountry(text) {
+    if (KZ_RE.test(text) || /\.kz\b/i.test(text)) {
+      return "KZ";
+    }
+    if (RU_RE.test(text) || /\.ru\b/i.test(text)) {
+      return "RU";
+    }
+    return "RU";
+  }
+  function objectStrings(object) {
+    return Object.values(object).filter((value) => typeof value === "string").slice(0, 30);
+  }
+  function parseMaybeJson2(value) {
+    if (typeof value !== "string") {
+      return value;
+    }
+    const trimmed = value.trim();
+    if (!trimmed || !/^[{[]/.test(trimmed)) {
+      return value;
+    }
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return value;
+    }
+  }
+  function normalizeId(value) {
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+      return String(value);
+    }
+    if (typeof value !== "string") {
+      return "";
+    }
+    const trimmed = value.trim().replace(/^["']|["']$/g, "");
+    return /^[a-z0-9_-]{4,80}$/i.test(trimmed) ? trimmed : "";
+  }
+  function stringValue(value) {
+    return typeof value === "string" ? value.trim() : "";
+  }
+  function isUsefulLabel(value) {
+    return value.length >= 3 && value.length <= 180 && !/^[a-z0-9_-]{4,80}$/i.test(value);
+  }
+  function compact(value) {
+    return value.replace(/\s+/g, " ").trim();
+  }
+  function dedupeCandidates2(candidates) {
+    const byId = /* @__PURE__ */ new Map();
+    for (const candidate of candidates) {
+      const existing = byId.get(candidate.externalLocationId);
+      if (!existing || candidate.score > existing.score || candidate.name.length > existing.name.length && candidate.score === existing.score) {
+        byId.set(candidate.externalLocationId, candidate);
+      }
+    }
+    return [...byId.values()];
+  }
+
   // src/content.ts
   var PANEL_ID = "markonverter-panel-root";
+  var COLLECT_PICKUP_EVENT = "markonverter:collect-ozon-pickup";
+  var PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
   var activeUrl = "";
   var activeRun = 0;
+  var latestPickupCandidates = [];
+  var lastPanelModel = null;
+  var captureStatus = null;
   void boot();
   async function boot() {
+    document.addEventListener(PICKUP_CANDIDATES_EVENT, handlePickupCandidatesEvent);
+    chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+      if (request.type !== "SAVE_SELECTED_OZON_PICKUP") {
+        return false;
+      }
+      void saveCurrentSelectedPickupPoint().then(sendResponse).catch((error) => {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      });
+      return true;
+    });
+    if (document.readyState === "loading") {
+      await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
+    }
     await runIfProductPage();
     setInterval(() => {
       if (location.href !== activeUrl) {
@@ -361,21 +667,25 @@
     }, 1e3);
   }
   async function runIfProductPage() {
-    activeUrl = location.href;
+    const currentUrl = location.href;
     const runId = ++activeRun;
     const adapter = createMarketplaceAdapter("ozon", { requestOzonPrice });
-    const url = new URL(location.href);
+    const url = new URL(currentUrl);
     if (!adapter.isProductPage(url)) {
+      activeUrl = currentUrl;
       removePanel();
       return;
     }
     const product = adapter.getProductIdentity(url, document);
     if (!product) {
+      activeUrl = "";
       removePanel();
       return;
     }
+    activeUrl = currentUrl;
     const panel = ensurePanel();
     renderPanel(panel, { state: "loading", product });
+    requestPagePickupCandidates();
     const settingsResponse = await runtimeRequest({ type: "GET_SETTINGS" });
     if (!settingsResponse.ok || !("settings" in settingsResponse)) {
       renderPanel(panel, { state: "fatal", product, message: settingsResponse.ok ? "Settings are unavailable" : settingsResponse.error });
@@ -412,6 +722,124 @@
   async function requestOzonPrice(request) {
     return fetchOzonPrivatePrice(request);
   }
+  function getCurrentProduct() {
+    const adapter = createMarketplaceAdapter("ozon", { requestOzonPrice });
+    const url = new URL(location.href);
+    return adapter.isProductPage(url) ? adapter.getProductIdentity(url, document) : null;
+  }
+  function handlePickupCandidatesEvent(event) {
+    const detail = event.detail;
+    if (!detail) {
+      return;
+    }
+    try {
+      const candidates = JSON.parse(detail);
+      mergePickupCandidates(candidates);
+    } catch {
+    }
+  }
+  function mergePickupCandidates(candidates) {
+    const byId = new Map(latestPickupCandidates.map((candidate) => [candidate.externalLocationId, candidate]));
+    for (const candidate of candidates) {
+      if (!candidate.externalLocationId || !candidate.name) {
+        continue;
+      }
+      const existing = byId.get(candidate.externalLocationId);
+      if (!existing || candidate.score > existing.score) {
+        byId.set(candidate.externalLocationId, candidate);
+      }
+    }
+    latestPickupCandidates = [...byId.values()].sort((a, b) => b.score - a.score).slice(0, 20);
+  }
+  function requestPagePickupCandidates() {
+    document.dispatchEvent(new CustomEvent(COLLECT_PICKUP_EVENT));
+  }
+  async function getBestPickupCandidate() {
+    requestPagePickupCandidates();
+    mergePickupCandidates(extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources()));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    mergePickupCandidates(extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources()));
+    return latestPickupCandidates[0] || null;
+  }
+  function collectFallbackCaptureSources() {
+    const sources = [];
+    const urlHint = location.href;
+    collectStorage("localStorage", localStorage, sources, urlHint);
+    collectStorage("sessionStorage", sessionStorage, sources, urlHint);
+    if (document.cookie) {
+      sources.push({ source: "content.cookie", value: document.cookie, urlHint });
+    }
+    const deliveryText = collectDeliveryText();
+    if (deliveryText) {
+      sources.push({ source: "content.dom", value: deliveryText, textHint: deliveryText, urlHint });
+    }
+    return sources;
+  }
+  function collectStorage(name, storage, sources, urlHint) {
+    try {
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+        if (!key || !/(ozon|delivery|address|pickup|pvz|location|geo|city|region)/i.test(key)) {
+          continue;
+        }
+        const value = storage.getItem(key);
+        if (value) {
+          sources.push({ source: `content.${name}.${key}`, value, urlHint });
+        }
+      }
+    } catch {
+    }
+  }
+  function collectDeliveryText() {
+    const chunks = [];
+    document.querySelectorAll(
+      '[data-widget*="address" i], [data-widget*="delivery" i], [data-widget*="geo" i], [data-widget*="user" i], [href*="delivery" i], button, a'
+    ).forEach((element) => {
+      const text = element.innerText || element.textContent || "";
+      if (/(достав|получ|пункт|пвз|адрес|город|pickup|delivery|address)/i.test(text)) {
+        chunks.push(text);
+      }
+    });
+    return chunks.slice(0, 30).join(" | ").slice(0, 8e3);
+  }
+  async function saveCurrentSelectedPickupPoint() {
+    const product = getCurrentProduct();
+    if (!product) {
+      return { ok: false, error: "Open an Ozon product page to save the selected pickup point" };
+    }
+    return saveSelectedPickupPoint(product);
+  }
+  async function saveSelectedPickupPoint(product) {
+    captureStatus = { tone: "normal", message: "Detecting selected Ozon pickup point..." };
+    renderLastPanel();
+    const candidate = await getBestPickupCandidate();
+    if (!candidate) {
+      captureStatus = {
+        tone: "error",
+        message: "Could not detect the selected point yet. Select it in Ozon, wait for the page to update, then try again."
+      };
+      renderLastPanel();
+      return { ok: false, error: captureStatus.message };
+    }
+    const pickupPoint = {
+      id: crypto.randomUUID(),
+      name: candidate.name,
+      marketplace: "ozon",
+      country: candidate.country,
+      currency: candidate.currency,
+      externalLocationId: candidate.externalLocationId,
+      comment: candidate.comment || `Captured from ${product.url}`
+    };
+    const response = await runtimeRequest({ type: "UPSERT_PICKUP_POINT", pickupPoint });
+    if (!response.ok || !("settings" in response)) {
+      captureStatus = { tone: "error", message: response.ok ? "Pickup point was not saved" : response.error };
+      renderLastPanel();
+      return { ok: false, error: captureStatus.message };
+    }
+    captureStatus = { tone: "normal", message: `Saved: ${candidate.name}` };
+    await runIfProductPage();
+    return response;
+  }
   function ensurePanel() {
     const existing = document.getElementById(PANEL_ID);
     if (existing?.shadowRoot) {
@@ -432,6 +860,7 @@
     document.getElementById(PANEL_ID)?.remove();
   }
   function renderPanel(shadow, model) {
+    lastPanelModel = model;
     shadow.innerHTML = "";
     const style = document.createElement("style");
     style.textContent = panelCss();
@@ -444,6 +873,16 @@
     const header = document.createElement("div");
     header.className = "header";
     header.innerHTML = `<div><strong>Pickup prices</strong><span>${escapeHtml(model.product.title || "Ozon product")}</span></div>`;
+    const headerActions = document.createElement("div");
+    headerActions.className = "headerActions";
+    const saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.className = "saveHeaderButton";
+    saveButton.title = "Save selected Ozon pickup point";
+    saveButton.textContent = "Save point";
+    saveButton.addEventListener("click", () => {
+      void saveSelectedPickupPoint(model.product);
+    });
     const settingsButton = document.createElement("button");
     settingsButton.type = "button";
     settingsButton.className = "iconButton";
@@ -452,12 +891,17 @@
     settingsButton.addEventListener("click", () => {
       void runtimeRequest({ type: "OPEN_OPTIONS" });
     });
-    header.append(settingsButton);
+    headerActions.append(saveButton, settingsButton);
+    header.append(headerActions);
     root.append(header);
     if (model.state === "loading") {
       root.append(messageNode(`Checking ${model.pickupPoints?.length || "configured"} pickup points...`));
+      if (captureStatus) {
+        root.append(messageNode(captureStatus.message, captureStatus.tone));
+      }
     } else if (model.state === "empty") {
       root.append(messageNode("No Ozon pickup points configured."));
+      root.append(captureControl(model.product));
     } else if (model.state === "fatal") {
       root.append(messageNode(model.message, "error"));
     } else {
@@ -475,23 +919,55 @@
         if (row.result.status === "success") {
           const original = formatCurrency(row.result.originalPrice.amount, row.result.originalPrice.currency);
           const converted = formatCurrency(row.result.convertedAmount, row.result.convertedCurrency);
+          const delivery = row.result.originalPrice.deliveryText;
           const delta = row.deltaFromCheapest && row.deltaFromCheapest > 0 ? `+${formatCurrency(row.deltaFromCheapest, row.result.convertedCurrency)}` : row.isCheapest ? "best" : "";
-          value.innerHTML = `<strong>${converted}</strong><span>${escapeHtml(original)} ${escapeHtml(delta)}</span>`;
+          value.innerHTML = `<strong>${converted}</strong><span>${escapeHtml(original)} ${escapeHtml(delta)}</span>${delivery ? `<span>${escapeHtml(delivery)}</span>` : ""}`;
         } else {
-          value.innerHTML = `<strong>Unavailable</strong><span>${escapeHtml(row.result.error)}</span>`;
+          value.title = row.result.error;
+          value.innerHTML = `<strong>Unavailable</strong><span>${escapeHtml(readableResultError(row.result.error))}</span>`;
         }
         item.append(meta, value);
         list.append(item);
       }
       root.append(list);
+      root.append(captureControl(model.product));
     }
     shadow.append(root);
+  }
+  function renderLastPanel() {
+    if (lastPanelModel) {
+      renderPanel(ensurePanel(), lastPanelModel);
+    }
+  }
+  function captureControl(product) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "capture";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "captureButton";
+    button.textContent = "Save selected point";
+    button.addEventListener("click", () => {
+      void saveSelectedPickupPoint(product);
+    });
+    const hint = document.createElement("span");
+    hint.textContent = "Select a pickup point in Ozon, then save it here.";
+    wrapper.append(button, hint);
+    if (captureStatus) {
+      wrapper.append(messageNode(captureStatus.message, captureStatus.tone));
+    }
+    return wrapper;
   }
   function messageNode(text, tone = "normal") {
     const node = document.createElement("p");
     node.className = `message ${tone}`;
     node.textContent = text;
     return node;
+  }
+  function readableResultError(error) {
+    if (error.includes("response did not confirm requested pickup point")) {
+      return "Ozon did not confirm this pickup point, so the current address may have been reused.";
+    }
+    return error.length > 150 ? `${error.slice(0, 147)}...` : error;
   }
   async function runtimeRequest(request) {
     return chrome.runtime.sendMessage(request);
@@ -551,6 +1027,23 @@
       font-size: 12px;
       overflow-wrap: anywhere;
     }
+    .headerActions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+    .saveHeaderButton {
+      min-height: 32px;
+      border: 1px solid #1166cc;
+      border-radius: 6px;
+      background: #1166cc;
+      color: #ffffff;
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      white-space: nowrap;
+    }
     .iconButton {
       width: 32px;
       height: 32px;
@@ -567,6 +1060,30 @@
     }
     .message.error {
       color: #a33131;
+    }
+    .capture {
+      display: grid;
+      gap: 7px;
+      padding: 12px;
+      border-top: 1px solid #edf1f5;
+      background: #fbfcfe;
+    }
+    .capture > span {
+      color: #647084;
+      font-size: 12px;
+    }
+    .capture .message {
+      padding: 0;
+      font-size: 12px;
+    }
+    .captureButton {
+      min-height: 34px;
+      border: 1px solid #1166cc;
+      border-radius: 6px;
+      background: #1166cc;
+      color: #ffffff;
+      font: inherit;
+      cursor: pointer;
     }
     .rows {
       display: grid;

@@ -4,15 +4,40 @@ import { RuntimeRequest, RuntimeResponse } from "./shared/messages";
 import { ComparisonResult, ExtensionSettings, PickupPoint, PriceQuote, ProductIdentity } from "./shared/types";
 import { createMarketplaceAdapter } from "./marketplaces/registry";
 import { fetchOzonPrivatePrice } from "./marketplaces/ozon-private-api";
+import {
+  extractOzonPickupCandidatesFromSources,
+  OzonCaptureSource,
+  OzonPickupCandidate
+} from "./marketplaces/ozon-pickup-capture";
 
 const PANEL_ID = "markonverter-panel-root";
+const COLLECT_PICKUP_EVENT = "markonverter:collect-ozon-pickup";
+const PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
 
 let activeUrl = "";
 let activeRun = 0;
+let latestPickupCandidates: OzonPickupCandidate[] = [];
+let lastPanelModel: PanelModel | null = null;
+let captureStatus: { tone: "normal" | "error"; message: string } | null = null;
 
 void boot();
 
 async function boot(): Promise<void> {
+  document.addEventListener(PICKUP_CANDIDATES_EVENT, handlePickupCandidatesEvent);
+  chrome.runtime.onMessage.addListener((request: RuntimeRequest, _sender, sendResponse) => {
+    if (request.type !== "SAVE_SELECTED_OZON_PICKUP") {
+      return false;
+    }
+    void saveCurrentSelectedPickupPoint()
+      .then(sendResponse)
+      .catch((error) => {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) } satisfies RuntimeResponse);
+      });
+    return true;
+  });
+  if (document.readyState === "loading") {
+    await new Promise<void>((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
+  }
   await runIfProductPage();
   setInterval(() => {
     if (location.href !== activeUrl) {
@@ -22,24 +47,28 @@ async function boot(): Promise<void> {
 }
 
 async function runIfProductPage(): Promise<void> {
-  activeUrl = location.href;
+  const currentUrl = location.href;
   const runId = ++activeRun;
   const adapter = createMarketplaceAdapter("ozon", { requestOzonPrice });
-  const url = new URL(location.href);
+  const url = new URL(currentUrl);
 
   if (!adapter.isProductPage(url)) {
+    activeUrl = currentUrl;
     removePanel();
     return;
   }
 
   const product = adapter.getProductIdentity(url, document);
   if (!product) {
+    activeUrl = "";
     removePanel();
     return;
   }
 
+  activeUrl = currentUrl;
   const panel = ensurePanel();
   renderPanel(panel, { state: "loading", product });
+  requestPagePickupCandidates();
 
   const settingsResponse = await runtimeRequest({ type: "GET_SETTINGS" });
   if (!settingsResponse.ok || !("settings" in settingsResponse)) {
@@ -88,6 +117,142 @@ async function requestOzonPrice(request: {
   return fetchOzonPrivatePrice(request);
 }
 
+function getCurrentProduct(): ProductIdentity | null {
+  const adapter = createMarketplaceAdapter("ozon", { requestOzonPrice });
+  const url = new URL(location.href);
+  return adapter.isProductPage(url) ? adapter.getProductIdentity(url, document) : null;
+}
+
+function handlePickupCandidatesEvent(event: Event): void {
+  const detail = (event as CustomEvent<string>).detail;
+  if (!detail) {
+    return;
+  }
+  try {
+    const candidates = JSON.parse(detail) as OzonPickupCandidate[];
+    mergePickupCandidates(candidates);
+  } catch {
+    // Ignore malformed events from the page world.
+  }
+}
+
+function mergePickupCandidates(candidates: OzonPickupCandidate[]): void {
+  const byId = new Map(latestPickupCandidates.map((candidate) => [candidate.externalLocationId, candidate]));
+  for (const candidate of candidates) {
+    if (!candidate.externalLocationId || !candidate.name) {
+      continue;
+    }
+    const existing = byId.get(candidate.externalLocationId);
+    if (!existing || candidate.score > existing.score) {
+      byId.set(candidate.externalLocationId, candidate);
+    }
+  }
+  latestPickupCandidates = [...byId.values()].sort((a, b) => b.score - a.score).slice(0, 20);
+}
+
+function requestPagePickupCandidates(): void {
+  document.dispatchEvent(new CustomEvent(COLLECT_PICKUP_EVENT));
+}
+
+async function getBestPickupCandidate(): Promise<OzonPickupCandidate | null> {
+  requestPagePickupCandidates();
+  mergePickupCandidates(extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources()));
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  mergePickupCandidates(extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources()));
+  return latestPickupCandidates[0] || null;
+}
+
+function collectFallbackCaptureSources(): OzonCaptureSource[] {
+  const sources: OzonCaptureSource[] = [];
+  const urlHint = location.href;
+  collectStorage("localStorage", localStorage, sources, urlHint);
+  collectStorage("sessionStorage", sessionStorage, sources, urlHint);
+  if (document.cookie) {
+    sources.push({ source: "content.cookie", value: document.cookie, urlHint });
+  }
+  const deliveryText = collectDeliveryText();
+  if (deliveryText) {
+    sources.push({ source: "content.dom", value: deliveryText, textHint: deliveryText, urlHint });
+  }
+  return sources;
+}
+
+function collectStorage(name: string, storage: Storage, sources: OzonCaptureSource[], urlHint: string): void {
+  try {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (!key || !/(ozon|delivery|address|pickup|pvz|location|geo|city|region)/i.test(key)) {
+        continue;
+      }
+      const value = storage.getItem(key);
+      if (value) {
+        sources.push({ source: `content.${name}.${key}`, value, urlHint });
+      }
+    }
+  } catch {
+    // Storage access may be unavailable in some browser/privacy modes.
+  }
+}
+
+function collectDeliveryText(): string {
+  const chunks: string[] = [];
+  document
+    .querySelectorAll<HTMLElement>(
+      '[data-widget*="address" i], [data-widget*="delivery" i], [data-widget*="geo" i], [data-widget*="user" i], [href*="delivery" i], button, a'
+    )
+    .forEach((element) => {
+      const text = element.innerText || element.textContent || "";
+      if (/(достав|получ|пункт|пвз|адрес|город|pickup|delivery|address)/i.test(text)) {
+        chunks.push(text);
+      }
+    });
+  return chunks.slice(0, 30).join(" | ").slice(0, 8000);
+}
+
+async function saveCurrentSelectedPickupPoint(): Promise<RuntimeResponse> {
+  const product = getCurrentProduct();
+  if (!product) {
+    return { ok: false, error: "Open an Ozon product page to save the selected pickup point" };
+  }
+  return saveSelectedPickupPoint(product);
+}
+
+async function saveSelectedPickupPoint(product: ProductIdentity): Promise<RuntimeResponse> {
+  captureStatus = { tone: "normal", message: "Detecting selected Ozon pickup point..." };
+  renderLastPanel();
+
+  const candidate = await getBestPickupCandidate();
+  if (!candidate) {
+    captureStatus = {
+      tone: "error",
+      message: "Could not detect the selected point yet. Select it in Ozon, wait for the page to update, then try again."
+    };
+    renderLastPanel();
+    return { ok: false, error: captureStatus.message };
+  }
+
+  const pickupPoint: PickupPoint = {
+    id: crypto.randomUUID(),
+    name: candidate.name,
+    marketplace: "ozon",
+    country: candidate.country,
+    currency: candidate.currency,
+    externalLocationId: candidate.externalLocationId,
+    comment: candidate.comment || `Captured from ${product.url}`
+  };
+
+  const response = await runtimeRequest({ type: "UPSERT_PICKUP_POINT", pickupPoint });
+  if (!response.ok || !("settings" in response)) {
+    captureStatus = { tone: "error", message: response.ok ? "Pickup point was not saved" : response.error };
+    renderLastPanel();
+    return { ok: false, error: captureStatus.message };
+  }
+
+  captureStatus = { tone: "normal", message: `Saved: ${candidate.name}` };
+  await runIfProductPage();
+  return response;
+}
+
 function ensurePanel(): ShadowRoot {
   const existing = document.getElementById(PANEL_ID);
   if (existing?.shadowRoot) {
@@ -127,6 +292,7 @@ type PanelModel =
     };
 
 function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
+  lastPanelModel = model;
   shadow.innerHTML = "";
   const style = document.createElement("style");
   style.textContent = panelCss();
@@ -142,6 +308,18 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   header.className = "header";
   header.innerHTML = `<div><strong>Pickup prices</strong><span>${escapeHtml(model.product.title || "Ozon product")}</span></div>`;
 
+  const headerActions = document.createElement("div");
+  headerActions.className = "headerActions";
+
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.className = "saveHeaderButton";
+  saveButton.title = "Save selected Ozon pickup point";
+  saveButton.textContent = "Save point";
+  saveButton.addEventListener("click", () => {
+    void saveSelectedPickupPoint(model.product);
+  });
+
   const settingsButton = document.createElement("button");
   settingsButton.type = "button";
   settingsButton.className = "iconButton";
@@ -150,13 +328,18 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   settingsButton.addEventListener("click", () => {
     void runtimeRequest({ type: "OPEN_OPTIONS" });
   });
-  header.append(settingsButton);
+  headerActions.append(saveButton, settingsButton);
+  header.append(headerActions);
   root.append(header);
 
   if (model.state === "loading") {
     root.append(messageNode(`Checking ${model.pickupPoints?.length || "configured"} pickup points...`));
+    if (captureStatus) {
+      root.append(messageNode(captureStatus.message, captureStatus.tone));
+    }
   } else if (model.state === "empty") {
     root.append(messageNode("No Ozon pickup points configured."));
+    root.append(captureControl(model.product));
   } else if (model.state === "fatal") {
     root.append(messageNode(model.message, "error"));
   } else {
@@ -177,24 +360,57 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
       if (row.result.status === "success") {
         const original = formatCurrency(row.result.originalPrice.amount, row.result.originalPrice.currency);
         const converted = formatCurrency(row.result.convertedAmount, row.result.convertedCurrency);
+        const delivery = row.result.originalPrice.deliveryText;
         const delta =
           row.deltaFromCheapest && row.deltaFromCheapest > 0
             ? `+${formatCurrency(row.deltaFromCheapest, row.result.convertedCurrency)}`
             : row.isCheapest
               ? "best"
               : "";
-        value.innerHTML = `<strong>${converted}</strong><span>${escapeHtml(original)} ${escapeHtml(delta)}</span>`;
+        value.innerHTML = `<strong>${converted}</strong><span>${escapeHtml(original)} ${escapeHtml(delta)}</span>${
+          delivery ? `<span>${escapeHtml(delivery)}</span>` : ""
+        }`;
       } else {
-        value.innerHTML = `<strong>Unavailable</strong><span>${escapeHtml(row.result.error)}</span>`;
+        value.title = row.result.error;
+        value.innerHTML = `<strong>Unavailable</strong><span>${escapeHtml(readableResultError(row.result.error))}</span>`;
       }
 
       item.append(meta, value);
       list.append(item);
     }
     root.append(list);
+    root.append(captureControl(model.product));
   }
 
   shadow.append(root);
+}
+
+function renderLastPanel(): void {
+  if (lastPanelModel) {
+    renderPanel(ensurePanel(), lastPanelModel);
+  }
+}
+
+function captureControl(product: ProductIdentity): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.className = "capture";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "captureButton";
+  button.textContent = "Save selected point";
+  button.addEventListener("click", () => {
+    void saveSelectedPickupPoint(product);
+  });
+
+  const hint = document.createElement("span");
+  hint.textContent = "Select a pickup point in Ozon, then save it here.";
+
+  wrapper.append(button, hint);
+  if (captureStatus) {
+    wrapper.append(messageNode(captureStatus.message, captureStatus.tone));
+  }
+  return wrapper;
 }
 
 function messageNode(text: string, tone: "normal" | "error" = "normal"): HTMLElement {
@@ -202,6 +418,13 @@ function messageNode(text: string, tone: "normal" | "error" = "normal"): HTMLEle
   node.className = `message ${tone}`;
   node.textContent = text;
   return node;
+}
+
+function readableResultError(error: string): string {
+  if (error.includes("response did not confirm requested pickup point")) {
+    return "Ozon did not confirm this pickup point, so the current address may have been reused.";
+  }
+  return error.length > 150 ? `${error.slice(0, 147)}...` : error;
 }
 
 async function runtimeRequest(request: RuntimeRequest): Promise<RuntimeResponse> {
@@ -264,6 +487,23 @@ function panelCss(): string {
       font-size: 12px;
       overflow-wrap: anywhere;
     }
+    .headerActions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+    .saveHeaderButton {
+      min-height: 32px;
+      border: 1px solid #1166cc;
+      border-radius: 6px;
+      background: #1166cc;
+      color: #ffffff;
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      white-space: nowrap;
+    }
     .iconButton {
       width: 32px;
       height: 32px;
@@ -280,6 +520,30 @@ function panelCss(): string {
     }
     .message.error {
       color: #a33131;
+    }
+    .capture {
+      display: grid;
+      gap: 7px;
+      padding: 12px;
+      border-top: 1px solid #edf1f5;
+      background: #fbfcfe;
+    }
+    .capture > span {
+      color: #647084;
+      font-size: 12px;
+    }
+    .capture .message {
+      padding: 0;
+      font-size: 12px;
+    }
+    .captureButton {
+      min-height: 34px;
+      border: 1px solid #1166cc;
+      border-radius: 6px;
+      background: #1166cc;
+      color: #ffffff;
+      font: inherit;
+      cursor: pointer;
     }
     .rows {
       display: grid;

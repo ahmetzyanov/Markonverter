@@ -120,6 +120,14 @@
       .status.error {
         color: #a33131;
       }
+      .note {
+        margin: 0;
+        color: #4a5668;
+        line-height: 1.45;
+      }
+      .note strong {
+        color: #172033;
+      }
       @media (max-width: 760px) {
         .grid,
         .point {
@@ -158,6 +166,10 @@
 
       <section>
         <h2>Pickup point</h2>
+        <p class="note">
+          Fast path: open an Ozon product, select a delivery point in Ozon, then press
+          <strong>Save selected point</strong> in the Markonverter panel. Use this form only to edit or add ids manually.
+        </p>
         <form id="pointForm">
           <input id="pointId" type="hidden" />
           <div class="grid">

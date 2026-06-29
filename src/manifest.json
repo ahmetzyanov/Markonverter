@@ -11,13 +11,19 @@
     "type": "module"
   },
   "options_page": "options.html",
-  "permissions": ["storage"],
+  "permissions": ["storage", "activeTab"],
   "host_permissions": ["https://*.ozon.ru/*", "https://*.ozon.kz/*"],
   "content_scripts": [
     {
       "matches": ["https://*.ozon.ru/*", "https://*.ozon.kz/*"],
+      "js": ["ozon-page-probe.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://*.ozon.ru/*", "https://*.ozon.kz/*"],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ]
 }

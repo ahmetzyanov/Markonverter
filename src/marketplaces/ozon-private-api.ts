@@ -36,7 +36,7 @@ export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): P
 
       const json = await response.json();
       if (!responseContainsLocation(json, request.pickupExternalLocationId)) {
-        errors.push(`${candidate.label}: response did not confirm requested pickup location`);
+        errors.push(`${candidate.label}: response did not confirm requested pickup point`);
         continue;
       }
 
@@ -66,25 +66,58 @@ export function buildEndpointCandidates(pathWithSearch: string, pickupExternalLo
 
   return [
     {
-      label: "composer-get-location",
+      label: "composer-get-delivery-address",
       method: "GET",
       url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
       headers: jsonHeaders
     },
     {
-      label: "entrypoint-get-location",
+      label: "entrypoint-get-delivery-address",
       method: "GET",
       url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
       headers: jsonHeaders
     },
     {
-      label: "composer-post-location",
+      label: "composer-get-selected-location",
+      method: "GET",
+      url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
+      headers: jsonHeaders
+    },
+    {
+      label: "entrypoint-get-selected-location",
+      method: "GET",
+      url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
+      headers: jsonHeaders
+    },
+    {
+      label: "composer-post-delivery-address",
       method: "POST",
       url: "/api/composer-api.bx/page/json/v2",
       headers: jsonHeaders,
       body: JSON.stringify({
         url: pathWithSearch,
         deliveryAddressOid: pickupExternalLocationId
+      })
+    },
+    {
+      label: "composer-post-selected-location",
+      method: "POST",
+      url: "/api/composer-api.bx/page/json/v2",
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        url: pathWithSearch,
+        select_location: pickupExternalLocationId
+      })
+    },
+    {
+      label: "composer-post-location-both",
+      method: "POST",
+      url: "/api/composer-api.bx/page/json/v2",
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        url: pathWithSearch,
+        deliveryAddressOid: pickupExternalLocationId,
+        select_location: pickupExternalLocationId
       })
     }
   ];
@@ -98,10 +131,14 @@ export function responseContainsLocation(json: unknown, pickupExternalLocationId
 
   let found = false;
   walk(json, [], (_path, value) => {
-    if (found || typeof value !== "string") {
+    if (found || (typeof value !== "string" && typeof value !== "number")) {
       return;
     }
-    found = value.includes(needle);
+    const path = _path.join(".").toLowerCase();
+    if (!locationConfirmationPathScore(path)) {
+      return;
+    }
+    found = String(value).includes(needle);
   });
   return found;
 }
@@ -157,7 +194,45 @@ export function extractOzonPrice(json: unknown, currencyHint: Currency): PriceQu
   if (second && best.score === second.score && best.amount !== second.amount) {
     return null;
   }
-  return { amount: best.amount, currency: best.currency, rawText: best.rawText };
+  const deliveryText = extractOzonDeliveryText(json);
+  return { amount: best.amount, currency: best.currency, rawText: best.rawText, ...(deliveryText ? { deliveryText } : {}) };
+}
+
+export function extractOzonDeliveryText(json: unknown): string | null {
+  const candidates: Array<{ text: string; score: number }> = [];
+
+  walk(json, [], (path, value) => {
+    if (typeof value !== "string") {
+      return;
+    }
+
+    const text = compactText(value);
+    if (!text || text.length < 3 || text.length > 160 || !/\p{L}|\d/u.test(text)) {
+      return;
+    }
+
+    const joined = path.join(".").toLowerCase();
+    if (!joined.includes("deliver") && !joined.includes("достав") && !joined.includes("eta") && !joined.includes("time")) {
+      return;
+    }
+    if (
+      /(price|amount|cost|address|coordinates|geo|url|request|tracking|analytics)/i.test(joined) ||
+      /(^|\.)(oid|uid|id)$/i.test(joined)
+    ) {
+      return;
+    }
+
+    candidates.push({
+      text,
+      score:
+        (/(eta|time|date|period|interval|deadline|subtitle|title|text)/i.test(joined) ? 20 : 0) +
+        (/(today|tomorrow|сегодня|завтра|дн|час|мин|\d)/i.test(text) ? 15 : 0) +
+        (joined.includes("widgetstates") ? 5 : 0)
+    });
+  });
+
+  candidates.sort((a, b) => b.score - a.score || a.text.length - b.text.length);
+  return candidates[0]?.text || null;
 }
 
 function preferredPricePaths(json: unknown): Array<[string, unknown]> {
@@ -249,6 +324,23 @@ function walk(value: unknown, path: string[], visitor: (path: string[], value: u
   for (const [key, child] of Object.entries(value as Record<string, unknown>).slice(0, 300)) {
     walk(child, [...path, key], visitor);
   }
+}
+
+function locationConfirmationPathScore(path: string): number {
+  if (/(request|url|href|referrer|referer|query|param|tracking|analytics|debug|log|metrika|route)/i.test(path)) {
+    return 0;
+  }
+  if (/(selected|current|active|chosen)/i.test(path) && /(delivery|address|pickup|pickpoint|pvz|location|geo|city|region)/i.test(path)) {
+    return 2;
+  }
+  if (/(delivery|address|pickup|pickpoint|pvz|location|geo|city|region)/i.test(path)) {
+    return 1;
+  }
+  return 0;
+}
+
+function compactText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function parsePrice(value: unknown, currencyHint: Currency): PriceQuote | null {
