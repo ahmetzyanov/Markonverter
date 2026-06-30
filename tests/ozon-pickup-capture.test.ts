@@ -108,6 +108,64 @@ describe("Ozon pickup capture", () => {
     );
   });
 
+  it("uses nearby link text when a pickup id is only exposed through select_address", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "api.composer-addressbook-html",
+        urlHint: "https://www.ozon.ru/product/example",
+        value:
+          '<a href="/modal/addressbook?select_address=528a5580-56f9-4e82-80cc-e801b5dbf252">Пункт Ozon № 528-558 Буинск, ул. Вахитова, 174Б</a>'
+      }
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      externalLocationId: "528a5580-56f9-4e82-80cc-e801b5dbf252",
+      name: "Пункт Ozon № 528-558 Буинск, ул. Вахитова, 174Б",
+      currency: "RUB"
+    });
+  });
+
+  it("uses nearby JSON address text instead of keeping a generic uuid label", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "api.composer-addressbook-json",
+        urlHint: "https://www.ozon.kz/product/example",
+        value:
+          '{"items":[{"action":{"url":"/modal/addressbook?select_address=528a5580-56f9-4e82-80cc-e801b5dbf252"},"subtitle":"Астана, пр-кт Улы Дала, 31"}]}'
+      }
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      externalLocationId: "528a5580-56f9-4e82-80cc-e801b5dbf252",
+      name: "Астана, пр-кт Улы Дала, 31",
+      currency: "KZT"
+    });
+  });
+
+  it("does not borrow a nearby JSON label from another pickup id", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "api.composer-addressbook-json",
+        urlHint: "https://www.ozon.kz/product/example",
+        value:
+          '{"items":[{"action":{"url":"/modal/addressbook?select_address=528a5580-56f9-4e82-80cc-e801b5dbf252"},"subtitle":"Астана, пр-кт Улы Дала, 31"},{"action":{"url":"/modal/addressbook?select_address=ru-unsaved-789"},"subtitle":"Буинск, ул. Вахитова, 174Б"}]}'
+      }
+    ]);
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalLocationId: "528a5580-56f9-4e82-80cc-e801b5dbf252",
+          name: "Астана, пр-кт Улы Дала, 31"
+        }),
+        expect.objectContaining({
+          externalLocationId: "ru-unsaved-789",
+          name: "Буинск, ул. Вахитова, 174Б"
+        })
+      ])
+    );
+  });
+
   it("prefers a real address label over an id-only pickup candidate", () => {
     const generic = {
       externalLocationId: "daa6eeff-8093-429a-9fee-9c73e5ef6036",

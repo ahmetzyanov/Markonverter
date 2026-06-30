@@ -223,6 +223,129 @@ describe("Ozon private API parsing", () => {
     expect(calls.some((call) => call.url.includes("%2Fproduct%2Ffake-product-2229282395%2F"))).toBe(true);
   });
 
+  it("accepts product confirmation by an alias from the verified activation response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = typeof init?.body === "string" ? init.body : "";
+        if (url.includes("/modal/addressbook") || body.includes("/modal/addressbook")) {
+          return new Response(
+            JSON.stringify({
+              addressBook: {
+                items: [
+                  {
+                    deliveryAddressOid: "ru-123",
+                    selectedAddressOid: "internal-ru-789",
+                    fullAddress: "Moscow pickup"
+                  }
+                ]
+              },
+              delivery: {
+                selectedAddressOid: "internal-ru-789"
+              }
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json"
+              }
+            }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            delivery: {
+              selectedAddressOid: "internal-ru-789",
+              deliveryTime: "Today"
+            },
+            widgetStates: {
+              webPrice: JSON.stringify({
+                price: "1 200 ₽"
+              })
+            }
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        );
+      })
+    );
+
+    await expect(
+      fetchOzonPrivatePrice({
+        productId: "2229282395",
+        productUrl: "https://ozon.kz/product/fake-product-2229282395/",
+        pickupExternalLocationId: "ru-123",
+        currencyHint: "RUB"
+      })
+    ).resolves.toEqual({
+      amount: 1200,
+      currency: "RUB",
+      rawText: "1 200 ₽",
+      deliveryText: "Today"
+    });
+  });
+
+  it("does not accept an alias when activation only echoes the requested pickup point", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = typeof init?.body === "string" ? init.body : "";
+        if (url.includes("/modal/addressbook") || body.includes("/modal/addressbook")) {
+          return new Response(
+            JSON.stringify({
+              requestEcho: {
+                deliveryAddressOid: "ru-123"
+              },
+              delivery: {
+                selectedAddressOid: "internal-ru-789"
+              }
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json"
+              }
+            }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            delivery: {
+              selectedAddressOid: "internal-ru-789",
+              deliveryTime: "Today"
+            },
+            widgetStates: {
+              webPrice: JSON.stringify({
+                price: "1 200 ₽"
+              })
+            }
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        );
+      })
+    );
+
+    await expect(
+      fetchOzonPrivatePrice({
+        productId: "2229282395",
+        productUrl: "https://ozon.kz/product/fake-product-2229282395/",
+        pickupExternalLocationId: "ru-123",
+        currencyHint: "RUB"
+      })
+    ).rejects.toThrow("response did not confirm requested pickup point");
+  });
+
   it("builds Ozon pickup activation requests with the product path as referer", () => {
     const candidates = buildLocationActivationCandidates("/product/fake-product-2229282395/", "ru-123");
 

@@ -18,6 +18,11 @@ updates, and non-trivial implementation changes.
 - Added automatic Ozon pickup-point name resolution: generic id labels can be
   replaced by addressbook labels for the same external id, including saved
   points whose names were auto-generated from UUIDs.
+- Tightened pickup-point label extraction so `select_address` ids can use nearby
+  HTML/JSON address text instead of staying as `Ozon pickup <uuid>`.
 - Added best-effort automatic Ozon pickup-point activation before each saved
   point's product price fetch, with sequential checks and strict response
   confirmation retained to prevent current-address price reuse.
+- Extended Ozon pickup activation to accept internal selected-address aliases
+  only when they come from a response that also confirms the saved pickup id;
+  request echoes remain untrusted.

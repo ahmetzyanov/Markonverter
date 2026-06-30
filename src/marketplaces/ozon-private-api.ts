@@ -18,8 +18,11 @@ interface EndpointCandidate {
 export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): Promise<PriceQuote> {
   const productUrl = new URL(request.productUrl);
   const pathWithSearch = `${productUrl.pathname}${productUrl.search}`;
-  await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId);
-  const candidates = buildEndpointCandidates(pathWithSearch, request.pickupExternalLocationId);
+  const acceptedLocationIds = [
+    request.pickupExternalLocationId,
+    ...(await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId))
+  ];
+  const candidates = buildEndpointCandidates(pathWithSearch, acceptedLocationIds);
   const errors: string[] = [];
 
   for (const candidate of candidates) {
@@ -36,7 +39,7 @@ export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): P
       }
 
       const json = await response.json();
-      if (!responseContainsLocation(json, request.pickupExternalLocationId)) {
+      if (!responseContainsAnyLocation(json, acceptedLocationIds)) {
         errors.push(`${candidate.label}: response did not confirm requested pickup point`);
         continue;
       }
@@ -56,8 +59,9 @@ export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): P
   throw new Error(`Ozon private API did not return a verified product price. ${errors.join("; ")}`);
 }
 
-async function activateOzonPickupLocation(pathWithSearch: string, pickupExternalLocationId: string): Promise<void> {
+async function activateOzonPickupLocation(pathWithSearch: string, pickupExternalLocationId: string): Promise<string[]> {
   const candidates = buildLocationActivationCandidates(pathWithSearch, pickupExternalLocationId);
+  const aliases = new Set<string>();
 
   for (const candidate of candidates) {
     try {
@@ -71,11 +75,15 @@ async function activateOzonPickupLocation(pathWithSearch: string, pickupExternal
         continue;
       }
 
-      await response.text();
+      const json = parseMaybeJson(await response.text());
+      extractConfirmedLocationAliases(json, pickupExternalLocationId).forEach((alias) => aliases.add(alias));
     } catch {
       // Best effort only: the verified product-price request below decides whether the switch worked.
     }
   }
+
+  aliases.delete(pickupExternalLocationId);
+  return [...aliases].slice(0, 6);
 }
 
 export function buildLocationActivationCandidates(pathWithSearch: string, pickupExternalLocationId: string): EndpointCandidate[] {
@@ -123,9 +131,9 @@ export function buildLocationActivationCandidates(pathWithSearch: string, pickup
   ];
 }
 
-export function buildEndpointCandidates(pathWithSearch: string, pickupExternalLocationId: string): EndpointCandidate[] {
+export function buildEndpointCandidates(pathWithSearch: string, pickupExternalLocationIds: string | string[]): EndpointCandidate[] {
   const encodedUrl = encodeURIComponent(pathWithSearch);
-  const encodedLocation = encodeURIComponent(pickupExternalLocationId);
+  const locationIds = normalizeLocationIds(pickupExternalLocationIds);
   const jsonHeaders = {
     "content-type": "application/json",
     "x-o3-app-name": "dweb_client",
@@ -134,61 +142,137 @@ export function buildEndpointCandidates(pathWithSearch: string, pickupExternalLo
 
   return [
     {
-      label: "composer-get-delivery-address",
+      label: "composer-get-current-page",
       method: "GET",
-      url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
+      url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}`,
       headers: jsonHeaders
     },
     {
-      label: "entrypoint-get-delivery-address",
+      label: "entrypoint-get-current-page",
       method: "GET",
-      url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
+      url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}`,
       headers: jsonHeaders
     },
-    {
-      label: "composer-get-selected-location",
-      method: "GET",
-      url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
-      headers: jsonHeaders
-    },
-    {
-      label: "entrypoint-get-selected-location",
-      method: "GET",
-      url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
-      headers: jsonHeaders
-    },
-    {
-      label: "composer-post-delivery-address",
-      method: "POST",
-      url: "/api/composer-api.bx/page/json/v2",
-      headers: jsonHeaders,
-      body: JSON.stringify({
-        url: pathWithSearch,
-        deliveryAddressOid: pickupExternalLocationId
-      })
-    },
-    {
-      label: "composer-post-selected-location",
-      method: "POST",
-      url: "/api/composer-api.bx/page/json/v2",
-      headers: jsonHeaders,
-      body: JSON.stringify({
-        url: pathWithSearch,
-        select_location: pickupExternalLocationId
-      })
-    },
-    {
-      label: "composer-post-location-both",
-      method: "POST",
-      url: "/api/composer-api.bx/page/json/v2",
-      headers: jsonHeaders,
-      body: JSON.stringify({
-        url: pathWithSearch,
-        deliveryAddressOid: pickupExternalLocationId,
-        select_location: pickupExternalLocationId
-      })
-    }
+    ...locationIds.flatMap((pickupExternalLocationId) => {
+      const encodedLocation = encodeURIComponent(pickupExternalLocationId);
+      return [
+        {
+          label: "composer-get-delivery-address",
+          method: "GET",
+          url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
+          headers: jsonHeaders
+        },
+        {
+          label: "entrypoint-get-delivery-address",
+          method: "GET",
+          url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
+          headers: jsonHeaders
+        },
+        {
+          label: "composer-get-selected-location",
+          method: "GET",
+          url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
+          headers: jsonHeaders
+        },
+        {
+          label: "entrypoint-get-selected-location",
+          method: "GET",
+          url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
+          headers: jsonHeaders
+        },
+        {
+          label: "composer-post-delivery-address",
+          method: "POST",
+          url: "/api/composer-api.bx/page/json/v2",
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            url: pathWithSearch,
+            deliveryAddressOid: pickupExternalLocationId
+          })
+        },
+        {
+          label: "composer-post-selected-location",
+          method: "POST",
+          url: "/api/composer-api.bx/page/json/v2",
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            url: pathWithSearch,
+            select_location: pickupExternalLocationId
+          })
+        },
+        {
+          label: "composer-post-location-both",
+          method: "POST",
+          url: "/api/composer-api.bx/page/json/v2",
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            url: pathWithSearch,
+            deliveryAddressOid: pickupExternalLocationId,
+            select_location: pickupExternalLocationId
+          })
+        }
+      ] satisfies EndpointCandidate[];
+    })
   ];
+}
+
+function normalizeLocationIds(pickupExternalLocationIds: string | string[]): string[] {
+  const rawIds = Array.isArray(pickupExternalLocationIds) ? pickupExternalLocationIds : [pickupExternalLocationIds];
+  return [...new Set(rawIds.map((id) => id.trim()).filter(Boolean))];
+}
+
+function responseContainsAnyLocation(json: unknown, pickupExternalLocationIds: string[]): boolean {
+  return normalizeLocationIds(pickupExternalLocationIds).some((id) => responseContainsLocation(json, id));
+}
+
+function extractConfirmedLocationAliases(json: unknown, pickupExternalLocationId: string): string[] {
+  const aliases = new Set<string>();
+  if (responseContainsLocation(json, pickupExternalLocationId)) {
+    collectLocationAliasValues(json).forEach((alias) => aliases.add(alias));
+  }
+
+  walk(json, [], (path, value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return;
+    }
+
+    const localConfirmationValues = Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
+      scalarLocationValues([...path, key], child)
+    );
+    if (!localConfirmationValues.some((item) => item.includes(pickupExternalLocationId))) {
+      return;
+    }
+    Object.entries(value as Record<string, unknown>)
+      .flatMap(([key, child]) => scalarLocationAliasValues([...path, key], child))
+      .forEach((item) => aliases.add(item));
+  });
+  return [...aliases];
+}
+
+function collectLocationAliasValues(json: unknown): string[] {
+  const aliases = new Set<string>();
+  walk(json, [], (path, value) => {
+    scalarLocationAliasValues(path, value).forEach((alias) => aliases.add(alias));
+  });
+  return [...aliases];
+}
+
+function scalarLocationValues(path: string[], value: unknown): string[] {
+  if ((typeof value !== "string" && typeof value !== "number") || !locationConfirmationPathScore(path.join(".").toLowerCase())) {
+    return [];
+  }
+  return [String(value).trim()].filter(Boolean);
+}
+
+function scalarLocationAliasValues(path: string[], value: unknown): string[] {
+  if ((typeof value !== "string" && typeof value !== "number") || !locationAliasPathScore(path.join(".").toLowerCase())) {
+    return [];
+  }
+  return [String(value).trim()].filter(isLocationAlias);
+}
+
+function isLocationAlias(value: string): boolean {
+  return /^[a-z0-9_-]{4,120}$/i.test(value);
 }
 
 export function responseContainsLocation(json: unknown, pickupExternalLocationId: string): boolean {
@@ -402,6 +486,22 @@ function locationConfirmationPathScore(path: string): number {
     return 2;
   }
   if (/(delivery|address|pickup|pickpoint|pvz|location|geo|city|region)/i.test(path)) {
+    return 1;
+  }
+  return 0;
+}
+
+function locationAliasPathScore(path: string): number {
+  if (/(request|url|href|referrer|referer|query|param|tracking|analytics|debug|log|metrika|route)/i.test(path)) {
+    return 0;
+  }
+  if (/(city|region|geo|coordinates|latitude|longitude)/i.test(path)) {
+    return 0;
+  }
+  if (/(delivery|address|pickup|pickpoint|pvz|location)/i.test(path) && /(oid|id|uid)$/i.test(path)) {
+    return 2;
+  }
+  if (/(selected|current|active|chosen)/i.test(path) && /(delivery|address|pickup|pickpoint|pvz|location)/i.test(path)) {
     return 1;
   }
   return 0;

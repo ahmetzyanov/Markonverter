@@ -138,8 +138,11 @@
   async function fetchOzonPrivatePrice(request) {
     const productUrl = new URL(request.productUrl);
     const pathWithSearch = `${productUrl.pathname}${productUrl.search}`;
-    await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId);
-    const candidates = buildEndpointCandidates(pathWithSearch, request.pickupExternalLocationId);
+    const acceptedLocationIds = [
+      request.pickupExternalLocationId,
+      ...await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId)
+    ];
+    const candidates = buildEndpointCandidates(pathWithSearch, acceptedLocationIds);
     const errors = [];
     for (const candidate of candidates) {
       try {
@@ -154,7 +157,7 @@
           continue;
         }
         const json = await response.json();
-        if (!responseContainsLocation(json, request.pickupExternalLocationId)) {
+        if (!responseContainsAnyLocation(json, acceptedLocationIds)) {
           errors.push(`${candidate.label}: response did not confirm requested pickup point`);
           continue;
         }
@@ -172,6 +175,7 @@
   }
   async function activateOzonPickupLocation(pathWithSearch, pickupExternalLocationId) {
     const candidates = buildLocationActivationCandidates(pathWithSearch, pickupExternalLocationId);
+    const aliases = /* @__PURE__ */ new Set();
     for (const candidate of candidates) {
       try {
         const response = await fetch(candidate.url, {
@@ -183,10 +187,13 @@
         if (!response.ok) {
           continue;
         }
-        await response.text();
+        const json = parseMaybeJson(await response.text());
+        extractConfirmedLocationAliases(json, pickupExternalLocationId).forEach((alias) => aliases.add(alias));
       } catch {
       }
     }
+    aliases.delete(pickupExternalLocationId);
+    return [...aliases].slice(0, 6);
   }
   function buildLocationActivationCandidates(pathWithSearch, pickupExternalLocationId) {
     const modalPath = `/modal/addressbook?select_address=${encodeURIComponent(pickupExternalLocationId)}`;
@@ -231,9 +238,9 @@
       }
     ];
   }
-  function buildEndpointCandidates(pathWithSearch, pickupExternalLocationId) {
+  function buildEndpointCandidates(pathWithSearch, pickupExternalLocationIds) {
     const encodedUrl = encodeURIComponent(pathWithSearch);
-    const encodedLocation = encodeURIComponent(pickupExternalLocationId);
+    const locationIds = normalizeLocationIds(pickupExternalLocationIds);
     const jsonHeaders = {
       "content-type": "application/json",
       "x-o3-app-name": "dweb_client",
@@ -241,61 +248,126 @@
     };
     return [
       {
-        label: "composer-get-delivery-address",
+        label: "composer-get-current-page",
         method: "GET",
-        url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
+        url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}`,
         headers: jsonHeaders
       },
       {
-        label: "entrypoint-get-delivery-address",
+        label: "entrypoint-get-current-page",
         method: "GET",
-        url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
+        url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}`,
         headers: jsonHeaders
       },
-      {
-        label: "composer-get-selected-location",
-        method: "GET",
-        url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
-        headers: jsonHeaders
-      },
-      {
-        label: "entrypoint-get-selected-location",
-        method: "GET",
-        url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
-        headers: jsonHeaders
-      },
-      {
-        label: "composer-post-delivery-address",
-        method: "POST",
-        url: "/api/composer-api.bx/page/json/v2",
-        headers: jsonHeaders,
-        body: JSON.stringify({
-          url: pathWithSearch,
-          deliveryAddressOid: pickupExternalLocationId
-        })
-      },
-      {
-        label: "composer-post-selected-location",
-        method: "POST",
-        url: "/api/composer-api.bx/page/json/v2",
-        headers: jsonHeaders,
-        body: JSON.stringify({
-          url: pathWithSearch,
-          select_location: pickupExternalLocationId
-        })
-      },
-      {
-        label: "composer-post-location-both",
-        method: "POST",
-        url: "/api/composer-api.bx/page/json/v2",
-        headers: jsonHeaders,
-        body: JSON.stringify({
-          url: pathWithSearch,
-          deliveryAddressOid: pickupExternalLocationId,
-          select_location: pickupExternalLocationId
-        })
-      }
+      ...locationIds.flatMap((pickupExternalLocationId) => {
+        const encodedLocation = encodeURIComponent(pickupExternalLocationId);
+        return [
+          {
+            label: "composer-get-delivery-address",
+            method: "GET",
+            url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
+            headers: jsonHeaders
+          },
+          {
+            label: "entrypoint-get-delivery-address",
+            method: "GET",
+            url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
+            headers: jsonHeaders
+          },
+          {
+            label: "composer-get-selected-location",
+            method: "GET",
+            url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
+            headers: jsonHeaders
+          },
+          {
+            label: "entrypoint-get-selected-location",
+            method: "GET",
+            url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
+            headers: jsonHeaders
+          },
+          {
+            label: "composer-post-delivery-address",
+            method: "POST",
+            url: "/api/composer-api.bx/page/json/v2",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+              url: pathWithSearch,
+              deliveryAddressOid: pickupExternalLocationId
+            })
+          },
+          {
+            label: "composer-post-selected-location",
+            method: "POST",
+            url: "/api/composer-api.bx/page/json/v2",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+              url: pathWithSearch,
+              select_location: pickupExternalLocationId
+            })
+          },
+          {
+            label: "composer-post-location-both",
+            method: "POST",
+            url: "/api/composer-api.bx/page/json/v2",
+            headers: jsonHeaders,
+            body: JSON.stringify({
+              url: pathWithSearch,
+              deliveryAddressOid: pickupExternalLocationId,
+              select_location: pickupExternalLocationId
+            })
+          }
+        ];
+      })
     ];
+  }
+  function normalizeLocationIds(pickupExternalLocationIds) {
+    const rawIds = Array.isArray(pickupExternalLocationIds) ? pickupExternalLocationIds : [pickupExternalLocationIds];
+    return [...new Set(rawIds.map((id) => id.trim()).filter(Boolean))];
+  }
+  function responseContainsAnyLocation(json, pickupExternalLocationIds) {
+    return normalizeLocationIds(pickupExternalLocationIds).some((id) => responseContainsLocation(json, id));
+  }
+  function extractConfirmedLocationAliases(json, pickupExternalLocationId) {
+    const aliases = /* @__PURE__ */ new Set();
+    if (responseContainsLocation(json, pickupExternalLocationId)) {
+      collectLocationAliasValues(json).forEach((alias) => aliases.add(alias));
+    }
+    walk(json, [], (path, value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return;
+      }
+      const localConfirmationValues = Object.entries(value).flatMap(
+        ([key, child]) => scalarLocationValues([...path, key], child)
+      );
+      if (!localConfirmationValues.some((item) => item.includes(pickupExternalLocationId))) {
+        return;
+      }
+      Object.entries(value).flatMap(([key, child]) => scalarLocationAliasValues([...path, key], child)).forEach((item) => aliases.add(item));
+    });
+    return [...aliases];
+  }
+  function collectLocationAliasValues(json) {
+    const aliases = /* @__PURE__ */ new Set();
+    walk(json, [], (path, value) => {
+      scalarLocationAliasValues(path, value).forEach((alias) => aliases.add(alias));
+    });
+    return [...aliases];
+  }
+  function scalarLocationValues(path, value) {
+    if (typeof value !== "string" && typeof value !== "number" || !locationConfirmationPathScore(path.join(".").toLowerCase())) {
+      return [];
+    }
+    return [String(value).trim()].filter(Boolean);
+  }
+  function scalarLocationAliasValues(path, value) {
+    if (typeof value !== "string" && typeof value !== "number" || !locationAliasPathScore(path.join(".").toLowerCase())) {
+      return [];
+    }
+    return [String(value).trim()].filter(isLocationAlias);
+  }
+  function isLocationAlias(value) {
+    return /^[a-z0-9_-]{4,120}$/i.test(value);
   }
   function responseContainsLocation(json, pickupExternalLocationId) {
     const needle = pickupExternalLocationId.trim();
@@ -473,6 +545,21 @@
     }
     return 0;
   }
+  function locationAliasPathScore(path) {
+    if (/(request|url|href|referrer|referer|query|param|tracking|analytics|debug|log|metrika|route)/i.test(path)) {
+      return 0;
+    }
+    if (/(city|region|geo|coordinates|latitude|longitude)/i.test(path)) {
+      return 0;
+    }
+    if (/(delivery|address|pickup|pickpoint|pvz|location)/i.test(path) && /(oid|id|uid)$/i.test(path)) {
+      return 2;
+    }
+    if (/(selected|current|active|chosen)/i.test(path) && /(delivery|address|pickup|pickpoint|pvz|location)/i.test(path)) {
+      return 1;
+    }
+    return 0;
+  }
   function compactText(value) {
     return value.replace(/\s+/g, " ").trim();
   }
@@ -606,13 +693,14 @@
       if (keyScore === 0 || keyScore < 35 && !relevantObject) {
         continue;
       }
+      const bestName = extractNameNearId(sourceText, id, sourceText.indexOf(id)) || name;
       candidates.push({
         externalLocationId: id,
-        name: name || `Ozon pickup ${id}`,
+        name: bestName || `Ozon pickup ${id}`,
         country,
         currency,
         source,
-        score: keyScore + (relevantObject ? 20 : 0) + (name ? 10 : 0) + (country === "KZ" ? 2 : 0),
+        score: keyScore + (relevantObject ? 20 : 0) + (bestName ? 10 : 0) + (country === "KZ" ? 2 : 0),
         comment: `Captured from ${source}`
       });
     }
@@ -634,13 +722,14 @@
           continue;
         }
         const country = inferCountry(`${sourceText} ${text.slice(Math.max(0, match.index - 200), match.index + 300)}`);
+        const name = extractNameNearId(text, id, match.index) || extractNameNearId(sourceText, id, sourceText.indexOf(id));
         candidates.push({
           externalLocationId: id,
-          name: `Ozon pickup ${id}`,
+          name: name || `Ozon pickup ${id}`,
           country,
           currency: country === "KZ" ? "KZT" : "RUB",
           source,
-          score: 35,
+          score: 35 + (name ? 30 : 0),
           comment: `Captured from ${source}`
         });
       }
@@ -669,6 +758,10 @@
       "addressText",
       "shortAddress",
       "displayName",
+      "subtitle",
+      "description",
+      "caption",
+      "text",
       "name",
       "title",
       "city"
@@ -687,6 +780,149 @@
     }
     const sourceLabel = sourceText.match(/(?:пункт выдачи|пвз|pickup point|адрес)[:\s-]+([^|]{8,120})/i)?.[1];
     return sourceLabel ? compact(sourceLabel) : "";
+  }
+  function extractNameNearId(text, id, matchIndex) {
+    if (!text || matchIndex < 0) {
+      return "";
+    }
+    const start = Math.max(0, matchIndex - 600);
+    const end = Math.min(text.length, matchIndex + id.length + 900);
+    const snippet = decodeTextSnippet(text.slice(start, end));
+    const localIdIndex = snippet.indexOf(id);
+    const scopedText = localIdIndex >= 0 ? textScopeNearId(snippet, localIdIndex, id) : snippet;
+    const labels = [];
+    const structuredLabels = extractStructuredLabels(scopedText);
+    labels.push(...structuredLabels);
+    labels.push(...extractOzonPointLabels(scopedText));
+    if (localIdIndex >= 0) {
+      if (structuredLabels.length === 0 || scopedText.includes("<")) {
+        labels.push(stripMarkup(scopedText));
+      }
+      const scopedIdIndex = scopedText.indexOf(id);
+      if (scopedIdIndex >= 0 && structuredLabels.length === 0) {
+        labels.push(stripMarkup(scopedText.slice(scopedIdIndex + id.length)));
+      }
+    }
+    return pickBestLabel(labels, id);
+  }
+  function textScopeNearId(text, idIndex, id) {
+    const tagStart = text.lastIndexOf("<", idIndex);
+    const openingTagEnd = text.indexOf(">", idIndex + id.length);
+    const closingTagStart = openingTagEnd >= 0 ? text.indexOf("</", openingTagEnd) : -1;
+    const closingTagEnd = closingTagStart >= 0 ? text.indexOf(">", closingTagStart) : -1;
+    if (tagStart >= 0 && openingTagEnd >= 0 && closingTagStart > openingTagEnd && closingTagEnd > closingTagStart) {
+      return text.slice(tagStart, closingTagEnd + 1);
+    }
+    const objectStart = text.lastIndexOf("{", idIndex);
+    const objectEnd = text.indexOf("}", idIndex + id.length);
+    const jsonScope = jsonScopeNearId(text, idIndex);
+    if (jsonScope) {
+      return jsonScope;
+    }
+    if (objectStart >= 0 && objectEnd > idIndex) {
+      return text.slice(objectStart, objectEnd + 1);
+    }
+    const itemStart = Math.max(
+      0,
+      Math.max(text.lastIndexOf("\n", idIndex), text.lastIndexOf("|", idIndex), text.lastIndexOf("</", idIndex))
+    );
+    const nextBreaks = [text.indexOf("\n", idIndex + id.length), text.indexOf("|", idIndex + id.length), text.indexOf("<", idIndex + id.length)].filter((index) => index >= 0).sort((a, b) => a - b);
+    const itemEnd = nextBreaks[0] ?? Math.min(text.length, idIndex + id.length + 320);
+    return text.slice(itemStart, itemEnd);
+  }
+  function jsonScopeNearId(text, idIndex) {
+    const starts = [];
+    let start = text.lastIndexOf("{", idIndex);
+    while (start >= 0 && starts.length < 8 && idIndex - start < 2500) {
+      starts.push(start);
+      start = text.lastIndexOf("{", start - 1);
+    }
+    const scopes = starts.map((scopeStart) => {
+      const scopeEnd = findMatchingBrace(text, scopeStart);
+      return scopeEnd > idIndex ? text.slice(scopeStart, scopeEnd + 1) : "";
+    }).filter(Boolean).sort((a, b) => a.length - b.length);
+    return scopes.find((scope) => extractStructuredLabels(scope).some((label) => isUsefulLabel(compact(label)))) || "";
+  }
+  function findMatchingBrace(text, start) {
+    let depth = 0;
+    let quote = "";
+    let escaped = false;
+    for (let index = start; index < text.length; index += 1) {
+      const char = text[index];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (quote) {
+        if (char === "\\") {
+          escaped = true;
+        } else if (char === quote) {
+          quote = "";
+        }
+        continue;
+      }
+      if (char === '"' || char === "'") {
+        quote = char;
+        continue;
+      }
+      if (char === "{") {
+        depth += 1;
+      } else if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          return index;
+        }
+      }
+    }
+    return -1;
+  }
+  function extractStructuredLabels(text) {
+    const labels = [];
+    const pattern = /(?:fullAddress|formattedAddress|addressText|shortAddress|displayName|address|subtitle|description|caption|title|name|city|street|text)["'\s]*[:=]\s*["']([^"']{3,260})/gi;
+    let match;
+    while (match = pattern.exec(text)) {
+      labels.push(match[1]);
+    }
+    const attributePattern = /(?:aria-label|title|data-address|data-title)=["']([^"']{3,260})/gi;
+    while (match = attributePattern.exec(text)) {
+      labels.push(match[1]);
+    }
+    return labels;
+  }
+  function extractOzonPointLabels(text) {
+    const labels = [];
+    const pattern = /Пункт\s+Ozon\s*№\s*[\d-]+[^|<>{}\[\]\n\r]{0,170}/gi;
+    let match;
+    while (match = pattern.exec(text)) {
+      labels.push(match[0]);
+    }
+    return labels;
+  }
+  function pickBestLabel(labels, externalLocationId) {
+    let best = "";
+    let bestScore = 0;
+    for (const rawLabel of labels) {
+      const label = cleanLabel(rawLabel, externalLocationId);
+      if (!label || !isUsefulLabel(label)) {
+        continue;
+      }
+      const score = scorePickupLabel(label, externalLocationId);
+      if (score > bestScore || score === bestScore && label.length > best.length && label.length <= 180) {
+        best = label;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+  function cleanLabel(value, externalLocationId) {
+    const withoutMarkup = stripMarkup(decodeTextSnippet(value)).replace(new RegExp(externalLocationId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " ").replace(/(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)\s*[:=]?\s*/gi, " ").replace(/(?:fullAddress|formattedAddress|addressText|shortAddress|displayName|address|subtitle|description|caption|title|name|city|street|text)\\?["']?\s*[:=]\s*\\?["']?/gi, " ").replace(/https?:\/\/\S+/gi, " ").replace(/\/modal\/addressbook\S*/gi, " ").replace(/\\[nrt]/gi, " ");
+    return compact(withoutMarkup).replace(/^[\s"'=:,;{}()[\]<>.-]+/, "").replace(/[\s"'=:,;{}()[\]<>.-]+$/, "");
+  }
+  function decodeTextSnippet(value) {
+    return value.replace(/\\u([\da-f]{4})/gi, (_match, code) => String.fromCharCode(Number.parseInt(code, 16))).replace(/\\"/g, '"').replace(/\\\//g, "/").replace(/&quot;/gi, '"').replace(/&amp;/gi, "&").replace(/&#x([\da-f]+);/gi, (_match, code) => String.fromCharCode(Number.parseInt(code, 16))).replace(/&#(\d+);/g, (_match, code) => String.fromCharCode(Number.parseInt(code, 10)));
+  }
+  function stripMarkup(value) {
+    return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ");
   }
   function inferCountry(text) {
     if (/https?:\/\/(?:[^/]+\.)?ozon\.kz\b/i.test(text) || /\bozon\.kz\b/i.test(text)) {
@@ -735,7 +971,7 @@
   }
   function isUsefulLabel(value) {
     const ozonPointMatches = value.match(/Пункт\s+Ozon\s*№/gi);
-    return value.length >= 3 && value.length <= 180 && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
+    return value.length >= 3 && value.length <= 180 && !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
   }
   function compact(value) {
     return value.replace(/\s+/g, " ").trim();
@@ -1701,10 +1937,17 @@
     if (countPickupRowMarkers(text) > 1) {
       return false;
     }
-    return /(пункт\s+ozon|пвз|pickup|выдач)/i.test(text);
+    return /(пункт\s+ozon|пвз|pickup|выдач)/i.test(text) || hasOzonPickupIdEvidence(element) && isAddressLikePickupRowText(text);
   }
   function isOzonAddAddressControlText(text) {
     return /(?:^|\s)(?:добавить|добавьте|add)(?:\s|$)/i.test(text) && /(адрес|пункт\s+выдач|постамат|delivery|pickup)/i.test(text);
+  }
+  function hasOzonPickupIdEvidence(element) {
+    const evidence = Object.entries(collectOzonRowEvidence(element)).map(([key, value]) => `${key}=${value}`).join(" ");
+    return /(select_address|deliveryAddress|addressOid|addressId|addressUid|pickupPoint|pickPoint|pvz|data-address|href)/i.test(evidence);
+  }
+  function isAddressLikePickupRowText(text) {
+    return /(ул\.?|улица|пр-кт|проспект|шоссе|пер\.?|переулок|мкр|микрорайон|дом|д\.|street|avenue|road)/i.test(text) || /(?:^|[\s,])\d{1,4}[а-яa-z]?(?:[\s,]|$)/i.test(text);
   }
   function extractOzonPickupCandidateFromRow(element) {
     const text = getOzonRowText(element);

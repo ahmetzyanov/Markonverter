@@ -30,8 +30,15 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
 - When Ozon first exposes only a pickup-point id, content-script discovery should
   prefer later addressbook labels for the same id and silently update saved
   points only if their current name is an auto-generated id label.
+- If Ozon exposes a pickup-point id through `select_address` in HTML or JSON,
+  parse nearby link text, subtitle, title, address, or similar fields before
+  falling back to `Ozon pickup <id>`.
 - Product-page price checks for saved Ozon pickup points run sequentially. Each
   check first tries Ozon's address-book `select_address` modal endpoint for that
   saved location id, then accepts a product price only when the product response
   confirms the same id. Keep this strict check to avoid showing a reused current
   address price under the wrong saved point.
+- Some Ozon product responses confirm an internal selected-address id instead of
+  the saved `select_address` id. Accept those aliases only if the activation
+  response also confirms the saved id; never trust aliases that appear only in
+  request echo, URL, href, query, debug, or tracking fields.

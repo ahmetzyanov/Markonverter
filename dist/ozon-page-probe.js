@@ -111,13 +111,14 @@
       if (keyScore === 0 || keyScore < 35 && !relevantObject) {
         continue;
       }
+      const bestName = extractNameNearId(sourceText, id, sourceText.indexOf(id)) || name;
       candidates.push({
         externalLocationId: id,
-        name: name || `Ozon pickup ${id}`,
+        name: bestName || `Ozon pickup ${id}`,
         country,
         currency,
         source,
-        score: keyScore + (relevantObject ? 20 : 0) + (name ? 10 : 0) + (country === "KZ" ? 2 : 0),
+        score: keyScore + (relevantObject ? 20 : 0) + (bestName ? 10 : 0) + (country === "KZ" ? 2 : 0),
         comment: `Captured from ${source}`
       });
     }
@@ -139,13 +140,14 @@
           continue;
         }
         const country = inferCountry(`${sourceText} ${text.slice(Math.max(0, match.index - 200), match.index + 300)}`);
+        const name = extractNameNearId(text, id, match.index) || extractNameNearId(sourceText, id, sourceText.indexOf(id));
         candidates.push({
           externalLocationId: id,
-          name: `Ozon pickup ${id}`,
+          name: name || `Ozon pickup ${id}`,
           country,
           currency: country === "KZ" ? "KZT" : "RUB",
           source,
-          score: 35,
+          score: 35 + (name ? 30 : 0),
           comment: `Captured from ${source}`
         });
       }
@@ -174,6 +176,10 @@
       "addressText",
       "shortAddress",
       "displayName",
+      "subtitle",
+      "description",
+      "caption",
+      "text",
       "name",
       "title",
       "city"
@@ -192,6 +198,149 @@
     }
     const sourceLabel = sourceText.match(/(?:пункт выдачи|пвз|pickup point|адрес)[:\s-]+([^|]{8,120})/i)?.[1];
     return sourceLabel ? compact(sourceLabel) : "";
+  }
+  function extractNameNearId(text, id, matchIndex) {
+    if (!text || matchIndex < 0) {
+      return "";
+    }
+    const start = Math.max(0, matchIndex - 600);
+    const end = Math.min(text.length, matchIndex + id.length + 900);
+    const snippet = decodeTextSnippet(text.slice(start, end));
+    const localIdIndex = snippet.indexOf(id);
+    const scopedText = localIdIndex >= 0 ? textScopeNearId(snippet, localIdIndex, id) : snippet;
+    const labels = [];
+    const structuredLabels = extractStructuredLabels(scopedText);
+    labels.push(...structuredLabels);
+    labels.push(...extractOzonPointLabels(scopedText));
+    if (localIdIndex >= 0) {
+      if (structuredLabels.length === 0 || scopedText.includes("<")) {
+        labels.push(stripMarkup(scopedText));
+      }
+      const scopedIdIndex = scopedText.indexOf(id);
+      if (scopedIdIndex >= 0 && structuredLabels.length === 0) {
+        labels.push(stripMarkup(scopedText.slice(scopedIdIndex + id.length)));
+      }
+    }
+    return pickBestLabel(labels, id);
+  }
+  function textScopeNearId(text, idIndex, id) {
+    const tagStart = text.lastIndexOf("<", idIndex);
+    const openingTagEnd = text.indexOf(">", idIndex + id.length);
+    const closingTagStart = openingTagEnd >= 0 ? text.indexOf("</", openingTagEnd) : -1;
+    const closingTagEnd = closingTagStart >= 0 ? text.indexOf(">", closingTagStart) : -1;
+    if (tagStart >= 0 && openingTagEnd >= 0 && closingTagStart > openingTagEnd && closingTagEnd > closingTagStart) {
+      return text.slice(tagStart, closingTagEnd + 1);
+    }
+    const objectStart = text.lastIndexOf("{", idIndex);
+    const objectEnd = text.indexOf("}", idIndex + id.length);
+    const jsonScope = jsonScopeNearId(text, idIndex);
+    if (jsonScope) {
+      return jsonScope;
+    }
+    if (objectStart >= 0 && objectEnd > idIndex) {
+      return text.slice(objectStart, objectEnd + 1);
+    }
+    const itemStart = Math.max(
+      0,
+      Math.max(text.lastIndexOf("\n", idIndex), text.lastIndexOf("|", idIndex), text.lastIndexOf("</", idIndex))
+    );
+    const nextBreaks = [text.indexOf("\n", idIndex + id.length), text.indexOf("|", idIndex + id.length), text.indexOf("<", idIndex + id.length)].filter((index) => index >= 0).sort((a, b) => a - b);
+    const itemEnd = nextBreaks[0] ?? Math.min(text.length, idIndex + id.length + 320);
+    return text.slice(itemStart, itemEnd);
+  }
+  function jsonScopeNearId(text, idIndex) {
+    const starts = [];
+    let start = text.lastIndexOf("{", idIndex);
+    while (start >= 0 && starts.length < 8 && idIndex - start < 2500) {
+      starts.push(start);
+      start = text.lastIndexOf("{", start - 1);
+    }
+    const scopes = starts.map((scopeStart) => {
+      const scopeEnd = findMatchingBrace(text, scopeStart);
+      return scopeEnd > idIndex ? text.slice(scopeStart, scopeEnd + 1) : "";
+    }).filter(Boolean).sort((a, b) => a.length - b.length);
+    return scopes.find((scope) => extractStructuredLabels(scope).some((label) => isUsefulLabel(compact(label)))) || "";
+  }
+  function findMatchingBrace(text, start) {
+    let depth = 0;
+    let quote = "";
+    let escaped = false;
+    for (let index = start; index < text.length; index += 1) {
+      const char = text[index];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (quote) {
+        if (char === "\\") {
+          escaped = true;
+        } else if (char === quote) {
+          quote = "";
+        }
+        continue;
+      }
+      if (char === '"' || char === "'") {
+        quote = char;
+        continue;
+      }
+      if (char === "{") {
+        depth += 1;
+      } else if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          return index;
+        }
+      }
+    }
+    return -1;
+  }
+  function extractStructuredLabels(text) {
+    const labels = [];
+    const pattern = /(?:fullAddress|formattedAddress|addressText|shortAddress|displayName|address|subtitle|description|caption|title|name|city|street|text)["'\s]*[:=]\s*["']([^"']{3,260})/gi;
+    let match;
+    while (match = pattern.exec(text)) {
+      labels.push(match[1]);
+    }
+    const attributePattern = /(?:aria-label|title|data-address|data-title)=["']([^"']{3,260})/gi;
+    while (match = attributePattern.exec(text)) {
+      labels.push(match[1]);
+    }
+    return labels;
+  }
+  function extractOzonPointLabels(text) {
+    const labels = [];
+    const pattern = /Пункт\s+Ozon\s*№\s*[\d-]+[^|<>{}\[\]\n\r]{0,170}/gi;
+    let match;
+    while (match = pattern.exec(text)) {
+      labels.push(match[0]);
+    }
+    return labels;
+  }
+  function pickBestLabel(labels, externalLocationId) {
+    let best = "";
+    let bestScore = 0;
+    for (const rawLabel of labels) {
+      const label = cleanLabel(rawLabel, externalLocationId);
+      if (!label || !isUsefulLabel(label)) {
+        continue;
+      }
+      const score = scorePickupLabel(label, externalLocationId);
+      if (score > bestScore || score === bestScore && label.length > best.length && label.length <= 180) {
+        best = label;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+  function cleanLabel(value, externalLocationId) {
+    const withoutMarkup = stripMarkup(decodeTextSnippet(value)).replace(new RegExp(externalLocationId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " ").replace(/(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)\s*[:=]?\s*/gi, " ").replace(/(?:fullAddress|formattedAddress|addressText|shortAddress|displayName|address|subtitle|description|caption|title|name|city|street|text)\\?["']?\s*[:=]\s*\\?["']?/gi, " ").replace(/https?:\/\/\S+/gi, " ").replace(/\/modal\/addressbook\S*/gi, " ").replace(/\\[nrt]/gi, " ");
+    return compact(withoutMarkup).replace(/^[\s"'=:,;{}()[\]<>.-]+/, "").replace(/[\s"'=:,;{}()[\]<>.-]+$/, "");
+  }
+  function decodeTextSnippet(value) {
+    return value.replace(/\\u([\da-f]{4})/gi, (_match, code) => String.fromCharCode(Number.parseInt(code, 16))).replace(/\\"/g, '"').replace(/\\\//g, "/").replace(/&quot;/gi, '"').replace(/&amp;/gi, "&").replace(/&#x([\da-f]+);/gi, (_match, code) => String.fromCharCode(Number.parseInt(code, 16))).replace(/&#(\d+);/g, (_match, code) => String.fromCharCode(Number.parseInt(code, 10)));
+  }
+  function stripMarkup(value) {
+    return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ");
   }
   function inferCountry(text) {
     if (/https?:\/\/(?:[^/]+\.)?ozon\.kz\b/i.test(text) || /\bozon\.kz\b/i.test(text)) {
@@ -240,7 +389,7 @@
   }
   function isUsefulLabel(value) {
     const ozonPointMatches = value.match(/Пункт\s+Ozon\s*№/gi);
-    return value.length >= 3 && value.length <= 180 && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
+    return value.length >= 3 && value.length <= 180 && !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
   }
   function compact(value) {
     return value.replace(/\s+/g, " ").trim();

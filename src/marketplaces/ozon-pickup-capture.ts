@@ -268,21 +268,109 @@ function extractNameNearId(text: string, id: string, matchIndex: number): string
   const end = Math.min(text.length, matchIndex + id.length + 900);
   const snippet = decodeTextSnippet(text.slice(start, end));
   const localIdIndex = snippet.indexOf(id);
+  const scopedText = localIdIndex >= 0 ? textScopeNearId(snippet, localIdIndex, id) : snippet;
   const labels: string[] = [];
+  const structuredLabels = extractStructuredLabels(scopedText);
 
-  labels.push(...extractStructuredLabels(snippet));
-  labels.push(...extractOzonPointLabels(snippet));
+  labels.push(...structuredLabels);
+  labels.push(...extractOzonPointLabels(scopedText));
 
   if (localIdIndex >= 0) {
-    const tagStart = snippet.lastIndexOf("<", localIdIndex);
-    const tagEnd = snippet.indexOf("</", localIdIndex);
-    if (tagStart >= 0 && tagEnd > localIdIndex) {
-      labels.push(stripMarkup(snippet.slice(tagStart, Math.min(snippet.length, tagEnd + 160))));
+    if (structuredLabels.length === 0 || scopedText.includes("<")) {
+      labels.push(stripMarkup(scopedText));
     }
-    labels.push(stripMarkup(snippet.slice(localIdIndex + id.length, Math.min(snippet.length, localIdIndex + id.length + 260))));
+    const scopedIdIndex = scopedText.indexOf(id);
+    if (scopedIdIndex >= 0 && structuredLabels.length === 0) {
+      labels.push(stripMarkup(scopedText.slice(scopedIdIndex + id.length)));
+    }
   }
 
   return pickBestLabel(labels, id);
+}
+
+function textScopeNearId(text: string, idIndex: number, id: string): string {
+  const tagStart = text.lastIndexOf("<", idIndex);
+  const openingTagEnd = text.indexOf(">", idIndex + id.length);
+  const closingTagStart = openingTagEnd >= 0 ? text.indexOf("</", openingTagEnd) : -1;
+  const closingTagEnd = closingTagStart >= 0 ? text.indexOf(">", closingTagStart) : -1;
+  if (tagStart >= 0 && openingTagEnd >= 0 && closingTagStart > openingTagEnd && closingTagEnd > closingTagStart) {
+    return text.slice(tagStart, closingTagEnd + 1);
+  }
+
+  const objectStart = text.lastIndexOf("{", idIndex);
+  const objectEnd = text.indexOf("}", idIndex + id.length);
+  const jsonScope = jsonScopeNearId(text, idIndex);
+  if (jsonScope) {
+    return jsonScope;
+  }
+  if (objectStart >= 0 && objectEnd > idIndex) {
+    return text.slice(objectStart, objectEnd + 1);
+  }
+
+  const itemStart = Math.max(
+    0,
+    Math.max(text.lastIndexOf("\n", idIndex), text.lastIndexOf("|", idIndex), text.lastIndexOf("</", idIndex))
+  );
+  const nextBreaks = [text.indexOf("\n", idIndex + id.length), text.indexOf("|", idIndex + id.length), text.indexOf("<", idIndex + id.length)]
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b);
+  const itemEnd = nextBreaks[0] ?? Math.min(text.length, idIndex + id.length + 320);
+  return text.slice(itemStart, itemEnd);
+}
+
+function jsonScopeNearId(text: string, idIndex: number): string {
+  const starts: number[] = [];
+  let start = text.lastIndexOf("{", idIndex);
+  while (start >= 0 && starts.length < 8 && idIndex - start < 2500) {
+    starts.push(start);
+    start = text.lastIndexOf("{", start - 1);
+  }
+
+  const scopes = starts
+    .map((scopeStart) => {
+      const scopeEnd = findMatchingBrace(text, scopeStart);
+      return scopeEnd > idIndex ? text.slice(scopeStart, scopeEnd + 1) : "";
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.length - b.length);
+
+  return scopes.find((scope) => extractStructuredLabels(scope).some((label) => isUsefulLabel(compact(label)))) || "";
+}
+
+function findMatchingBrace(text: string, start: number): number {
+  let depth = 0;
+  let quote = "";
+  let escaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (quote) {
+      if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = "";
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+
+  return -1;
 }
 
 function extractStructuredLabels(text: string): string[] {
@@ -331,6 +419,7 @@ function cleanLabel(value: string, externalLocationId: string): string {
   const withoutMarkup = stripMarkup(decodeTextSnippet(value))
     .replace(new RegExp(externalLocationId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " ")
     .replace(/(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)\s*[:=]?\s*/gi, " ")
+    .replace(/(?:fullAddress|formattedAddress|addressText|shortAddress|displayName|address|subtitle|description|caption|title|name|city|street|text)\\?["']?\s*[:=]\s*\\?["']?/gi, " ")
     .replace(/https?:\/\/\S+/gi, " ")
     .replace(/\/modal\/addressbook\S*/gi, " ")
     .replace(/\\[nrt]/gi, " ");
@@ -411,6 +500,7 @@ function isUsefulLabel(value: string): boolean {
   return (
     value.length >= 3 &&
     value.length <= 180 &&
+    !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) &&
     !/^[a-z0-9_-]{4,80}$/i.test(value) &&
     !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) &&
     (ozonPointMatches?.length || 0) <= 1
