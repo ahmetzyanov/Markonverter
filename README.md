@@ -11,7 +11,8 @@ Chrome/Chromium Manifest V3 extension for comparing an Ozon product price across
 - Lets you choose and delete saved pickup points directly in the product-page panel.
 - Shows pickup points detected from Ozon page/network data when Ozon loads them.
 - Adds Markonverter save controls near Ozon's delivery selection UI when it is visible.
-- Falls back to product-specific captured prices when Ozon refuses to verify a saved point through its private product API.
+- Tries to activate each saved Ozon pickup point automatically before reading that product's price.
+- Falls back to product-specific captured prices when Ozon still refuses to verify a saved point through its private product API.
 - Copies per-point diagnostics for failed Ozon API attempts.
 - Converts prices between RUB and KZT.
 - Uses RUB as the default comparison currency.
@@ -53,7 +54,7 @@ The settings page still allows manual editing. Each pickup point stores:
 - currency
 - Ozon location id
 
-The extension does not change the selected delivery point automatically. It reads pickup points that Ozon has already exposed through visible delivery rows, page state, or network data.
+The extension may change the selected delivery point automatically while comparing saved Ozon pickup points. It does this one point at a time, then only accepts a price when Ozon's product response confirms the requested pickup-point id.
 
 Use `Points` in the product-page panel to choose which saved Markonverter points are compared. The same panel shows `Detected on Ozon` when Ozon exposes pickup points through the visible page or network responses. Those detected points can be saved into Markonverter from their own rows.
 
@@ -61,9 +62,9 @@ When Ozon's delivery selector is open, Markonverter shows selector-level status 
 
 ## Ozon API note
 
-The extension calls Ozon same-origin JSON endpoints from the extension content script and passes the configured pickup location id. It only accepts a price when the response also confirms the requested location id. Ozon private API payloads are not stable public contracts, so a failed endpoint, missing location confirmation, or ambiguous price appears as a per-pickup-point error in the page panel instead of changing the user's visible delivery point.
+The extension calls Ozon same-origin JSON endpoints from the extension content script. Before reading a saved point's price, it first opens Ozon's address-book selection endpoint for that saved location id, then asks product endpoints for the price. It only accepts a price when the product response also confirms the requested location id. Ozon private API payloads are not stable public contracts, so a failed endpoint, missing location confirmation, or ambiguous price appears as a per-pickup-point error in the page panel.
 
-Some Ozon address-book ids are only confirmed by Ozon after the user selects that point in the page session. Markonverter keeps the strict confirmation check to avoid showing the current address price under the wrong saved point. Use `Capture current` as the safe fallback for those rows, and `Copy details` when debugging a failed point.
+Some Ozon address-book ids may still fail if Ozon ignores the automatic selection request. Markonverter keeps the strict confirmation check to avoid showing the current address price under the wrong saved point. Use `Capture current` as the safe fallback for those rows, and `Copy details` when debugging a failed point.
 
 ## Checks
 

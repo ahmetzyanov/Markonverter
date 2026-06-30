@@ -138,6 +138,7 @@
   async function fetchOzonPrivatePrice(request) {
     const productUrl = new URL(request.productUrl);
     const pathWithSearch = `${productUrl.pathname}${productUrl.search}`;
+    await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId);
     const candidates = buildEndpointCandidates(pathWithSearch, request.pickupExternalLocationId);
     const errors = [];
     for (const candidate of candidates) {
@@ -168,6 +169,67 @@
       }
     }
     throw new Error(`Ozon private API did not return a verified product price. ${errors.join("; ")}`);
+  }
+  async function activateOzonPickupLocation(pathWithSearch, pickupExternalLocationId) {
+    const candidates = buildLocationActivationCandidates(pathWithSearch, pickupExternalLocationId);
+    for (const candidate of candidates) {
+      try {
+        const response = await fetch(candidate.url, {
+          method: candidate.method,
+          credentials: "include",
+          headers: candidate.headers,
+          body: candidate.body
+        });
+        if (!response.ok) {
+          continue;
+        }
+        await response.text();
+      } catch {
+      }
+    }
+  }
+  function buildLocationActivationCandidates(pathWithSearch, pickupExternalLocationId) {
+    const modalPath = `/modal/addressbook?select_address=${encodeURIComponent(pickupExternalLocationId)}`;
+    const encodedModalPath = encodeURIComponent(modalPath);
+    const jsonHeaders = {
+      "content-type": "application/json",
+      "x-o3-app-name": "dweb_client",
+      "x-o3-app-version": "release"
+    };
+    return [
+      {
+        label: "entrypoint-select-address-modal",
+        method: "GET",
+        url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedModalPath}`,
+        headers: jsonHeaders
+      },
+      {
+        label: "composer-select-address-modal",
+        method: "GET",
+        url: `/api/composer-api.bx/page/json/v2?url=${encodedModalPath}`,
+        headers: jsonHeaders
+      },
+      {
+        label: "entrypoint-post-select-address-modal",
+        method: "POST",
+        url: "/api/entrypoint-api.bx/page/json/v2",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          url: modalPath,
+          referer: pathWithSearch
+        })
+      },
+      {
+        label: "composer-post-select-address-modal",
+        method: "POST",
+        url: "/api/composer-api.bx/page/json/v2",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          url: modalPath,
+          referer: pathWithSearch
+        })
+      }
+    ];
   }
   function buildEndpointCandidates(pathWithSearch, pickupExternalLocationId) {
     const encodedUrl = encodeURIComponent(pathWithSearch);
@@ -462,6 +524,43 @@
     }
     return dedupeCandidates2(candidates).sort((a, b) => b.score - a.score);
   }
+  function isGenericOzonPickupName(name, externalLocationId) {
+    const label = compact(name);
+    const id = compact(externalLocationId);
+    if (!label) {
+      return true;
+    }
+    if (id && label.toLowerCase() === id.toLowerCase()) {
+      return true;
+    }
+    if (/^[a-z0-9_-]{4,80}$/i.test(label)) {
+      return true;
+    }
+    if (/^ozon pickup [a-z0-9_-]{4,80}$/i.test(label)) {
+      return true;
+    }
+    if (id && label.toLowerCase() === `pickup ${id}`.toLowerCase()) {
+      return true;
+    }
+    return false;
+  }
+  function shouldReplaceOzonPickupCandidate(existing, candidate) {
+    const existingLabelScore = scorePickupLabel(existing.name, existing.externalLocationId);
+    const candidateLabelScore = scorePickupLabel(candidate.name, candidate.externalLocationId);
+    if (candidateLabelScore > existingLabelScore && candidate.score >= existing.score - 35) {
+      return true;
+    }
+    if (candidateLabelScore < existingLabelScore && isGenericOzonPickupName(candidate.name, candidate.externalLocationId)) {
+      return false;
+    }
+    if (candidate.score > existing.score) {
+      return true;
+    }
+    return candidate.score === existing.score && candidateLabelScore >= existingLabelScore && candidate.name.length > existing.name.length;
+  }
+  function shouldUseOzonPickupName(currentName, candidateName, externalLocationId) {
+    return isGenericOzonPickupName(currentName, externalLocationId) && scorePickupLabel(candidateName, externalLocationId) > scorePickupLabel(currentName, externalLocationId);
+  }
   function collectFromUnknown(value, source, sourceText, candidates, path = [], depth = 0) {
     if (depth > 8 || value == null) {
       return;
@@ -636,16 +735,36 @@
   }
   function isUsefulLabel(value) {
     const ozonPointMatches = value.match(/Пункт\s+Ozon\s*№/gi);
-    return value.length >= 3 && value.length <= 180 && !/^[a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
+    return value.length >= 3 && value.length <= 180 && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
   }
   function compact(value) {
     return value.replace(/\s+/g, " ").trim();
+  }
+  function scorePickupLabel(name, externalLocationId) {
+    const label = compact(name);
+    if (isGenericOzonPickupName(label, externalLocationId)) {
+      return 0;
+    }
+    let score = 1;
+    if (/пункт\s+ozon\s*№|pvz|pickup point/i.test(label)) {
+      score += 1;
+    }
+    if (/[,\d]/.test(label)) {
+      score += 1;
+    }
+    if (/(ул\.?|улица|пр-кт|проспект|шоссе|пер\.?|переулок|дом|д\.|street|avenue|road)/i.test(label)) {
+      score += 2;
+    }
+    if (/(москва|санкт-петербург|екатеринбург|казань|новосибирск|краснодар|алматы|астана|караганда|шымкент|атырау|актобе|павлодар|буинск)/i.test(label)) {
+      score += 2;
+    }
+    return score;
   }
   function dedupeCandidates2(candidates) {
     const byId = /* @__PURE__ */ new Map();
     for (const candidate of candidates) {
       const existing = byId.get(candidate.externalLocationId);
-      if (!existing || candidate.score > existing.score || candidate.name.length > existing.name.length && candidate.score === existing.score) {
+      if (!existing || shouldReplaceOzonPickupCandidate(existing, candidate)) {
         byId.set(candidate.externalLocationId, candidate);
       }
     }
@@ -671,7 +790,9 @@
   var isPanelCollapsed = false;
   var panelRecoveryTimer = null;
   var assistSyncTimer = null;
+  var savedPickupNameSyncTimer = null;
   var suppressAssistObserverUntil = 0;
+  var targetedPickupDiscoveryIds = /* @__PURE__ */ new Set();
   void boot();
   async function boot() {
     document.addEventListener(PICKUP_CANDIDATES_EVENT, handlePickupCandidatesEvent);
@@ -719,6 +840,7 @@
   }
   async function runIfProductPage() {
     const currentUrl = location.href;
+    const pageChanged = currentUrl !== activeUrl;
     const runId = ++activeRun;
     const adapter = createMarketplaceAdapter("ozon", { requestOzonPrice });
     const url = new URL(currentUrl);
@@ -732,6 +854,9 @@
       activeUrl = "";
       removePanel();
       return;
+    }
+    if (pageChanged) {
+      targetedPickupDiscoveryIds.clear();
     }
     activeUrl = currentUrl;
     const panel = ensurePanel();
@@ -748,6 +873,7 @@
     }
     const settings = settingsResponse.settings;
     latestSettings = settings;
+    discoverOzonPickupCandidatesFromApi(product, getSavedPickupExternalLocationIds(settings));
     const allPickupPoints = settings.pickupPoints.filter((point) => point.marketplace === "ozon");
     if (allPickupPoints.length === 0) {
       renderPanel(panel, { state: "empty", product, settings });
@@ -759,15 +885,19 @@
       return;
     }
     renderPanel(panel, { state: "loading", product, settings, pickupPoints });
-    const results = await Promise.all(
-      pickupPoints.map(async (pickupPoint) => {
-        try {
-          const price = await adapter.fetchPrice(product, pickupPoint, settings);
-          return makeSuccessResult(pickupPoint.id, { ...price, source: "api" }, settings.defaultCurrency, settings);
-        } catch (error) {
-          const manualQuote = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
-          if (manualQuote) {
-            return makeSuccessResult(
+    const results = [];
+    for (const pickupPoint of pickupPoints) {
+      if (runId !== activeRun) {
+        return;
+      }
+      try {
+        const price = await adapter.fetchPrice(product, pickupPoint, settings);
+        results.push(makeSuccessResult(pickupPoint.id, { ...price, source: "api" }, settings.defaultCurrency, settings));
+      } catch (error) {
+        const manualQuote = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
+        if (manualQuote) {
+          results.push(
+            makeSuccessResult(
               pickupPoint.id,
               {
                 ...manualQuote.quote,
@@ -776,12 +906,13 @@
               },
               settings.defaultCurrency,
               settings
-            );
-          }
-          return makeErrorResult(pickupPoint.id, adapter.formatError(error));
+            )
+          );
+        } else {
+          results.push(makeErrorResult(pickupPoint.id, adapter.formatError(error)));
         }
-      })
-    );
+      }
+    }
     if (runId !== activeRun) {
       return;
     }
@@ -830,12 +961,17 @@
         continue;
       }
       const existing = byId.get(candidate.externalLocationId);
-      if (!existing || candidate.score > existing.score) {
+      if (!existing || shouldReplaceOzonPickupCandidate(existing, candidate)) {
         byId.set(candidate.externalLocationId, candidate);
       }
     }
     latestPickupCandidates = [...byId.values()].sort((a, b) => b.score - a.score).slice(0, 20);
-    return pickupCandidateListKey(latestPickupCandidates) !== previousKey;
+    const changed = pickupCandidateListKey(latestPickupCandidates) !== previousKey;
+    if (changed) {
+      scheduleSavedPickupNameSync();
+      scheduleGenericPickupNameDiscovery();
+    }
+    return changed;
   }
   function pickupCandidateListKey(candidates) {
     return candidates.map((candidate) => `${candidate.externalLocationId}:${candidate.name}:${candidate.score}`).join("|");
@@ -864,25 +1000,29 @@
     }
     return sources;
   }
-  function discoverOzonPickupCandidatesFromApi(product) {
-    const key = `${location.origin}:${product.productId}:${location.pathname}`;
+  function discoverOzonPickupCandidatesFromApi(product, externalLocationIds = []) {
+    const locationIds = normalizeExternalLocationIds(externalLocationIds).slice(0, 8);
+    const key = `${location.origin}:${product.productId}:${location.pathname}:${locationIds.join(",")}`;
     if (pickupApiDiscoveryKey === key && pickupApiDiscoveryPromise) {
       return;
     }
     pickupApiDiscoveryKey = key;
-    pickupApiDiscoveryPromise = fetchOzonPickupCandidatesFromApi(product).then((candidates) => {
+    const discoveryPromise = fetchOzonPickupCandidatesFromApi(product, locationIds).then((candidates) => {
       if (candidates.length > 0 && mergePickupCandidates(candidates)) {
         renderLastPanel();
         scheduleOzonDeliveryAssistSync();
       }
     }).catch(() => void 0).finally(() => {
-      pickupApiDiscoveryPromise = null;
+      if (pickupApiDiscoveryPromise === discoveryPromise) {
+        pickupApiDiscoveryPromise = null;
+      }
     });
+    pickupApiDiscoveryPromise = discoveryPromise;
   }
-  async function fetchOzonPickupCandidatesFromApi(product) {
+  async function fetchOzonPickupCandidatesFromApi(product, externalLocationIds = []) {
     const sources = [];
     const textHint = collectDeliveryText();
-    const endpoints = buildOzonPickupDiscoveryEndpoints(product);
+    const endpoints = buildOzonPickupDiscoveryEndpoints(product, externalLocationIds);
     await Promise.all(
       endpoints.map(async (endpoint) => {
         try {
@@ -911,7 +1051,7 @@
     );
     return extractOzonPickupCandidatesFromSources(sources);
   }
-  function buildOzonPickupDiscoveryEndpoints(product) {
+  function buildOzonPickupDiscoveryEndpoints(product, externalLocationIds = []) {
     const headers = {
       "content-type": "application/json",
       "x-o3-app-name": "dweb_client",
@@ -919,9 +1059,12 @@
     };
     const productUrl = new URL(product.url);
     const productPath = `${productUrl.pathname}${productUrl.search}`;
+    const selectedAddressPaths = normalizeExternalLocationIds(externalLocationIds).map(
+      (externalLocationId) => `/modal/addressbook?select_address=${encodeURIComponent(externalLocationId)}`
+    );
     const modalPaths = [
       "/modal/addressbook",
-      "/modal/addressbook?select_address=",
+      ...selectedAddressPaths,
       "/modal/delivery",
       "/modal/geo"
     ];
@@ -954,6 +1097,26 @@
       );
     }
     return endpoints;
+  }
+  function normalizeExternalLocationIds(externalLocationIds) {
+    return [...new Set(externalLocationIds.map((id) => id.trim()).filter(Boolean))].sort();
+  }
+  function getSavedPickupExternalLocationIds(settings) {
+    return (settings?.pickupPoints || []).filter((point) => point.marketplace === "ozon").map((point) => point.externalLocationId).filter((externalLocationId) => externalLocationId.trim() !== "");
+  }
+  function scheduleGenericPickupNameDiscovery() {
+    const product = getCurrentProduct();
+    if (!product) {
+      return;
+    }
+    const genericCandidateIds = latestPickupCandidates.filter(
+      (candidate) => isGenericOzonPickupName(candidate.name, candidate.externalLocationId) && !targetedPickupDiscoveryIds.has(candidate.externalLocationId)
+    ).map((candidate) => candidate.externalLocationId).slice(0, 8);
+    if (genericCandidateIds.length === 0) {
+      return;
+    }
+    genericCandidateIds.forEach((externalLocationId) => targetedPickupDiscoveryIds.add(externalLocationId));
+    discoverOzonPickupCandidatesFromApi(product, genericCandidateIds);
   }
   function collectStorage(name, storage, sources, urlHint) {
     try {
@@ -1375,6 +1538,92 @@
       });
     }
     return settingsLoadPromise;
+  }
+  function scheduleSavedPickupNameSync() {
+    if (savedPickupNameSyncTimer !== null) {
+      return;
+    }
+    savedPickupNameSyncTimer = window.setTimeout(() => {
+      savedPickupNameSyncTimer = null;
+      void syncSavedPickupNamesFromCandidates();
+    }, 250);
+  }
+  async function syncSavedPickupNamesFromCandidates() {
+    if (latestPickupCandidates.length === 0) {
+      return;
+    }
+    let settings = await getLatestSettings();
+    if (!settings) {
+      return;
+    }
+    let didUpdate = false;
+    for (const pickupPoint of settings.pickupPoints) {
+      if (pickupPoint.marketplace !== "ozon" || pickupPoint.externalLocationId.trim() === "") {
+        continue;
+      }
+      const candidate = latestPickupCandidates.find(
+        (item) => item.externalLocationId === pickupPoint.externalLocationId && shouldUseOzonPickupName(pickupPoint.name, item.name, pickupPoint.externalLocationId)
+      );
+      if (!candidate) {
+        continue;
+      }
+      const response = await runtimeRequest({
+        type: "UPSERT_PICKUP_POINT",
+        pickupPoint: {
+          ...pickupPoint,
+          name: candidate.name
+        }
+      });
+      if (!response.ok || !("settings" in response)) {
+        continue;
+      }
+      settings = response.settings;
+      latestSettings = settings;
+      didUpdate = true;
+    }
+    if (didUpdate) {
+      updateLastPanelSettings(settings);
+      renderLastPanel();
+      scheduleOzonDeliveryAssistSync();
+    }
+  }
+  function updateLastPanelSettings(settings) {
+    if (!lastPanelModel || !("settings" in lastPanelModel)) {
+      return;
+    }
+    const ozonPoints = settings.pickupPoints.filter((point) => point.marketplace === "ozon");
+    const byId = new Map(settings.pickupPoints.map((point) => [point.id, point]));
+    const refreshPoint = (point) => byId.get(point.id) || point;
+    if (lastPanelModel.state === "loading") {
+      lastPanelModel = {
+        ...lastPanelModel,
+        settings,
+        pickupPoints: lastPanelModel.pickupPoints?.map(refreshPoint)
+      };
+      return;
+    }
+    if (lastPanelModel.state === "empty") {
+      lastPanelModel = {
+        ...lastPanelModel,
+        settings
+      };
+      return;
+    }
+    if (lastPanelModel.state === "noSelection") {
+      lastPanelModel = {
+        ...lastPanelModel,
+        settings,
+        allPickupPoints: ozonPoints
+      };
+      return;
+    }
+    if (lastPanelModel.state === "results") {
+      lastPanelModel = {
+        ...lastPanelModel,
+        settings,
+        pickupPoints: lastPanelModel.pickupPoints.map(refreshPoint)
+      };
+    }
   }
   function collectOzonDeliveryRowCandidates(container) {
     const byKey = /* @__PURE__ */ new Map();

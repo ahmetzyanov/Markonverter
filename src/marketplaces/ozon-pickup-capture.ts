@@ -53,6 +53,50 @@ export function extractOzonPickupCandidatesFromSources(sources: OzonCaptureSourc
   return dedupeCandidates(candidates).sort((a, b) => b.score - a.score);
 }
 
+export function isGenericOzonPickupName(name: string, externalLocationId: string): boolean {
+  const label = compact(name);
+  const id = compact(externalLocationId);
+  if (!label) {
+    return true;
+  }
+  if (id && label.toLowerCase() === id.toLowerCase()) {
+    return true;
+  }
+  if (/^[a-z0-9_-]{4,80}$/i.test(label)) {
+    return true;
+  }
+  if (/^ozon pickup [a-z0-9_-]{4,80}$/i.test(label)) {
+    return true;
+  }
+  if (id && label.toLowerCase() === `pickup ${id}`.toLowerCase()) {
+    return true;
+  }
+  return false;
+}
+
+export function shouldReplaceOzonPickupCandidate(existing: OzonPickupCandidate, candidate: OzonPickupCandidate): boolean {
+  const existingLabelScore = scorePickupLabel(existing.name, existing.externalLocationId);
+  const candidateLabelScore = scorePickupLabel(candidate.name, candidate.externalLocationId);
+
+  if (candidateLabelScore > existingLabelScore && candidate.score >= existing.score - 35) {
+    return true;
+  }
+  if (candidateLabelScore < existingLabelScore && isGenericOzonPickupName(candidate.name, candidate.externalLocationId)) {
+    return false;
+  }
+  if (candidate.score > existing.score) {
+    return true;
+  }
+  return candidate.score === existing.score && candidateLabelScore >= existingLabelScore && candidate.name.length > existing.name.length;
+}
+
+export function shouldUseOzonPickupName(currentName: string, candidateName: string, externalLocationId: string): boolean {
+  return (
+    isGenericOzonPickupName(currentName, externalLocationId) &&
+    scorePickupLabel(candidateName, externalLocationId) > scorePickupLabel(currentName, externalLocationId)
+  );
+}
+
 function collectFromUnknown(
   value: unknown,
   source: string,
@@ -119,13 +163,14 @@ function collectFromObject(
       continue;
     }
 
+    const bestName = extractNameNearId(sourceText, id, sourceText.indexOf(id)) || name;
     candidates.push({
       externalLocationId: id,
-      name: name || `Ozon pickup ${id}`,
+      name: bestName || `Ozon pickup ${id}`,
       country,
       currency,
       source,
-      score: keyScore + (relevantObject ? 20 : 0) + (name ? 10 : 0) + (country === "KZ" ? 2 : 0),
+      score: keyScore + (relevantObject ? 20 : 0) + (bestName ? 10 : 0) + (country === "KZ" ? 2 : 0),
       comment: `Captured from ${source}`
     });
   }
@@ -149,13 +194,14 @@ function collectFromText(text: string, source: string, sourceText: string, candi
         continue;
       }
       const country = inferCountry(`${sourceText} ${text.slice(Math.max(0, match.index - 200), match.index + 300)}`);
+      const name = extractNameNearId(text, id, match.index) || extractNameNearId(sourceText, id, sourceText.indexOf(id));
       candidates.push({
         externalLocationId: id,
-        name: `Ozon pickup ${id}`,
+        name: name || `Ozon pickup ${id}`,
         country,
         currency: country === "KZ" ? "KZT" : "RUB",
         source,
-        score: 35,
+        score: 35 + (name ? 30 : 0),
         comment: `Captured from ${source}`
       });
     }
@@ -186,6 +232,10 @@ function extractName(object: Record<string, unknown>, sourceText: string): strin
     "addressText",
     "shortAddress",
     "displayName",
+    "subtitle",
+    "description",
+    "caption",
+    "text",
     "name",
     "title",
     "city"
@@ -207,6 +257,101 @@ function extractName(object: Record<string, unknown>, sourceText: string): strin
 
   const sourceLabel = sourceText.match(/(?:пункт выдачи|пвз|pickup point|адрес)[:\s-]+([^|]{8,120})/i)?.[1];
   return sourceLabel ? compact(sourceLabel) : "";
+}
+
+function extractNameNearId(text: string, id: string, matchIndex: number): string {
+  if (!text || matchIndex < 0) {
+    return "";
+  }
+
+  const start = Math.max(0, matchIndex - 600);
+  const end = Math.min(text.length, matchIndex + id.length + 900);
+  const snippet = decodeTextSnippet(text.slice(start, end));
+  const localIdIndex = snippet.indexOf(id);
+  const labels: string[] = [];
+
+  labels.push(...extractStructuredLabels(snippet));
+  labels.push(...extractOzonPointLabels(snippet));
+
+  if (localIdIndex >= 0) {
+    const tagStart = snippet.lastIndexOf("<", localIdIndex);
+    const tagEnd = snippet.indexOf("</", localIdIndex);
+    if (tagStart >= 0 && tagEnd > localIdIndex) {
+      labels.push(stripMarkup(snippet.slice(tagStart, Math.min(snippet.length, tagEnd + 160))));
+    }
+    labels.push(stripMarkup(snippet.slice(localIdIndex + id.length, Math.min(snippet.length, localIdIndex + id.length + 260))));
+  }
+
+  return pickBestLabel(labels, id);
+}
+
+function extractStructuredLabels(text: string): string[] {
+  const labels: string[] = [];
+  const pattern =
+    /(?:fullAddress|formattedAddress|addressText|shortAddress|displayName|address|subtitle|description|caption|title|name|city|street|text)["'\s]*[:=]\s*["']([^"']{3,260})/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    labels.push(match[1]);
+  }
+  const attributePattern = /(?:aria-label|title|data-address|data-title)=["']([^"']{3,260})/gi;
+  while ((match = attributePattern.exec(text))) {
+    labels.push(match[1]);
+  }
+  return labels;
+}
+
+function extractOzonPointLabels(text: string): string[] {
+  const labels: string[] = [];
+  const pattern = /Пункт\s+Ozon\s*№\s*[\d-]+[^|<>{}\[\]\n\r]{0,170}/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    labels.push(match[0]);
+  }
+  return labels;
+}
+
+function pickBestLabel(labels: string[], externalLocationId: string): string {
+  let best = "";
+  let bestScore = 0;
+  for (const rawLabel of labels) {
+    const label = cleanLabel(rawLabel, externalLocationId);
+    if (!label || !isUsefulLabel(label)) {
+      continue;
+    }
+    const score = scorePickupLabel(label, externalLocationId);
+    if (score > bestScore || (score === bestScore && label.length > best.length && label.length <= 180)) {
+      best = label;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function cleanLabel(value: string, externalLocationId: string): string {
+  const withoutMarkup = stripMarkup(decodeTextSnippet(value))
+    .replace(new RegExp(externalLocationId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " ")
+    .replace(/(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)\s*[:=]?\s*/gi, " ")
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/\/modal\/addressbook\S*/gi, " ")
+    .replace(/\\[nrt]/gi, " ");
+  return compact(withoutMarkup)
+    .replace(/^[\s"'=:,;{}()[\]<>.-]+/, "")
+    .replace(/[\s"'=:,;{}()[\]<>.-]+$/, "");
+}
+
+function decodeTextSnippet(value: string): string {
+  return value
+    .replace(/\\u([\da-f]{4})/gi, (_match, code: string) => String.fromCharCode(Number.parseInt(code, 16)))
+    .replace(/\\"/g, '"')
+    .replace(/\\\//g, "/")
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, "&")
+    .replace(/&#x([\da-f]+);/gi, (_match, code: string) => String.fromCharCode(Number.parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_match, code: string) => String.fromCharCode(Number.parseInt(code, 10)));
+}
+
+function stripMarkup(value: string): string {
+  return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ");
 }
 
 function inferCountry(text: string): PickupCountry {
@@ -263,18 +408,46 @@ function stringValue(value: unknown): string {
 
 function isUsefulLabel(value: string): boolean {
   const ozonPointMatches = value.match(/Пункт\s+Ozon\s*№/gi);
-  return value.length >= 3 && value.length <= 180 && !/^[a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
+  return (
+    value.length >= 3 &&
+    value.length <= 180 &&
+    !/^[a-z0-9_-]{4,80}$/i.test(value) &&
+    !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) &&
+    (ozonPointMatches?.length || 0) <= 1
+  );
 }
 
 function compact(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function scorePickupLabel(name: string, externalLocationId: string): number {
+  const label = compact(name);
+  if (isGenericOzonPickupName(label, externalLocationId)) {
+    return 0;
+  }
+
+  let score = 1;
+  if (/пункт\s+ozon\s*№|pvz|pickup point/i.test(label)) {
+    score += 1;
+  }
+  if (/[,\d]/.test(label)) {
+    score += 1;
+  }
+  if (/(ул\.?|улица|пр-кт|проспект|шоссе|пер\.?|переулок|дом|д\.|street|avenue|road)/i.test(label)) {
+    score += 2;
+  }
+  if (/(москва|санкт-петербург|екатеринбург|казань|новосибирск|краснодар|алматы|астана|караганда|шымкент|атырау|актобе|павлодар|буинск)/i.test(label)) {
+    score += 2;
+  }
+  return score;
+}
+
 function dedupeCandidates(candidates: OzonPickupCandidate[]): OzonPickupCandidate[] {
   const byId = new Map<string, OzonPickupCandidate>();
   for (const candidate of candidates) {
     const existing = byId.get(candidate.externalLocationId);
-    if (!existing || candidate.score > existing.score || (candidate.name.length > existing.name.length && candidate.score === existing.score)) {
+    if (!existing || shouldReplaceOzonPickupCandidate(existing, candidate)) {
       byId.set(candidate.externalLocationId, candidate);
     }
   }

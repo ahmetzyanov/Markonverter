@@ -18,6 +18,7 @@ interface EndpointCandidate {
 export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): Promise<PriceQuote> {
   const productUrl = new URL(request.productUrl);
   const pathWithSearch = `${productUrl.pathname}${productUrl.search}`;
+  await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId);
   const candidates = buildEndpointCandidates(pathWithSearch, request.pickupExternalLocationId);
   const errors: string[] = [];
 
@@ -53,6 +54,73 @@ export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): P
   }
 
   throw new Error(`Ozon private API did not return a verified product price. ${errors.join("; ")}`);
+}
+
+async function activateOzonPickupLocation(pathWithSearch: string, pickupExternalLocationId: string): Promise<void> {
+  const candidates = buildLocationActivationCandidates(pathWithSearch, pickupExternalLocationId);
+
+  for (const candidate of candidates) {
+    try {
+      const response = await fetch(candidate.url, {
+        method: candidate.method,
+        credentials: "include",
+        headers: candidate.headers,
+        body: candidate.body
+      });
+      if (!response.ok) {
+        continue;
+      }
+
+      await response.text();
+    } catch {
+      // Best effort only: the verified product-price request below decides whether the switch worked.
+    }
+  }
+}
+
+export function buildLocationActivationCandidates(pathWithSearch: string, pickupExternalLocationId: string): EndpointCandidate[] {
+  const modalPath = `/modal/addressbook?select_address=${encodeURIComponent(pickupExternalLocationId)}`;
+  const encodedModalPath = encodeURIComponent(modalPath);
+  const jsonHeaders = {
+    "content-type": "application/json",
+    "x-o3-app-name": "dweb_client",
+    "x-o3-app-version": "release"
+  };
+
+  return [
+    {
+      label: "entrypoint-select-address-modal",
+      method: "GET",
+      url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedModalPath}`,
+      headers: jsonHeaders
+    },
+    {
+      label: "composer-select-address-modal",
+      method: "GET",
+      url: `/api/composer-api.bx/page/json/v2?url=${encodedModalPath}`,
+      headers: jsonHeaders
+    },
+    {
+      label: "entrypoint-post-select-address-modal",
+      method: "POST",
+      url: "/api/entrypoint-api.bx/page/json/v2",
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        url: modalPath,
+        referer: pathWithSearch
+      })
+    },
+    {
+      label: "composer-post-select-address-modal",
+      method: "POST",
+      url: "/api/composer-api.bx/page/json/v2",
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        url: modalPath,
+        referer: pathWithSearch
+      })
+    }
+  ];
 }
 
 export function buildEndpointCandidates(pathWithSearch: string, pickupExternalLocationId: string): EndpointCandidate[] {

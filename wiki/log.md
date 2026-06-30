@@ -15,3 +15,9 @@ updates, and non-trivial implementation changes.
 - Merged saved pickup-point management into the price rows: removed the separate
   `Points` toggle, show detected Ozon candidates only when unsaved, and avoid
   per-row pending badges in the Ozon delivery selector.
+- Added automatic Ozon pickup-point name resolution: generic id labels can be
+  replaced by addressbook labels for the same external id, including saved
+  points whose names were auto-generated from UUIDs.
+- Added best-effort automatic Ozon pickup-point activation before each saved
+  point's product price fetch, with sequential checks and strict response
+  confirmation retained to prevent current-address price reuse.

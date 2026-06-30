@@ -32,6 +32,40 @@
     }
     return dedupeCandidates(candidates).sort((a, b) => b.score - a.score);
   }
+  function isGenericOzonPickupName(name, externalLocationId) {
+    const label = compact(name);
+    const id = compact(externalLocationId);
+    if (!label) {
+      return true;
+    }
+    if (id && label.toLowerCase() === id.toLowerCase()) {
+      return true;
+    }
+    if (/^[a-z0-9_-]{4,80}$/i.test(label)) {
+      return true;
+    }
+    if (/^ozon pickup [a-z0-9_-]{4,80}$/i.test(label)) {
+      return true;
+    }
+    if (id && label.toLowerCase() === `pickup ${id}`.toLowerCase()) {
+      return true;
+    }
+    return false;
+  }
+  function shouldReplaceOzonPickupCandidate(existing, candidate) {
+    const existingLabelScore = scorePickupLabel(existing.name, existing.externalLocationId);
+    const candidateLabelScore = scorePickupLabel(candidate.name, candidate.externalLocationId);
+    if (candidateLabelScore > existingLabelScore && candidate.score >= existing.score - 35) {
+      return true;
+    }
+    if (candidateLabelScore < existingLabelScore && isGenericOzonPickupName(candidate.name, candidate.externalLocationId)) {
+      return false;
+    }
+    if (candidate.score > existing.score) {
+      return true;
+    }
+    return candidate.score === existing.score && candidateLabelScore >= existingLabelScore && candidate.name.length > existing.name.length;
+  }
   function collectFromUnknown(value, source, sourceText, candidates, path = [], depth = 0) {
     if (depth > 8 || value == null) {
       return;
@@ -206,16 +240,36 @@
   }
   function isUsefulLabel(value) {
     const ozonPointMatches = value.match(/Пункт\s+Ozon\s*№/gi);
-    return value.length >= 3 && value.length <= 180 && !/^[a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
+    return value.length >= 3 && value.length <= 180 && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
   }
   function compact(value) {
     return value.replace(/\s+/g, " ").trim();
+  }
+  function scorePickupLabel(name, externalLocationId) {
+    const label = compact(name);
+    if (isGenericOzonPickupName(label, externalLocationId)) {
+      return 0;
+    }
+    let score = 1;
+    if (/пункт\s+ozon\s*№|pvz|pickup point/i.test(label)) {
+      score += 1;
+    }
+    if (/[,\d]/.test(label)) {
+      score += 1;
+    }
+    if (/(ул\.?|улица|пр-кт|проспект|шоссе|пер\.?|переулок|дом|д\.|street|avenue|road)/i.test(label)) {
+      score += 2;
+    }
+    if (/(москва|санкт-петербург|екатеринбург|казань|новосибирск|краснодар|алматы|астана|караганда|шымкент|атырау|актобе|павлодар|буинск)/i.test(label)) {
+      score += 2;
+    }
+    return score;
   }
   function dedupeCandidates(candidates) {
     const byId = /* @__PURE__ */ new Map();
     for (const candidate of candidates) {
       const existing = byId.get(candidate.externalLocationId);
-      if (!existing || candidate.score > existing.score || candidate.name.length > existing.name.length && candidate.score === existing.score) {
+      if (!existing || shouldReplaceOzonPickupCandidate(existing, candidate)) {
         byId.set(candidate.externalLocationId, candidate);
       }
     }

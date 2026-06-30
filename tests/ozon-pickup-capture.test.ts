@@ -1,4 +1,8 @@
-import { extractOzonPickupCandidatesFromSources } from "../src/marketplaces/ozon-pickup-capture";
+import {
+  extractOzonPickupCandidatesFromSources,
+  shouldReplaceOzonPickupCandidate,
+  shouldUseOzonPickupName
+} from "../src/marketplaces/ozon-pickup-capture";
 
 describe("Ozon pickup capture", () => {
   it("extracts selected delivery address candidates from Ozon-shaped state", () => {
@@ -102,6 +106,27 @@ describe("Ozon pickup capture", () => {
         })
       ])
     );
+  });
+
+  it("prefers a real address label over an id-only pickup candidate", () => {
+    const generic = {
+      externalLocationId: "daa6eeff-8093-429a-9fee-9c73e5ef6036",
+      name: "Ozon pickup daa6eeff-8093-429a-9fee-9c73e5ef6036",
+      country: "RU",
+      currency: "RUB" as const,
+      source: "api.delivery",
+      score: 90
+    };
+    const resolved = {
+      ...generic,
+      name: "Буинск, ул. Вахитова, 174Б",
+      source: "api.addressbook",
+      score: 70
+    };
+
+    expect(shouldReplaceOzonPickupCandidate(generic, resolved)).toBe(true);
+    expect(shouldUseOzonPickupName(generic.name, resolved.name, generic.externalLocationId)).toBe(true);
+    expect(shouldUseOzonPickupName("Дом рядом с работой", resolved.name, generic.externalLocationId)).toBe(false);
   });
 
   it("uses the Ozon host to infer country before mixed address modal text", () => {

@@ -27,3 +27,11 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
 - The product-page panel should avoid repeating the same pickup point across
   separate saved, detected, and price lists. Saved points are managed from their
   comparison rows, and the detected list is only for unsaved Ozon candidates.
+- When Ozon first exposes only a pickup-point id, content-script discovery should
+  prefer later addressbook labels for the same id and silently update saved
+  points only if their current name is an auto-generated id label.
+- Product-page price checks for saved Ozon pickup points run sequentially. Each
+  check first tries Ozon's address-book `select_address` modal endpoint for that
+  saved location id, then accepts a product price only when the product response
+  confirms the same id. Keep this strict check to avoid showing a reused current
+  address price under the wrong saved point.
