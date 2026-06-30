@@ -20,8 +20,8 @@ chrome.runtime.onMessage.addListener((request: RuntimeRequest, _sender, sendResp
   return true;
 });
 
-chrome.action.onClicked.addListener((tab) => {
-  void handleActionClick(tab);
+chrome.action.onClicked.addListener(() => {
+  void openOptionsPage();
 });
 
 async function handleRequest(request: RuntimeRequest): Promise<RuntimeResponse> {
@@ -61,30 +61,7 @@ async function handleRequest(request: RuntimeRequest): Promise<RuntimeResponse> 
     await openOptionsPage();
     return { ok: true };
   }
-  if (request.type === "SAVE_SELECTED_OZON_PICKUP") {
-    return { ok: false, error: "Open an Ozon product page to save the selected pickup point" };
-  }
   return { ok: false, error: "Unknown request" };
-}
-
-async function handleActionClick(tab: chrome.tabs.Tab): Promise<void> {
-  if (!tab.id || !tab.url || !isOzonProductUrl(tab.url)) {
-    await openOptionsPage();
-    return;
-  }
-
-  try {
-    const response = (await chrome.tabs.sendMessage(tab.id, { type: "SAVE_SELECTED_OZON_PICKUP" } satisfies RuntimeRequest)) as
-      | RuntimeResponse
-      | undefined;
-    await showActionFeedback(tab.id, response?.ok ? "OK" : "!");
-    if (!response?.ok) {
-      console.warn("Markonverter pickup save failed", response?.error || "No response from Ozon page");
-    }
-  } catch (error) {
-    await showActionFeedback(tab.id, "!");
-    console.warn("Markonverter pickup save failed", error);
-  }
 }
 
 async function openOptionsPage(): Promise<void> {
@@ -93,24 +70,6 @@ async function openOptionsPage(): Promise<void> {
     await chrome.tabs.create({ url });
   } catch {
     await chrome.runtime.openOptionsPage();
-  }
-}
-
-async function showActionFeedback(tabId: number, text: string): Promise<void> {
-  await chrome.action.setBadgeText({ tabId, text });
-  await chrome.action.setBadgeBackgroundColor({ tabId, color: text === "OK" ? "#2f8f4e" : "#b42318" });
-  setTimeout(() => {
-    void chrome.action.setBadgeText({ tabId, text: "" });
-  }, 2500);
-}
-
-function isOzonProductUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return (url.hostname === "ozon.ru" || url.hostname.endsWith(".ozon.ru") || url.hostname === "ozon.kz" || url.hostname.endsWith(".ozon.kz")) &&
-      /\/product\/(?:[^/?#]+-)?\d+(?:[/?#]|$)/.test(url.pathname);
-  } catch {
-    return false;
   }
 }
 

@@ -15,6 +15,7 @@ const PANEL_ID = "markonverter-panel-root";
 const MENU_ASSIST_ID = "markonverter-ozon-delivery-assist";
 const COLLECT_PICKUP_EVENT = "markonverter:collect-ozon-pickup";
 const PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
+const PANEL_STATE_KEY = "markonverter.panelState";
 
 let activeUrl = "";
 let activeRun = 0;
@@ -22,32 +23,57 @@ let latestPickupCandidates: OzonPickupCandidate[] = [];
 let lastPanelModel: PanelModel | null = null;
 let captureStatus: { tone: "normal" | "error"; message: string } | null = null;
 let isPointManagerOpen = false;
+let isPanelCollapsed = false;
+let panelRecoveryTimer: number | null = null;
 
 void boot();
 
 async function boot(): Promise<void> {
   document.addEventListener(PICKUP_CANDIDATES_EVENT, handlePickupCandidatesEvent);
-  chrome.runtime.onMessage.addListener((request: RuntimeRequest, _sender, sendResponse) => {
-    if (request.type !== "SAVE_SELECTED_OZON_PICKUP") {
-      return false;
-    }
-    void saveCurrentSelectedPickupPoint()
-      .then(sendResponse)
-      .catch((error) => {
-        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) } satisfies RuntimeResponse);
-      });
-    return true;
-  });
   if (document.readyState === "loading") {
     await new Promise<void>((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
   }
+  await loadPanelState();
   installOzonDeliveryMenuAssist();
+  installPanelRecovery();
   await runIfProductPage();
   setInterval(() => {
-    if (location.href !== activeUrl) {
+    if (location.href !== activeUrl || shouldRestoreProductPanel()) {
       void runIfProductPage();
     }
   }, 1000);
+}
+
+function installPanelRecovery(): void {
+  const observer = new MutationObserver(schedulePanelRecovery);
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+}
+
+function schedulePanelRecovery(): void {
+  if (panelRecoveryTimer !== null) {
+    return;
+  }
+  panelRecoveryTimer = window.setTimeout(() => {
+    panelRecoveryTimer = null;
+    if (shouldRestoreProductPanel()) {
+      void runIfProductPage();
+    }
+  }, 100);
+}
+
+function shouldRestoreProductPanel(): boolean {
+  if (document.getElementById(PANEL_ID)) {
+    return false;
+  }
+  try {
+    const adapter = createMarketplaceAdapter("ozon", { requestOzonPrice });
+    return adapter.isProductPage(new URL(location.href));
+  } catch {
+    return false;
+  }
 }
 
 async function runIfProductPage(): Promise<void> {
@@ -73,6 +99,9 @@ async function runIfProductPage(): Promise<void> {
   const panel = ensurePanel();
   renderPanel(panel, { state: "loading", product });
   requestPagePickupCandidates();
+  if (isPanelCollapsed) {
+    return;
+  }
 
   const settingsResponse = await runtimeRequest({ type: "GET_SETTINGS" });
   if (!settingsResponse.ok || !("settings" in settingsResponse)) {
@@ -330,14 +359,6 @@ function isVisibleEnough(element: HTMLElement): boolean {
 
 function compactText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
-}
-
-async function saveCurrentSelectedPickupPoint(): Promise<RuntimeResponse> {
-  const product = getCurrentProduct();
-  if (!product) {
-    return { ok: false, error: "Open an Ozon product page to save the selected pickup point" };
-  }
-  return saveSelectedPickupPoint(product);
 }
 
 async function saveSelectedPickupPoint(product: ProductIdentity): Promise<RuntimeResponse> {
@@ -667,13 +688,25 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
 
   const root = document.createElement("section");
   root.className = "panel";
+  root.classList.toggle("collapsed", isPanelCollapsed);
   if (!document.body.contains(shadow.host)) {
     root.classList.add("floating");
   }
 
   const header = document.createElement("div");
   header.className = "header";
-  header.innerHTML = `<div class="headerTitle"><span class="eyebrow">Markonverter</span><strong>Pickup prices</strong><span>${escapeHtml(model.product.title || "Ozon product")}</span></div>`;
+  header.innerHTML = isPanelCollapsed
+    ? `<div class="headerTitle collapsedTitle"><strong>Markonverter</strong></div>`
+    : `<div class="headerTitle"><span class="eyebrow">Markonverter</span><strong>Pickup prices</strong><span>${escapeHtml(model.product.title || "Ozon product")}</span></div>`;
+  if (isPanelCollapsed) {
+    header.title = "Expand Markonverter panel";
+    header.addEventListener("click", (event) => {
+      if ((event.target as HTMLElement).closest("button")) {
+        return;
+      }
+      void setPanelCollapsed(false);
+    });
+  }
 
   const headerActions = document.createElement("div");
   headerActions.className = "headerActions";
@@ -705,9 +738,28 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   settingsButton.addEventListener("click", () => {
     openOptionsPage();
   });
-  headerActions.append(saveButton, pointsButton, settingsButton);
+
+  const collapseButton = document.createElement("button");
+  collapseButton.type = "button";
+  collapseButton.className = "iconButton collapseButton";
+  collapseButton.title = isPanelCollapsed ? "Expand Markonverter panel" : "Collapse Markonverter panel";
+  collapseButton.textContent = isPanelCollapsed ? "Open" : "Hide";
+  collapseButton.addEventListener("click", () => {
+    void setPanelCollapsed(!isPanelCollapsed);
+  });
+
+  if (isPanelCollapsed) {
+    headerActions.append(collapseButton);
+  } else {
+    headerActions.append(saveButton, pointsButton, settingsButton, collapseButton);
+  }
   header.append(headerActions);
   root.append(header);
+
+  if (isPanelCollapsed) {
+    shadow.append(root);
+    return;
+  }
 
   if (model.state === "loading") {
     root.append(messageNode(`Checking ${model.pickupPoints?.length || "configured"} pickup points...`));
@@ -815,6 +867,33 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
 function renderLastPanel(): void {
   if (lastPanelModel) {
     renderPanel(ensurePanel(), lastPanelModel);
+  }
+}
+
+async function loadPanelState(): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get(PANEL_STATE_KEY);
+    isPanelCollapsed = normalizePanelState(stored[PANEL_STATE_KEY]).collapsed;
+  } catch {
+    isPanelCollapsed = false;
+  }
+}
+
+function normalizePanelState(value: unknown): { collapsed: boolean } {
+  const candidate = value as Partial<{ collapsed: boolean }> | undefined;
+  return { collapsed: candidate?.collapsed === true };
+}
+
+async function setPanelCollapsed(collapsed: boolean): Promise<void> {
+  isPanelCollapsed = collapsed;
+  renderLastPanel();
+  try {
+    await chrome.storage.local.set({ [PANEL_STATE_KEY]: { collapsed } });
+  } catch {
+    // Keep the current page responsive even if extension storage is temporarily unavailable.
+  }
+  if (!collapsed) {
+    await runIfProductPage();
   }
 }
 
@@ -1084,6 +1163,10 @@ function panelCss(): string {
       z-index: 2147483647;
       color: var(--mk-text);
     }
+    .panel.collapsed {
+      width: min(246px, calc(100vw - 24px));
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+    }
     .floating {
       position: fixed;
       top: 84px;
@@ -1100,8 +1183,19 @@ function panelCss(): string {
         radial-gradient(circle at top left, rgba(245, 158, 11, 0.12), transparent 240px),
         #111111;
     }
+    .collapsed .header {
+      min-height: 42px;
+      padding: 8px 10px 8px 12px;
+      border-bottom: 0;
+      cursor: pointer;
+      background: #111111;
+    }
     .headerTitle {
       min-width: 0;
+    }
+    .collapsedTitle strong {
+      font-size: 13px;
+      line-height: 1.1;
     }
     .eyebrow {
       display: block;
@@ -1148,6 +1242,9 @@ function panelCss(): string {
       flex-wrap: wrap;
       justify-content: flex-end;
     }
+    .collapsed .headerActions {
+      flex-wrap: nowrap;
+    }
     .saveHeaderButton,
     .secondaryButton,
     .iconButton {
@@ -1183,6 +1280,10 @@ function panelCss(): string {
       background: var(--mk-surface-2);
       color: var(--mk-muted);
       cursor: pointer;
+    }
+    .collapsed .collapseButton {
+      min-height: 28px;
+      padding: 0 9px;
     }
     .message {
       margin: 0;

@@ -8,7 +8,6 @@ export type RuntimeRequest =
   | { type: "DELETE_PICKUP_POINT"; pickupPointId: string }
   | { type: "SET_COMPARISON_PICKUP_POINT_IDS"; pickupPointIds: string[] | null }
   | { type: "SAVE_MANUAL_QUOTE"; manualQuote: ManualQuote }
-  | { type: "SAVE_SELECTED_OZON_PICKUP" }
   | { type: "OPEN_OPTIONS" };
 
 export type RuntimeResponse =

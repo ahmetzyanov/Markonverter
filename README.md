@@ -5,6 +5,7 @@ Chrome/Chromium Manifest V3 extension for comparing an Ozon product price across
 ## What it does
 
 - Injects a compact comparison panel on Ozon product pages.
+- Opens the product-page panel automatically and remembers whether it is expanded or collapsed.
 - Compares configured Ozon pickup points automatically when a product page opens.
 - Saves the currently selected Ozon delivery point from the product page panel.
 - Lets you choose and delete saved pickup points directly in the product-page panel.
@@ -39,7 +40,7 @@ Recommended flow:
 
 1. Open an Ozon product page.
 2. Select the delivery point in Ozon itself.
-3. Press `Save point` in the Markonverter panel header, or click the Markonverter toolbar icon.
+3. Press `Save point` in the Markonverter panel header.
 4. Repeat for each RU/KZ point you want to compare.
 
 When the selected point is saved from the product page, Markonverter also captures the visible product price for that product and point. If a saved row still says `Unavailable`, select that point in Ozon and use `Capture current` on the row. Captured prices are shown with a timestamp and are only reused for the same product and saved point.

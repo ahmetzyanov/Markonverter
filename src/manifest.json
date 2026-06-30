@@ -11,7 +11,7 @@
     "type": "module"
   },
   "options_page": "options.html",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage"],
   "host_permissions": [
     "https://*.ozon.ru/*",
     "https://*.ozon.kz/*",
