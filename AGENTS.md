@@ -19,6 +19,25 @@ product prices across saved pickup points. Source code lives in `src/`, tests in
 - Treat `dist/` as build output. Update it only when the task requires a
   loadable extension build or when source changes must be reflected there.
 
+## Routing Contract
+
+The main agent owns requirements, architecture, integration, and final judgment.
+
+- Use subagents for read-only repository mapping and evidence gathering, using
+  an `explorer`-style role when that helps keep discovery parallel and bounded.
+- Use subagents for exact mechanical cleanup in named files, using a
+  `cleaner`-style role when the edits are fully specified.
+- Use subagents for bounded implementation from a tight specification, using an
+  `implementer`-style role when the write boundaries and acceptance criteria are
+  clear.
+- Use subagents for selective review of risky or unfamiliar diffs, using a
+  `gate`-style role when focused second-pass judgment reduces integration risk.
+- Use subagents for other tasks that can be optimized by parallel, bounded
+  delegation without weakening the main agent's ownership of the outcome.
+
+Every delegation names scope, write boundaries, done criteria, and expected
+evidence. Do not delegate tiny tasks or work that is inherently serial.
+
 ## Local LLM Wiki
 
 Maintain a project-local LLM wiki in `wiki/`.
