@@ -41,6 +41,69 @@ describe("Ozon pickup capture", () => {
     expect(candidates).toHaveLength(0);
   });
 
+  it("extracts pickup rows from visible selector attributes and address links", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "dom.ozon-delivery-row",
+        urlHint: "https://www.ozon.kz/product/example",
+        textHint: "Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31",
+        value: {
+          name: "Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31",
+          "data-address-id": "kz-visible-456",
+          href: "/modal/addressbook?select_address=kz-visible-456"
+        }
+      }
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      externalLocationId: "kz-visible-456",
+      name: "Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31",
+      country: "KZ",
+      currency: "KZT"
+    });
+  });
+
+  it("extracts addressbook pickup points from proactive Ozon API responses", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "api.composer-addressbook",
+        urlHint: "https://www.ozon.ru/product/example",
+        value: {
+          widgetStates: {
+            addressbook: JSON.stringify({
+              addresses: [
+                {
+                  deliveryAddressOid: "ru-addressbook-469716",
+                  title: "Пункт Ozon № 469-716",
+                  address: "Буинск, ул. Вахитова, 174Б"
+                },
+                {
+                  deliveryAddressOid: "kz-addressbook-440129",
+                  title: "Пункт Ozon № 440-129",
+                  address: "Астана, пр-кт Улы Дала, 31"
+                }
+              ]
+            })
+          }
+        }
+      }
+    ]);
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalLocationId: "ru-addressbook-469716",
+          name: "Буинск, ул. Вахитова, 174Б",
+          currency: "RUB"
+        }),
+        expect.objectContaining({
+          externalLocationId: "kz-addressbook-440129",
+          name: "Астана, пр-кт Улы Дала, 31"
+        })
+      ])
+    );
+  });
+
   it("uses the Ozon host to infer country before mixed address modal text", () => {
     const candidates = extractOzonPickupCandidatesFromSources([
       {

@@ -9,3 +9,6 @@ updates, and non-trivial implementation changes.
   area.
 - Added root agent instructions in `AGENTS.md`, including the rule to follow
   `DESIGN.md` for design work.
+- Stabilized Ozon delivery-selector row actions by anchoring controls to
+  normalized pickup-point cards, isolating their CSS from Ozon button styles,
+  and skipping the Ozon "add address" control.

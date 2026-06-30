@@ -4,8 +4,12 @@
   var STRONG_ID_KEYS = /* @__PURE__ */ new Set([
     "deliveryAddressOid",
     "deliveryAddressId",
+    "deliveryAddressUid",
     "addressOid",
     "addressId",
+    "addressUid",
+    "selectAddress",
+    "select_address",
     "locationUid",
     "pickupPointId",
     "pickPointId",
@@ -89,8 +93,9 @@
       return;
     }
     const patterns = [
-      /(?:deliveryAddressOid|deliveryAddressId|addressOid|addressId|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'=:\s]+([a-z0-9_-]{4,80})/gi,
-      /(?:deliveryAddressOid|deliveryAddressId|addressOid|addressId|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'\s]*[:=]["'\s]*([a-z0-9_-]{4,80})/gi
+      /(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'=:\s]+([a-z0-9_-]{4,80})/gi,
+      /(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'\s]*[:=]["'\s]*([a-z0-9_-]{4,80})/gi,
+      /[?&](?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)=([a-z0-9_-]{4,80})/gi
     ];
     for (const pattern of patterns) {
       let match;

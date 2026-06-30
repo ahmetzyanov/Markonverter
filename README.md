@@ -32,18 +32,18 @@ The loadable extension is written to `dist/`.
 2. Enable Developer mode.
 3. Click Load unpacked.
 4. Select `/Users/gogla/PycharmProjects/markonverter/dist`.
-5. Open an Ozon product page and save pickup points from the injected Markonverter panel.
+5. Open an Ozon product page and add pickup points from Ozon's delivery selector or the Markonverter panel.
 
 ## Pickup point setup
 
 Recommended flow:
 
 1. Open an Ozon product page.
-2. Select the delivery point in Ozon itself.
-3. Press `Save point` in the Markonverter panel header.
-4. Repeat for each RU/KZ point you want to compare.
+2. Open Ozon's delivery selector so Ozon loads pickup-point rows.
+3. Press `Add` next to the exact pickup point in the Ozon selector, or use `Detected on Ozon` in the Markonverter `Points` panel.
+4. Rows already stored in Markonverter show `Saved` instead of another add action.
 
-When the selected point is saved from the product page, Markonverter also captures the visible product price for that product and point. If a saved row still says `Unavailable`, select that point in Ozon and use `Capture current` on the row. Captured prices are shown with a timestamp and are only reused for the same product and saved point.
+When `Add current` appears in the Markonverter panel, it saves the detected current point and also captures the visible product price for that product and point. If a saved row still says `Unavailable`, select that point in Ozon and use `Capture current` on the row. Captured prices are shown with a timestamp and are only reused for the same product and saved point.
 
 The settings page still allows manual editing. Each pickup point stores:
 
@@ -53,11 +53,11 @@ The settings page still allows manual editing. Each pickup point stores:
 - currency
 - Ozon location id
 
-The extension does not change the selected delivery point automatically. It captures the currently selected Ozon point from page state/network data after you choose it.
+The extension does not change the selected delivery point automatically. It reads pickup points that Ozon has already exposed through visible delivery rows, page state, or network data.
 
-Use `Points` in the product-page panel to choose which saved Markonverter points are compared. The same panel shows `Detected on Ozon` when Ozon exposes pickup points through the visible page or network responses. Those detected points can be saved into Markonverter from the panel.
+Use `Points` in the product-page panel to choose which saved Markonverter points are compared. The same panel shows `Detected on Ozon` when Ozon exposes pickup points through the visible page or network responses. Those detected points can be saved into Markonverter from their own rows.
 
-When Ozon's delivery selector is open, Markonverter also tries to inject `Save to Markonverter` and `Show detected PVZ` buttons near that selector. Use row-level `Delete` buttons to remove stale or wrong pickup points without opening the settings page.
+When Ozon's delivery selector is open, Markonverter shows selector-level status and adds `Add` / `Saved` controls next to visible pickup-point rows. Use row-level `Delete` buttons in Markonverter to remove stale or wrong pickup points without opening the settings page.
 
 ## Ozon API note
 

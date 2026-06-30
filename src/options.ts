@@ -165,7 +165,7 @@ function renderPointList(): void {
   if (settings.pickupPoints.length === 0) {
     const empty = document.createElement("div");
     empty.className = "point";
-    empty.innerHTML = "<strong>No pickup points configured.</strong><span>Save selected point from an Ozon product page or add one manually.</span>";
+    empty.innerHTML = "<strong>No pickup points configured.</strong><span>Add points from an Ozon delivery selector or add one manually.</span>";
     elements.pointList.append(empty);
     return;
   }

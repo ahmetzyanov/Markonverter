@@ -13,6 +13,7 @@ import {
 
 const PANEL_ID = "markonverter-panel-root";
 const MENU_ASSIST_ID = "markonverter-ozon-delivery-assist";
+const MENU_ASSIST_STYLE_ID = "markonverter-ozon-delivery-assist-style";
 const COLLECT_PICKUP_EVENT = "markonverter:collect-ozon-pickup";
 const PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
 const PANEL_STATE_KEY = "markonverter.panelState";
@@ -20,11 +21,17 @@ const PANEL_STATE_KEY = "markonverter.panelState";
 let activeUrl = "";
 let activeRun = 0;
 let latestPickupCandidates: OzonPickupCandidate[] = [];
+let latestSettings: ExtensionSettings | null = null;
+let settingsLoadPromise: Promise<ExtensionSettings | null> | null = null;
+let pickupApiDiscoveryKey = "";
+let pickupApiDiscoveryPromise: Promise<void> | null = null;
 let lastPanelModel: PanelModel | null = null;
 let captureStatus: { tone: "normal" | "error"; message: string } | null = null;
 let isPointManagerOpen = false;
 let isPanelCollapsed = false;
 let panelRecoveryTimer: number | null = null;
+let assistSyncTimer: number | null = null;
+let suppressAssistObserverUntil = 0;
 
 void boot();
 
@@ -99,6 +106,7 @@ async function runIfProductPage(): Promise<void> {
   const panel = ensurePanel();
   renderPanel(panel, { state: "loading", product });
   requestPagePickupCandidates();
+  discoverOzonPickupCandidatesFromApi(product);
   if (isPanelCollapsed) {
     return;
   }
@@ -110,6 +118,7 @@ async function runIfProductPage(): Promise<void> {
   }
 
   const settings = settingsResponse.settings;
+  latestSettings = settings;
   const allPickupPoints = settings.pickupPoints.filter((point) => point.marketplace === "ozon");
   if (allPickupPoints.length === 0) {
     renderPanel(panel, { state: "empty", product, settings });
@@ -190,13 +199,17 @@ function handlePickupCandidatesEvent(event: Event): void {
   }
   try {
     const candidates = JSON.parse(detail) as OzonPickupCandidate[];
-    mergePickupCandidates(candidates);
+    if (mergePickupCandidates(candidates)) {
+      renderLastPanel();
+      scheduleOzonDeliveryAssistSync();
+    }
   } catch {
     // Ignore malformed events from the page world.
   }
 }
 
-function mergePickupCandidates(candidates: OzonPickupCandidate[]): void {
+function mergePickupCandidates(candidates: OzonPickupCandidate[]): boolean {
+  const previousKey = pickupCandidateListKey(latestPickupCandidates);
   const byId = new Map(latestPickupCandidates.map((candidate) => [candidate.externalLocationId, candidate]));
   for (const candidate of candidates) {
     if (!candidate.externalLocationId || !candidate.name) {
@@ -208,6 +221,11 @@ function mergePickupCandidates(candidates: OzonPickupCandidate[]): void {
     }
   }
   latestPickupCandidates = [...byId.values()].sort((a, b) => b.score - a.score).slice(0, 20);
+  return pickupCandidateListKey(latestPickupCandidates) !== previousKey;
+}
+
+function pickupCandidateListKey(candidates: OzonPickupCandidate[]): string {
+  return candidates.map((candidate) => `${candidate.externalLocationId}:${candidate.name}:${candidate.score}`).join("|");
 }
 
 function requestPagePickupCandidates(): void {
@@ -235,6 +253,120 @@ function collectFallbackCaptureSources(): OzonCaptureSource[] {
     sources.push({ source: "content.dom", value: deliveryText, textHint: deliveryText, urlHint });
   }
   return sources;
+}
+
+function discoverOzonPickupCandidatesFromApi(product: ProductIdentity): void {
+  const key = `${location.origin}:${product.productId}:${location.pathname}`;
+  if (pickupApiDiscoveryKey === key && pickupApiDiscoveryPromise) {
+    return;
+  }
+  pickupApiDiscoveryKey = key;
+  pickupApiDiscoveryPromise = fetchOzonPickupCandidatesFromApi(product)
+    .then((candidates) => {
+      if (candidates.length > 0 && mergePickupCandidates(candidates)) {
+        renderLastPanel();
+        scheduleOzonDeliveryAssistSync();
+      }
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      pickupApiDiscoveryPromise = null;
+    });
+}
+
+async function fetchOzonPickupCandidatesFromApi(product: ProductIdentity): Promise<OzonPickupCandidate[]> {
+  const sources: OzonCaptureSource[] = [];
+  const textHint = collectDeliveryText();
+  const endpoints = buildOzonPickupDiscoveryEndpoints(product);
+
+  await Promise.all(
+    endpoints.map(async (endpoint) => {
+      try {
+        const response = await fetch(endpoint.url, {
+          method: endpoint.method,
+          credentials: "include",
+          headers: endpoint.headers,
+          body: endpoint.body
+        });
+        if (!response.ok) {
+          return;
+        }
+        const text = await response.text();
+        if (!text || text.length > 4_000_000) {
+          return;
+        }
+        sources.push({
+          source: `api.${endpoint.label}`,
+          value: text,
+          urlHint: location.href,
+          textHint
+        });
+      } catch {
+        // Ozon private endpoints are best-effort discovery only.
+      }
+    })
+  );
+
+  return extractOzonPickupCandidatesFromSources(sources);
+}
+
+function buildOzonPickupDiscoveryEndpoints(product: ProductIdentity): Array<{
+  label: string;
+  url: string;
+  method: "GET" | "POST";
+  headers: HeadersInit;
+  body?: string;
+}> {
+  const headers = {
+    "content-type": "application/json",
+    "x-o3-app-name": "dweb_client",
+    "x-o3-app-version": "release"
+  };
+  const productUrl = new URL(product.url);
+  const productPath = `${productUrl.pathname}${productUrl.search}`;
+  const modalPaths = [
+    "/modal/addressbook",
+    "/modal/addressbook?select_address=",
+    "/modal/delivery",
+    "/modal/geo"
+  ];
+  const endpoints: Array<{
+    label: string;
+    url: string;
+    method: "GET" | "POST";
+    headers: HeadersInit;
+    body?: string;
+  }> = [];
+
+  for (const modalPath of modalPaths) {
+    const encodedModalPath = encodeURIComponent(modalPath);
+    endpoints.push(
+      {
+        label: `composer-addressbook-${modalPath}`,
+        method: "GET",
+        url: `/api/composer-api.bx/page/json/v2?url=${encodedModalPath}`,
+        headers
+      },
+      {
+        label: `entrypoint-addressbook-${modalPath}`,
+        method: "GET",
+        url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedModalPath}`,
+        headers
+      },
+      {
+        label: `composer-post-addressbook-${modalPath}`,
+        method: "POST",
+        url: "/api/composer-api.bx/page/json/v2",
+        headers,
+        body: JSON.stringify({
+          url: modalPath,
+          referer: productPath
+        })
+      }
+    );
+  }
+
+  return endpoints;
 }
 
 function collectStorage(name: string, storage: Storage, sources: OzonCaptureSource[], urlHint: string): void {
@@ -362,17 +494,22 @@ function compactText(value: string): string {
 }
 
 async function saveSelectedPickupPoint(product: ProductIdentity): Promise<RuntimeResponse> {
-  captureStatus = { tone: "normal", message: "Detecting selected Ozon pickup point..." };
+  captureStatus = { tone: "normal", message: "Checking Ozon pickup point..." };
   renderLastPanel();
 
   const candidate = await getBestPickupCandidate();
   if (!candidate) {
     captureStatus = {
       tone: "error",
-      message: "Could not detect the selected point yet. Select it in Ozon, wait for the page to update, then try again."
+      message: "No Ozon pickup point is available to save yet."
     };
     renderLastPanel();
     return { ok: false, error: captureStatus.message };
+  }
+  if (isPickupCandidateSaved(candidate, latestSettings)) {
+    captureStatus = { tone: "normal", message: `Already saved: ${candidate.name}` };
+    renderLastPanel();
+    return { ok: true };
   }
 
   const response = await savePickupCandidate(candidate, product);
@@ -405,7 +542,13 @@ async function savePickupCandidate(candidate: OzonPickupCandidate, product: Prod
     comment: candidate.comment || `Captured from ${product.url}`
   };
 
-  return runtimeRequest({ type: "UPSERT_PICKUP_POINT", pickupPoint });
+  const response = await runtimeRequest({ type: "UPSERT_PICKUP_POINT", pickupPoint });
+  if (response.ok && "settings" in response) {
+    latestSettings = response.settings;
+    markSavedPickupCandidateInPage(candidate);
+    scheduleOzonDeliveryAssistSync();
+  }
+  return response;
 }
 
 async function captureCurrentPriceForPickupPoint(pickupPoint: PickupPoint, product: ProductIdentity): Promise<void> {
@@ -467,6 +610,7 @@ async function saveCurrentVisibleQuoteForPoint(
     captureStatus = { tone: "error", message: response.ok ? "Captured price was not saved" : response.error };
     return false;
   }
+  latestSettings = response.settings;
   return true;
 }
 
@@ -482,6 +626,8 @@ async function deleteSavedPickupPoint(pickupPoint: PickupPoint, product: Product
     renderLastPanel();
     return;
   }
+  latestSettings = response.settings;
+  scheduleOzonDeliveryAssistSync();
   await runIfProductPage();
   if (getCurrentProduct()?.productId === product.productId) {
     renderLastPanel();
@@ -514,6 +660,7 @@ async function updateComparisonSelection(pickupPointIds: string[] | null, produc
     renderLastPanel();
     return;
   }
+  latestSettings = response.settings;
   await runIfProductPage();
   if (getCurrentProduct()?.productId === product.productId) {
     renderLastPanel();
@@ -548,6 +695,9 @@ function removePanel(): void {
 
 function installOzonDeliveryMenuAssist(): void {
   const sync = () => {
+    if (Date.now() < suppressAssistObserverUntil) {
+      return;
+    }
     if (!getCurrentProduct()) {
       document.getElementById(MENU_ASSIST_ID)?.remove();
       return;
@@ -563,7 +713,32 @@ function installOzonDeliveryMenuAssist(): void {
   setInterval(sync, 1500);
 }
 
+function scheduleOzonDeliveryAssistSync(): void {
+  if (assistSyncTimer !== null) {
+    return;
+  }
+  assistSyncTimer = window.setTimeout(() => {
+    assistSyncTimer = null;
+    if (getCurrentProduct()) {
+      ensureOzonDeliveryMenuAssist();
+    }
+  }, 100);
+}
+
+async function syncCurrentOzonDeliveryMenuAssist(): Promise<void> {
+  ensureOzonDeliveryAssistStyles();
+  const target = findOzonDeliveryContainer();
+  const assist = document.getElementById(MENU_ASSIST_ID);
+  const product = getCurrentProduct();
+  if (!target || !assist || !product || assist.parentElement !== target) {
+    ensureOzonDeliveryMenuAssist();
+    return;
+  }
+  await syncOzonDeliveryMenuAssist(target, assist, product);
+}
+
 function ensureOzonDeliveryMenuAssist(): void {
+  ensureOzonDeliveryAssistStyles();
   const target = findOzonDeliveryContainer();
   const existing = document.getElementById(MENU_ASSIST_ID);
   if (!target) {
@@ -571,6 +746,10 @@ function ensureOzonDeliveryMenuAssist(): void {
     return;
   }
   if (existing && existing.parentElement === target) {
+    const product = getCurrentProduct();
+    if (product) {
+      void syncOzonDeliveryMenuAssist(target, existing, product);
+    }
     return;
   }
 
@@ -600,25 +779,9 @@ function ensureOzonDeliveryMenuAssist(): void {
     ].join(";")
   );
 
-  const saveButton = pageButton("Save to Markonverter");
-  saveButton.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    void saveSelectedPickupPoint(product);
-  });
-
-  const showButton = pageButton("Show detected PVZ");
-  showButton.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    isPointManagerOpen = true;
-    requestPagePickupCandidates();
-    renderLastPanel();
-    document.getElementById(PANEL_ID)?.scrollIntoView({ block: "center", behavior: "smooth" });
-  });
-
-  assist.append(saveButton, showButton);
+  suppressOzonAssistObserver();
   target.prepend(assist);
+  void syncOzonDeliveryMenuAssist(target, assist, product);
 }
 
 function findOzonDeliveryContainer(): HTMLElement | null {
@@ -644,19 +807,492 @@ function isVisible(element: HTMLElement): boolean {
   return rect.width > 120 && rect.height > 40 && rect.bottom > 0 && rect.right > 0;
 }
 
-function pageButton(text: string): HTMLButtonElement {
+interface OzonPickupRowCandidate {
+  row: HTMLElement;
+  candidate: OzonPickupCandidate | null;
+  rank: number;
+  rowKey: string;
+}
+
+async function syncOzonDeliveryMenuAssist(target: HTMLElement, assist: HTMLElement, product: ProductIdentity): Promise<void> {
+  requestPagePickupCandidates();
+  const rows = collectOzonDeliveryRowCandidates(target);
+  const rowCandidates = rows.flatMap((row) => (row.candidate ? [row.candidate] : []));
+  if (rowCandidates.length > 0 && mergePickupCandidates(rowCandidates)) {
+    renderLastPanel();
+  }
+
+  const settings = await getLatestSettings();
+  const savedExternalIds = getSavedOzonExternalIds(settings);
+  suppressOzonAssistObserver();
+  decorateOzonDeliveryRows(target, rows, savedExternalIds, product);
+  renderOzonDeliveryAssist(assist, rows, savedExternalIds);
+}
+
+function suppressOzonAssistObserver(): void {
+  suppressAssistObserverUntil = Date.now() + 300;
+}
+
+async function getLatestSettings(): Promise<ExtensionSettings | null> {
+  if (latestSettings) {
+    return latestSettings;
+  }
+  if (!settingsLoadPromise) {
+    settingsLoadPromise = runtimeRequest({ type: "GET_SETTINGS" })
+      .then((response) => {
+        if (response.ok && "settings" in response) {
+          latestSettings = response.settings;
+          return response.settings;
+        }
+        return null;
+      })
+      .catch(() => null)
+      .finally(() => {
+        settingsLoadPromise = null;
+      });
+  }
+  return settingsLoadPromise;
+}
+
+function collectOzonDeliveryRowCandidates(container: HTMLElement): OzonPickupRowCandidate[] {
+  const byKey = new Map<string, OzonPickupRowCandidate>();
+  const seenRows = new Set<HTMLElement>();
+  const selectors = [
+    "a",
+    "button",
+    "li",
+    '[role="button"]',
+    '[role="option"]',
+    '[data-address-id]',
+    '[data-address-oid]',
+    '[data-delivery-address-id]',
+    '[data-delivery-address-oid]',
+    '[data-pickup-point-id]',
+    '[data-pvz-id]',
+    '[data-testid]',
+    "div"
+  ].join(",");
+
+  for (const element of Array.from(container.querySelectorAll<HTMLElement>(selectors))) {
+    const row = normalizeOzonPickupRow(element, container);
+    if (!row || seenRows.has(row)) {
+      continue;
+    }
+    seenRows.add(row);
+    const candidate = extractOzonPickupCandidateFromRow(row);
+    const rowText = getOzonRowText(row);
+    const rowKey = candidate?.externalLocationId || rowMatchKey(rowText);
+    const rect = row.getBoundingClientRect();
+    const rank =
+      (candidate?.score || 1) +
+      (row.matches('a, button, [role="button"], [role="option"], li') ? 18 : 0) -
+      Math.min(50, Math.round((rect.width * rect.height) / 6000));
+    const existing = byKey.get(rowKey);
+    if (!existing || rank > existing.rank) {
+      byKey.set(rowKey, { row, candidate, rank, rowKey });
+    }
+  }
+
+  return [...byKey.values()].sort((a, b) =>
+    a.row.compareDocumentPosition(b.row) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
+  );
+}
+
+function normalizeOzonPickupRow(element: HTMLElement, container: HTMLElement): HTMLElement | null {
+  if (element.id === MENU_ASSIST_ID || element.closest(`#${MENU_ASSIST_ID}`) || element.closest("[data-markonverter-pvz-action]")) {
+    return null;
+  }
+
+  let current: HTMLElement | null = element;
+  let best: HTMLElement | null = null;
+
+  while (current && current !== container && current !== document.body) {
+    if (isPotentialOzonPickupRow(current)) {
+      best = current;
+    }
+    current = current.parentElement;
+  }
+
+  return best;
+}
+
+function isPotentialOzonPickupRow(element: HTMLElement): boolean {
+  if (element.id === MENU_ASSIST_ID || element.closest(`#${MENU_ASSIST_ID}`) || element.closest("[data-markonverter-pvz-action]")) {
+    return false;
+  }
+  if (!isVisible(element)) {
+    return false;
+  }
+  const rect = element.getBoundingClientRect();
+  if (rect.height > Math.min(320, window.innerHeight * 0.45)) {
+    return false;
+  }
+
+  const text = getOzonRowText(element);
+  if (text.length < 8 || text.length > 420) {
+    return false;
+  }
+  if (/выберите\s+адрес\s+доставки/i.test(text)) {
+    return false;
+  }
+  if (isOzonAddAddressControlText(text)) {
+    return false;
+  }
+  if (countPickupRowMarkers(text) > 1) {
+    return false;
+  }
+  return /(пункт\s+ozon|пвз|pickup|выдач)/i.test(text);
+}
+
+function isOzonAddAddressControlText(text: string): boolean {
+  return /(?:^|\s)(?:добавить|добавьте|add)(?:\s|$)/i.test(text) && /(адрес|пункт\s+выдач|постамат|delivery|pickup)/i.test(text);
+}
+
+function extractOzonPickupCandidateFromRow(element: HTMLElement): OzonPickupCandidate | null {
+  const text = getOzonRowText(element);
+  const name = pickupRowName(text);
+  const evidence = collectOzonRowEvidence(element);
+  const candidates = extractOzonPickupCandidatesFromSources([
+    {
+      source: "dom.ozon-delivery-row",
+      urlHint: location.href,
+      textHint: text,
+      value: {
+        name,
+        address: name,
+        ...evidence
+      }
+    }
+  ]);
+  const candidate = candidates[0];
+  if (candidate) {
+    return {
+      ...candidate,
+      name: name || candidate.name,
+      score: candidate.score + 15,
+      comment: "Captured from visible Ozon delivery row"
+    };
+  }
+
+  const matched = matchDetectedPickupCandidateToRow(text);
+  if (!matched) {
+    return null;
+  }
+  return {
+    ...matched,
+    name: name || matched.name,
+    score: Math.max(1, matched.score - 1),
+    comment: matched.comment || "Matched to visible Ozon delivery row"
+  };
+}
+
+function countPickupRowMarkers(text: string): number {
+  return (text.match(/(?:пункт\s+ozon|пвз|pickup|выдач)/gi) || []).length;
+}
+
+function matchDetectedPickupCandidateToRow(rowText: string): OzonPickupCandidate | null {
+  const rowNumber = extractOzonVisiblePointNumber(rowText);
+  const rowTokens = pickupMatchTokens(rowText);
+  let best: { candidate: OzonPickupCandidate; score: number } | null = null;
+
+  for (const candidate of latestPickupCandidates) {
+    const candidateText = `${candidate.name} ${candidate.comment || ""}`;
+    const candidateNumber = extractOzonVisiblePointNumber(candidateText);
+    let score = 0;
+    if (rowNumber && candidateNumber && rowNumber === candidateNumber) {
+      score += 100;
+    }
+    const candidateTokens = pickupMatchTokens(candidateText);
+    for (const token of rowTokens) {
+      if (candidateTokens.has(token)) {
+        score += token.length >= 5 ? 10 : 4;
+      }
+    }
+    if (score < 14) {
+      continue;
+    }
+    if (!best || score > best.score) {
+      best = { candidate, score };
+    }
+  }
+
+  return best?.candidate || null;
+}
+
+function extractOzonVisiblePointNumber(text: string): string {
+  return compactText(text.match(/(?:№|N[°o.]?)\s*([\d-]{3,})/i)?.[1] || "");
+}
+
+function rowMatchKey(text: string): string {
+  return extractOzonVisiblePointNumber(text) || pickupMatchTokens(text).values().next().value || compactText(text).slice(0, 80);
+}
+
+function pickupMatchTokens(text: string): Set<string> {
+  const lowerText = text.toLowerCase();
+  const normalized = lowerText
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}-]+/gu, " ")
+    .split(/\s+/)
+    .filter(
+      (token) =>
+        (token.length >= 4 || (token.length >= 2 && /\d/.test(token))) &&
+        !/^(пункт|ozon|срок|хранения|заказа|дней|адрес|delivery|pickup)$/.test(token)
+    );
+  const numericAddressTokens = lowerText.match(/\d+[\p{L}]?/gu) || [];
+  return new Set([...normalized, ...numericAddressTokens].slice(0, 50));
+}
+
+function getOzonRowText(element: HTMLElement): string {
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll("[data-markonverter-pvz-action]").forEach((node) => node.remove());
+  return compactText(clone.innerText || clone.textContent || "");
+}
+
+function pickupRowName(text: string): string {
+  const cleaned = compactText(text.replace(/\b(Add|Saved|Refresh PVZ|Show in panel)\b/gi, ""));
+  return cleaned.length > 170 ? `${cleaned.slice(0, 167)}...` : cleaned;
+}
+
+function collectOzonRowEvidence(element: HTMLElement): Record<string, string> {
+  const evidence: Record<string, string> = {};
+  const elements = [element, ...Array.from(element.querySelectorAll<HTMLElement>("*")).slice(0, 80)];
+  elements.forEach((item, elementIndex) => {
+    Array.from(item.attributes).forEach((attribute, attributeIndex) => {
+      if (!/(id|oid|uid|address|delivery|pickup|pick|pvz|location|href|title|aria-label|data)/i.test(attribute.name)) {
+        return;
+      }
+      const value = attribute.value.trim();
+      if (!value || value.length > 500) {
+        return;
+      }
+      const key = evidence[attribute.name] === undefined ? attribute.name : `${attribute.name}_${elementIndex}_${attributeIndex}`;
+      evidence[key] = value;
+    });
+  });
+  return evidence;
+}
+
+function decorateOzonDeliveryRows(
+  target: HTMLElement,
+  rows: OzonPickupRowCandidate[],
+  savedExternalIds: Set<string>,
+  product: ProductIdentity
+): void {
+  const activeRows = new Set(rows.map((row) => row.row));
+  target.querySelectorAll<HTMLElement>("[data-markonverter-pvz-action]").forEach((control) => {
+    if (!control.parentElement || !activeRows.has(control.parentElement)) {
+      control.parentElement?.classList.remove("markonverter-ozon-pvz-row");
+      control.remove();
+    }
+  });
+
+  for (const { row, candidate, rowKey } of rows) {
+    const stateKey = candidate ? `${candidate.externalLocationId}:${savedExternalIds.has(candidate.externalLocationId) ? "saved" : "add"}` : `${rowKey}:pending`;
+    const existing = Array.from(row.children).find(
+      (child): child is HTMLElement => child instanceof HTMLElement && child.dataset.markonverterPvzAction === "true"
+    );
+    if (existing?.dataset.markonverterActionState === stateKey) {
+      continue;
+    }
+    const action = buildOzonRowAction(candidate, candidate ? savedExternalIds.has(candidate.externalLocationId) : false, product, row, stateKey);
+    row.classList.add("markonverter-ozon-pvz-row");
+    if (existing) {
+      existing.replaceWith(action);
+    } else {
+      row.append(action);
+    }
+  }
+}
+
+function buildOzonRowAction(
+  candidate: OzonPickupCandidate | null,
+  isSaved: boolean,
+  product: ProductIdentity,
+  row: HTMLElement,
+  stateKey: string
+): HTMLElement {
+  const action = document.createElement("span");
+  action.dataset.markonverterPvzAction = "true";
+  action.dataset.markonverterActionState = stateKey;
+  if (candidate) {
+    action.dataset.markonverterExternalLocationId = candidate.externalLocationId;
+  }
+  action.className = `markonverter-ozon-pvz-action${isSaved ? " is-saved" : ""}${candidate ? "" : " is-pending"}`;
+  action.textContent = candidate ? (isSaved ? "Saved" : "Add") : "Detecting";
+  action.title = candidate
+    ? isSaved
+      ? "Already saved in Markonverter"
+      : `Add ${candidate.name} to Markonverter`
+    : "Waiting for Ozon to expose this pickup point id";
+  action.setAttribute("role", "button");
+  action.tabIndex = isSaved || !candidate ? -1 : 0;
+  action.setAttribute("aria-disabled", String(isSaved || !candidate));
+
+  const save = (event: Event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (candidate && !isSaved) {
+      void saveDetectedPickupCandidate(candidate, product);
+    }
+  };
+  action.addEventListener("click", save);
+  action.addEventListener("keydown", (event) => {
+    if (event instanceof KeyboardEvent && (event.key === "Enter" || event.key === " ")) {
+      save(event);
+    }
+  });
+  return action;
+}
+
+function markSavedPickupCandidateInPage(candidate: OzonPickupCandidate): void {
+  document.querySelectorAll<HTMLElement>("[data-markonverter-pvz-action]").forEach((action) => {
+    if (action.dataset.markonverterExternalLocationId !== candidate.externalLocationId) {
+      return;
+    }
+    action.textContent = "Saved";
+    action.title = "Already saved in Markonverter";
+    action.classList.add("is-saved");
+    action.dataset.markonverterActionState = `${candidate.externalLocationId}:saved`;
+    if (action instanceof HTMLButtonElement) {
+      action.disabled = true;
+    } else {
+      action.setAttribute("aria-disabled", "true");
+      action.tabIndex = -1;
+    }
+  });
+}
+
+function renderOzonDeliveryAssist(assist: HTMLElement, rows: OzonPickupRowCandidate[], savedExternalIds: Set<string>): void {
+  const identifiedRows = rows.filter((row) => row.candidate);
+  const savedCount = identifiedRows.filter((row) => row.candidate && savedExternalIds.has(row.candidate.externalLocationId)).length;
+  const statusText =
+    rows.length > 0
+      ? `${rows.length} PVZ visible / ${savedCount} saved${identifiedRows.length < rows.length ? " / IDs loading" : ""}`
+      : "PVZ list not loaded";
+  const stateKey = `${rows.length}:${identifiedRows.length}:${savedCount}:${statusText}`;
+  if (assist.dataset.markonverterAssistState === stateKey) {
+    return;
+  }
+  assist.dataset.markonverterAssistState = stateKey;
+  assist.innerHTML = "";
+
+  const status = document.createElement("span");
+  status.className = "markonverter-assist-status";
+  status.textContent = statusText;
+
+  const refreshButton = pageButton("Refresh PVZ", "secondary");
+  refreshButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    requestPagePickupCandidates();
+    const product = getCurrentProduct();
+    if (product) {
+      discoverOzonPickupCandidatesFromApi(product);
+    }
+    scheduleOzonDeliveryAssistSync();
+  });
+
+  const showButton = pageButton("Show in panel", "secondary");
+  showButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    isPointManagerOpen = true;
+    requestPagePickupCandidates();
+    renderLastPanel();
+    document.getElementById(PANEL_ID)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
+
+  assist.append(status, refreshButton, showButton);
+}
+
+function ensureOzonDeliveryAssistStyles(): void {
+  if (document.getElementById(MENU_ASSIST_STYLE_ID)) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = MENU_ASSIST_STYLE_ID;
+  style.textContent = `
+    .markonverter-ozon-pvz-row {
+      position: relative !important;
+    }
+    .markonverter-ozon-pvz-action {
+      all: initial !important;
+      appearance: none !important;
+      -webkit-appearance: none !important;
+      box-sizing: border-box !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      position: absolute !important;
+      right: 48px !important;
+      bottom: 14px !important;
+      width: auto !important;
+      min-width: 58px !important;
+      max-width: 110px !important;
+      height: 28px !important;
+      min-height: 28px !important;
+      max-height: 28px !important;
+      margin: 0 !important;
+      padding: 0 10px !important;
+      border: 1px solid rgba(245, 158, 11, 0.78) !important;
+      border-radius: 8px !important;
+      background: #141414 !important;
+      color: #fbbf24 !important;
+      cursor: pointer !important;
+      pointer-events: auto !important;
+      font: 700 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      letter-spacing: 0 !important;
+      text-align: center !important;
+      text-decoration: none !important;
+      text-transform: none !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      z-index: 2147483647 !important;
+      contain: layout style paint !important;
+      transition: border-color 150ms ease, background 150ms ease !important;
+    }
+    .markonverter-ozon-pvz-action.is-saved {
+      border-color: rgba(34, 197, 94, 0.55) !important;
+      color: #86efac !important;
+      cursor: default !important;
+      pointer-events: none !important;
+    }
+    .markonverter-ozon-pvz-action.is-pending {
+      border-color: rgba(63, 63, 70, 0.9) !important;
+      color: #a1a1aa !important;
+      cursor: default !important;
+      pointer-events: none !important;
+    }
+    .markonverter-ozon-pvz-action:hover:not(:disabled):not(.is-saved) {
+      border-color: #fbbf24 !important;
+      background: #1b1b1c !important;
+    }
+    .markonverter-assist-status {
+      flex: 1 1 auto;
+      min-width: 120px;
+      color: #a1a1aa;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+  `;
+  document.head.append(style);
+}
+
+function pageButton(text: string, variant: "primary" | "secondary" = "primary"): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = text;
+  const isPrimary = variant === "primary";
   button.setAttribute(
     "style",
     [
       "min-height:32px",
       "padding:0 10px",
-      "border:1px solid #f59e0b",
+      `border:1px solid ${isPrimary ? "#f59e0b" : "#3f3f46"}`,
       "border-radius:8px",
-      "background:#f59e0b",
-      "color:#111",
+      `background:${isPrimary ? "#f59e0b" : "#1b1b1c"}`,
+      `color:${isPrimary ? "#111" : "#fafafa"}`,
       "cursor:pointer",
       "font:inherit",
       "font-weight:700",
@@ -711,14 +1347,20 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   const headerActions = document.createElement("div");
   headerActions.className = "headerActions";
 
-  const saveButton = document.createElement("button");
-  saveButton.type = "button";
-  saveButton.className = "saveHeaderButton";
-  saveButton.title = "Save selected Ozon pickup point";
-  saveButton.textContent = "Save point";
-  saveButton.addEventListener("click", () => {
-    void saveSelectedPickupPoint(model.product);
-  });
+  const panelSettings = "settings" in model ? model.settings : null;
+  const currentSaveCandidate = panelSettings ? getFirstUnsavedPickupCandidate(panelSettings) : null;
+  let saveButton: HTMLButtonElement | null = null;
+  if (currentSaveCandidate) {
+    const candidateToSave = currentSaveCandidate;
+    saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.className = "saveHeaderButton";
+    saveButton.title = `Add ${candidateToSave.name} to Markonverter`;
+    saveButton.textContent = "Add current";
+    saveButton.addEventListener("click", () => {
+      void saveSelectedPickupPoint(model.product);
+    });
+  }
 
   const pointsButton = document.createElement("button");
   pointsButton.type = "button";
@@ -751,7 +1393,10 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   if (isPanelCollapsed) {
     headerActions.append(collapseButton);
   } else {
-    headerActions.append(saveButton, pointsButton, settingsButton, collapseButton);
+    if (saveButton) {
+      headerActions.append(saveButton);
+    }
+    headerActions.append(pointsButton, settingsButton, collapseButton);
   }
   header.append(headerActions);
   root.append(header);
@@ -768,17 +1413,16 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
     }
   } else if (model.state === "empty") {
     root.append(messageNode("No Ozon pickup points configured."));
-    root.append(captureControl(model.product));
-    if (isPointManagerOpen || latestPickupCandidates.length > 0) {
-      root.append(pointManager(model.settings, [], model.product));
-    }
+    root.append(pointManager(model.settings, [], model.product));
+    appendCaptureStatus(root);
   } else if (model.state === "noSelection") {
     root.append(messageNode("No saved pickup points selected for comparison."));
     root.append(pointManager(model.settings, model.allPickupPoints, model.product));
+    appendCaptureStatus(root);
   } else if (model.state === "fatal") {
     root.append(messageNode(model.message, "error"));
   } else {
-    if (isPointManagerOpen) {
+    if (isPointManagerOpen || latestPickupCandidates.length > 0) {
       root.append(pointManager(model.settings, model.pickupPoints, model.product));
     }
     const rows = buildComparisonRows(model.pickupPoints, model.results);
@@ -858,7 +1502,7 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
       list.append(item);
     }
     root.append(list);
-    root.append(captureControl(model.product));
+    appendCaptureStatus(root);
   }
 
   shadow.append(root);
@@ -897,10 +1541,32 @@ async function setPanelCollapsed(collapsed: boolean): Promise<void> {
   }
 }
 
+function appendCaptureStatus(root: HTMLElement): void {
+  if (captureStatus) {
+    root.append(messageNode(captureStatus.message, captureStatus.tone));
+  }
+}
+
+function getSavedOzonExternalIds(settings: ExtensionSettings | null): Set<string> {
+  return new Set(
+    (settings?.pickupPoints || [])
+      .filter((point) => point.marketplace === "ozon" && point.externalLocationId.trim() !== "")
+      .map((point) => point.externalLocationId)
+  );
+}
+
+function isPickupCandidateSaved(candidate: OzonPickupCandidate, settings: ExtensionSettings | null): boolean {
+  return getSavedOzonExternalIds(settings).has(candidate.externalLocationId);
+}
+
+function getFirstUnsavedPickupCandidate(settings: ExtensionSettings): OzonPickupCandidate | null {
+  return latestPickupCandidates.find((candidate) => !isPickupCandidateSaved(candidate, settings)) || null;
+}
+
 function pointManager(settings: ExtensionSettings, visiblePickupPoints: PickupPoint[], product: ProductIdentity): HTMLElement {
   const allPickupPoints = settings.pickupPoints.filter((point) => point.marketplace === "ozon");
   const selectedIds = settings.comparisonPickupPointIds ? new Set(settings.comparisonPickupPointIds) : null;
-  const savedExternalIds = new Set(allPickupPoints.map((point) => point.externalLocationId));
+  const savedExternalIds = getSavedOzonExternalIds(settings);
 
   const wrapper = document.createElement("div");
   wrapper.className = "pointManager";
@@ -1015,29 +1681,9 @@ async function saveDetectedPickupCandidate(candidate: OzonPickupCandidate, produ
   }
 
   captureStatus = { tone: "normal", message: `Saved: ${candidate.name}` };
+  await syncCurrentOzonDeliveryMenuAssist();
   await runIfProductPage();
-}
-
-function captureControl(product: ProductIdentity): HTMLElement {
-  const wrapper = document.createElement("div");
-  wrapper.className = "capture";
-
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "captureButton";
-  button.textContent = "Save selected point";
-  button.addEventListener("click", () => {
-    void saveSelectedPickupPoint(product);
-  });
-
-  const hint = document.createElement("span");
-  hint.textContent = "Select a pickup point in Ozon, then save it here.";
-
-  wrapper.append(button, hint);
-  if (captureStatus) {
-    wrapper.append(messageNode(captureStatus.message, captureStatus.tone));
-  }
-  return wrapper;
+  await syncCurrentOzonDeliveryMenuAssist();
 }
 
 function messageNode(text: string, tone: "normal" | "error" = "normal"): HTMLElement {
