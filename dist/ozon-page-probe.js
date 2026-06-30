@@ -23,6 +23,7 @@
   var TECHNICAL_LABEL_RE = /^(?:api|network|content)\.[a-z0-9._/?=&%-]+$/i;
   var TECHNICAL_ENDPOINT_LABEL_RE = /\b(?:composer|entrypoint)(?:-[a-z0-9]+)*-(?:addressbook|delivery|geo)\b/i;
   var UI_ACTION_LABEL_RE = /^(?:удалить|delete|remove|add|save|saved|edit|options|hide|open|refresh pvz|show in panel)$/i;
+  var BARE_OZON_POINT_LABEL_RE = /^пункт\s+ozon(?:\s*[•·|,;:.-]+)?$/i;
   var KZ_RE = /(kazakhstan|казахстан|kz\b|алматы|астана|караганда|шымкент|атырау|актобе|павлодар|усть-каменогорск)/i;
   var RU_RE = /(russia|россия|ru\b|москва|санкт-петербург|екатеринбург|казань|новосибирск|краснодар)/i;
   function extractOzonPickupCandidatesFromSources(sources) {
@@ -270,7 +271,8 @@
       const scopeEnd = findMatchingBrace(text, scopeStart);
       return scopeEnd > idIndex ? text.slice(scopeStart, scopeEnd + 1) : "";
     }).filter(Boolean).sort((a, b) => a.length - b.length);
-    return scopes.find((scope) => extractStructuredLabels(scope).some((label) => isUsefulLabel(compact(label)))) || "";
+    const scopedToSinglePickup = scopes.filter((scope) => countPickupIdsInText(scope) <= 1);
+    return scopedToSinglePickup.find((scope) => extractStructuredLabels(scope).some((label) => isUsefulLabel(compact(label)))) || scopedToSinglePickup[0] || "";
   }
   function findMatchingBrace(text, start) {
     let depth = 0;
@@ -320,6 +322,24 @@
       labels.push(match[1]);
     }
     return labels;
+  }
+  function countPickupIdsInText(text) {
+    const ids = /* @__PURE__ */ new Set();
+    const patterns = [
+      /(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'=:\s]+([a-z0-9_-]{4,80})/gi,
+      /(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'\s]*[:=]["'\s]*([a-z0-9_-]{4,80})/gi,
+      /[?&](?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)=([a-z0-9_-]{4,80})/gi
+    ];
+    for (const pattern of patterns) {
+      let match;
+      while (match = pattern.exec(text)) {
+        const id = normalizeId(match[1]);
+        if (id) {
+          ids.add(id);
+        }
+      }
+    }
+    return ids.size;
   }
   function extractOzonPointLabels(text) {
     const labels = [];
@@ -406,7 +426,7 @@
   }
   function isUsefulLabel(value) {
     const ozonPointMatches = value.match(/Пункт\s+Ozon\s*№/gi);
-    return value.length >= 3 && value.length <= 180 && !SERVICE_LABEL_RE.test(value) && !/\b(?:layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?)\b/i.test(value) && !TECHNICAL_LABEL_RE.test(value) && !TECHNICAL_ENDPOINT_LABEL_RE.test(value) && !UI_ACTION_LABEL_RE.test(value) && !/%[0-9a-f]{2}/i.test(value) && !/\\?["'][,;]\\?["']/.test(value) && (value.match(/["']?[a-z][\w-]*["']?\s*[:=]/gi)?.length || 0) < 2 && !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
+    return value.length >= 3 && value.length <= 180 && !SERVICE_LABEL_RE.test(value) && !/\b(?:layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?)\b/i.test(value) && !TECHNICAL_LABEL_RE.test(value) && !TECHNICAL_ENDPOINT_LABEL_RE.test(value) && !UI_ACTION_LABEL_RE.test(value) && !BARE_OZON_POINT_LABEL_RE.test(value) && !/%[0-9a-f]{2}/i.test(value) && !/\\?["'][,;]\\?["']/.test(value) && (value.match(/["']?[a-z][\w-]*["']?\s*[:=]/gi)?.length || 0) < 2 && !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
   }
   function isUnsafeOzonPickupName(name, externalLocationId) {
     const label = compact(name);

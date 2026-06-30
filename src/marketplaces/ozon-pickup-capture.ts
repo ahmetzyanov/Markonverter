@@ -41,6 +41,7 @@ const SERVICE_LABEL_RE =
 const TECHNICAL_LABEL_RE = /^(?:api|network|content)\.[a-z0-9._/?=&%-]+$/i;
 const TECHNICAL_ENDPOINT_LABEL_RE = /\b(?:composer|entrypoint)(?:-[a-z0-9]+)*-(?:addressbook|delivery|geo)\b/i;
 const UI_ACTION_LABEL_RE = /^(?:удалить|delete|remove|add|save|saved|edit|options|hide|open|refresh pvz|show in panel)$/i;
+const BARE_OZON_POINT_LABEL_RE = /^пункт\s+ozon(?:\s*[•·|,;:.-]+)?$/i;
 const KZ_RE = /(kazakhstan|казахстан|kz\b|алматы|астана|караганда|шымкент|атырау|актобе|павлодар|усть-каменогорск)/i;
 const RU_RE = /(russia|россия|ru\b|москва|санкт-петербург|екатеринбург|казань|новосибирск|краснодар)/i;
 
@@ -350,7 +351,12 @@ function jsonScopeNearId(text: string, idIndex: number): string {
     .filter(Boolean)
     .sort((a, b) => a.length - b.length);
 
-  return scopes.find((scope) => extractStructuredLabels(scope).some((label) => isUsefulLabel(compact(label)))) || "";
+  const scopedToSinglePickup = scopes.filter((scope) => countPickupIdsInText(scope) <= 1);
+  return (
+    scopedToSinglePickup.find((scope) => extractStructuredLabels(scope).some((label) => isUsefulLabel(compact(label)))) ||
+    scopedToSinglePickup[0] ||
+    ""
+  );
 }
 
 function findMatchingBrace(text: string, start: number): number {
@@ -405,6 +411,25 @@ function extractStructuredLabels(text: string): string[] {
     labels.push(match[1]);
   }
   return labels;
+}
+
+function countPickupIdsInText(text: string): number {
+  const ids = new Set<string>();
+  const patterns = [
+    /(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'=:\s]+([a-z0-9_-]{4,80})/gi,
+    /(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'\s]*[:=]["'\s]*([a-z0-9_-]{4,80})/gi,
+    /[?&](?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)=([a-z0-9_-]{4,80})/gi
+  ];
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text))) {
+      const id = normalizeId(match[1]);
+      if (id) {
+        ids.add(id);
+      }
+    }
+  }
+  return ids.size;
 }
 
 function extractOzonPointLabels(text: string): string[] {
@@ -528,6 +553,7 @@ function isUsefulLabel(value: string): boolean {
     !TECHNICAL_LABEL_RE.test(value) &&
     !TECHNICAL_ENDPOINT_LABEL_RE.test(value) &&
     !UI_ACTION_LABEL_RE.test(value) &&
+    !BARE_OZON_POINT_LABEL_RE.test(value) &&
     !/%[0-9a-f]{2}/i.test(value) &&
     !/\\?["'][,;]\\?["']/.test(value) &&
     (value.match(/["']?[a-z][\w-]*["']?\s*[:=]/gi)?.length || 0) < 2 &&

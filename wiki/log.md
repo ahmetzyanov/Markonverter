@@ -37,3 +37,7 @@ updates, and non-trivial implementation changes.
   modal metadata, URL-encoded fragments, or `Удалить`, and made Markonverter
   controls in Ozon's delivery selector consume their own clicks so they do not
   pass through to Ozon row handlers.
+- Rejected bare Ozon pickup row headers such as `Пункт Ozon •` as pickup-point
+  names; these temporary labels now wait for a real address or fall back to
+  `Ozon pickup <id>`, without borrowing a sibling address from the same modal
+  JSON payload.

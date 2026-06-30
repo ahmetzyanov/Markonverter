@@ -32,16 +32,18 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
   points only if their current name is an auto-generated id label.
 - If Ozon exposes a pickup-point id through `select_address` in HTML or JSON,
   parse nearby link text, subtitle, title, address, or similar fields before
-  falling back to `Ozon pickup <id>`.
+  falling back to `Ozon pickup <id>`. In JSON modal payloads, do not climb to a
+  parent scope containing multiple pickup ids just because a sibling has an
+  address label.
 - Do not use whole Ozon modal JSON objects as pickup-point labels. Service
   metadata such as `url`, `layoutId`, `layoutVersion`, `pageType`, `ruleId`,
   and `referer`, plus internal source labels such as
   `api.composer-post-addressbook`, are not pickup-point names; keep the generic
   label until a real address/title/subtitle is found.
 - Treat already-saved Ozon names made from modal metadata, URL-encoded
-  fragments, or UI actions such as `Удалить` as unsafe temporary labels. They
-  may be replaced automatically by a real address label or the canonical
-  `Ozon pickup <id>` fallback.
+  fragments, UI actions such as `Удалить`, or bare row headers such as
+  `Пункт Ozon •` as unsafe temporary labels. They may be replaced automatically
+  by a real address label or the canonical `Ozon pickup <id>` fallback.
 - Markonverter controls injected into the Ozon delivery selector must consume
   their own pointer, click, and keyboard events before Ozon row handlers see
   them. Saved badges still intercept clicks so a click on the badge does not

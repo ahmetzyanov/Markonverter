@@ -180,6 +180,78 @@ describe("Ozon pickup capture", () => {
     });
   });
 
+  it("does not use a bare Ozon pickup row header as a pickup point name", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "api.composer-addressbook-json",
+        urlHint: "https://www.ozon.kz/product/example",
+        value: {
+          deliveryAddressOid: "kz-bare-title-123",
+          title: "Пункт Ozon •"
+        }
+      }
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      externalLocationId: "kz-bare-title-123",
+      name: "Ozon pickup kz-bare-title-123"
+    });
+  });
+
+  it("uses an address instead of a bare Ozon pickup row header when both are present", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "api.composer-addressbook-json",
+        urlHint: "https://www.ozon.kz/product/example",
+        value: {
+          deliveryAddressOid: "kz-bare-title-456",
+          title: "Пункт Ozon •",
+          subtitle: "Астана, пр-кт Улы Дала, 31"
+        }
+      }
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      externalLocationId: "kz-bare-title-456",
+      name: "Астана, пр-кт Улы Дала, 31"
+    });
+  });
+
+  it("does not borrow a sibling address when the matching pickup only has a bare header", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "api.composer-addressbook-json",
+        urlHint: "https://www.ozon.kz/product/example",
+        value: JSON.stringify({
+          items: [
+            {
+              deliveryAddressOid: "kz-bare-title-123",
+              title: "Пункт Ozon •"
+            },
+            {
+              deliveryAddressOid: "kz-address-title-456",
+              title: "Пункт Ozon •",
+              subtitle: "Астана, пр-кт Улы Дала, 31"
+            }
+          ]
+        })
+      }
+    ]);
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalLocationId: "kz-bare-title-123",
+          name: "Ozon pickup kz-bare-title-123"
+        }),
+        expect.objectContaining({
+          externalLocationId: "kz-address-title-456",
+          name: "Астана, пр-кт Улы Дала, 31"
+        })
+      ])
+    );
+  });
+
   it("repairs saved pickup names that already contain service metadata or button labels", () => {
     const id = "528a5580-56f9-4e82-80cc-e801b5dbf252";
 
@@ -191,6 +263,9 @@ describe("Ozon pickup capture", () => {
       )
     ).toBe(true);
     expect(shouldUseOzonPickupName("Удалить", `Ozon pickup ${id}`, id)).toBe(true);
+    expect(shouldUseOzonPickupName("Пункт Ozon •", "Астана, пр-кт Улы Дала, 31", id)).toBe(true);
+    expect(shouldUseOzonPickupName("Пункт Ozon •", `Ozon pickup ${id}`, id)).toBe(true);
+    expect(shouldUseOzonPickupName(`Ozon pickup ${id}`, "Пункт Ozon •", id)).toBe(false);
   });
 
   it("does not replace a usable pickup name with service metadata or button text", () => {
@@ -214,6 +289,13 @@ describe("Ozon pickup capture", () => {
       shouldReplaceOzonPickupCandidate(existing, {
         ...existing,
         name: "Удалить",
+        score: 100
+      })
+    ).toBe(false);
+    expect(
+      shouldReplaceOzonPickupCandidate(existing, {
+        ...existing,
+        name: "Пункт Ozon •",
         score: 100
       })
     ).toBe(false);
