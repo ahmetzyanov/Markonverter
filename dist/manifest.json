@@ -12,7 +12,13 @@
   },
   "options_page": "options.html",
   "permissions": ["storage", "activeTab"],
-  "host_permissions": ["https://*.ozon.ru/*", "https://*.ozon.kz/*"],
+  "host_permissions": [
+    "https://*.ozon.ru/*",
+    "https://*.ozon.kz/*",
+    "https://www.cbr.ru/*",
+    "https://nationalbank.kz/*",
+    "https://open.er-api.com/*"
+  ],
   "content_scripts": [
     {
       "matches": ["https://*.ozon.ru/*", "https://*.ozon.kz/*"],

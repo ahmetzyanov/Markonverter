@@ -1,4 +1,4 @@
-import { validatePickupPoint } from "../src/shared/validation";
+import { normalizeSettings, validatePickupPoint } from "../src/shared/validation";
 
 describe("pickup point validation", () => {
   it("requires Ozon external location id", () => {
@@ -12,5 +12,16 @@ describe("pickup point validation", () => {
         externalLocationId: ""
       })
     ).toContain("Ozon location id is required");
+  });
+});
+
+describe("settings normalization", () => {
+  it("defaults missing or invalid rate provider to CBR", () => {
+    expect(normalizeSettings({}).currencyRateProvider).toBe("cbr");
+    expect(normalizeSettings({ currencyRateProvider: "unknown" }).currencyRateProvider).toBe("cbr");
+  });
+
+  it("keeps manual rate provider", () => {
+    expect(normalizeSettings({ currencyRateProvider: "manual" }).currencyRateProvider).toBe("manual");
   });
 });

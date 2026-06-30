@@ -1,4 +1,14 @@
-import { Currency, DEFAULT_SETTINGS, ExtensionSettings, ManualQuote, PickupPoint, PriceQuote, SUPPORTED_CURRENCIES } from "./types";
+import {
+  Currency,
+  CurrencyRateMetadata,
+  DEFAULT_SETTINGS,
+  ExtensionSettings,
+  ManualQuote,
+  PickupPoint,
+  PriceQuote,
+  SUPPORTED_CURRENCIES,
+  SUPPORTED_CURRENCY_RATE_PROVIDERS
+} from "./types";
 
 export function normalizeSettings(value: unknown): ExtensionSettings {
   const candidate = value as Partial<ExtensionSettings> | undefined;
@@ -10,6 +20,10 @@ export function normalizeSettings(value: unknown): ExtensionSettings {
       candidate?.defaultCurrency && SUPPORTED_CURRENCIES.includes(candidate.defaultCurrency)
         ? candidate.defaultCurrency
         : DEFAULT_SETTINGS.defaultCurrency,
+    currencyRateProvider: SUPPORTED_CURRENCY_RATE_PROVIDERS.includes(candidate?.currencyRateProvider as never)
+      ? (candidate?.currencyRateProvider as ExtensionSettings["currencyRateProvider"])
+      : DEFAULT_SETTINGS.currencyRateProvider,
+    currencyRateMeta: normalizeCurrencyRateMeta(candidate?.currencyRateMeta),
     ratesToRub: {
       RUB: sanitizeRate(candidate?.ratesToRub?.RUB, DEFAULT_SETTINGS.ratesToRub.RUB),
       KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT)
@@ -42,6 +56,25 @@ export function validatePickupPoint(pickupPoint: PickupPoint): string[] {
 
 function sanitizeRate(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function normalizeCurrencyRateMeta(value: unknown): CurrencyRateMetadata | undefined {
+  const candidate = value as Partial<CurrencyRateMetadata> | undefined;
+  if (
+    !candidate ||
+    !SUPPORTED_CURRENCY_RATE_PROVIDERS.includes(candidate.provider as never) ||
+    typeof candidate.updatedAt !== "string" ||
+    Number.isNaN(Date.parse(candidate.updatedAt))
+  ) {
+    return undefined;
+  }
+
+  return {
+    provider: candidate.provider as CurrencyRateMetadata["provider"],
+    updatedAt: new Date(candidate.updatedAt).toISOString(),
+    effectiveDate: typeof candidate.effectiveDate === "string" ? candidate.effectiveDate : undefined,
+    fallbackUsed: candidate.fallbackUsed === true
+  };
 }
 
 function isPickupPointLike(value: unknown): value is PickupPoint {

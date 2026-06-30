@@ -1,5 +1,7 @@
 export type Currency = "RUB" | "KZT";
 
+export type CurrencyRateProvider = "manual" | "cbr" | "nbk" | "exchangeRateApi";
+
 export type MarketplaceId = "ozon" | "wildberries";
 
 export type PickupCountry = "RU" | "KZ" | string;
@@ -25,10 +27,24 @@ export interface CapturedPickupPoint {
 
 export interface ExtensionSettings {
   defaultCurrency: Currency;
+  currencyRateProvider: CurrencyRateProvider;
+  currencyRateMeta?: CurrencyRateMetadata;
   ratesToRub: Record<Currency, number>;
   pickupPoints: PickupPoint[];
   comparisonPickupPointIds: string[] | null;
   manualQuotes: Record<string, ManualQuote>;
+}
+
+export interface CurrencyRateMetadata {
+  provider: CurrencyRateProvider;
+  updatedAt: string;
+  effectiveDate?: string;
+  fallbackUsed?: boolean;
+}
+
+export interface CurrencyRateRefreshResult extends CurrencyRateMetadata {
+  ratesToRub: Record<Currency, number>;
+  attemptedProviders: CurrencyRateProvider[];
 }
 
 export interface ProductIdentity {
@@ -84,8 +100,11 @@ export interface MarketplaceInfo {
 
 export const SUPPORTED_CURRENCIES: Currency[] = ["RUB", "KZT"];
 
+export const SUPPORTED_CURRENCY_RATE_PROVIDERS: CurrencyRateProvider[] = ["manual", "cbr", "nbk", "exchangeRateApi"];
+
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   defaultCurrency: "RUB",
+  currencyRateProvider: "cbr",
   ratesToRub: {
     RUB: 1,
     KZT: 0.17

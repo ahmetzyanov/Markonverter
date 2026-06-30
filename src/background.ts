@@ -1,9 +1,11 @@
 import { RuntimeRequest, RuntimeResponse } from "./shared/messages";
-import { DEFAULT_SETTINGS, ExtensionSettings } from "./shared/types";
+import { CurrencyRateProvider, CurrencyRateRefreshResult, DEFAULT_SETTINGS, ExtensionSettings } from "./shared/types";
+import { applyCurrencyRateResult, fetchCurrencyRates, isCurrencyRateCacheFresh } from "./shared/exchange-rates";
 import { deletePickupPoint, setComparisonPickupPointIds, upsertManualQuote, upsertPickupPoint } from "./shared/settings";
 import { normalizeSettings } from "./shared/validation";
 
 const SETTINGS_KEY = "markonverter.settings";
+let staleRateRefresh: Promise<ExtensionSettings> | null = null;
 
 chrome.runtime.onInstalled.addListener(() => {
   void ensureSettings();
@@ -24,30 +26,34 @@ chrome.action.onClicked.addListener((tab) => {
 
 async function handleRequest(request: RuntimeRequest): Promise<RuntimeResponse> {
   if (request.type === "GET_SETTINGS") {
-    return { ok: true, settings: await getSettings() };
+    return { ok: true, settings: await getSettingsWithFreshRates() };
   }
   if (request.type === "SAVE_SETTINGS") {
     const settings = normalizeSettings(request.settings);
     await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
     return { ok: true, settings };
   }
+  if (request.type === "REFRESH_CURRENCY_RATES") {
+    const { settings, result } = await refreshAndStoreCurrencyRates(await getStoredSettings(), request.provider);
+    return { ok: true, settings, rateResult: result };
+  }
   if (request.type === "UPSERT_PICKUP_POINT") {
-    const settings = upsertPickupPoint(await getSettings(), request.pickupPoint);
+    const settings = upsertPickupPoint(await getStoredSettings(), request.pickupPoint);
     await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
     return { ok: true, settings };
   }
   if (request.type === "DELETE_PICKUP_POINT") {
-    const settings = deletePickupPoint(await getSettings(), request.pickupPointId);
+    const settings = deletePickupPoint(await getStoredSettings(), request.pickupPointId);
     await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
     return { ok: true, settings };
   }
   if (request.type === "SET_COMPARISON_PICKUP_POINT_IDS") {
-    const settings = setComparisonPickupPointIds(await getSettings(), request.pickupPointIds);
+    const settings = setComparisonPickupPointIds(await getStoredSettings(), request.pickupPointIds);
     await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
     return { ok: true, settings };
   }
   if (request.type === "SAVE_MANUAL_QUOTE") {
-    const settings = upsertManualQuote(await getSettings(), request.manualQuote);
+    const settings = upsertManualQuote(await getStoredSettings(), request.manualQuote);
     await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
     return { ok: true, settings };
   }
@@ -115,7 +121,36 @@ async function ensureSettings(): Promise<void> {
   }
 }
 
-async function getSettings(): Promise<ExtensionSettings> {
+async function getStoredSettings(): Promise<ExtensionSettings> {
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
   return normalizeSettings(stored[SETTINGS_KEY]);
+}
+
+async function getSettingsWithFreshRates(): Promise<ExtensionSettings> {
+  const settings = await getStoredSettings();
+  if (isCurrencyRateCacheFresh(settings)) {
+    return settings;
+  }
+
+  staleRateRefresh ||= refreshAndStoreCurrencyRates(settings)
+    .then(({ settings }) => settings)
+    .catch((error) => {
+      console.warn("Markonverter currency rate update failed", error);
+      return settings;
+    })
+    .finally(() => {
+      staleRateRefresh = null;
+    });
+
+  return staleRateRefresh;
+}
+
+async function refreshAndStoreCurrencyRates(
+  settings: ExtensionSettings,
+  provider: CurrencyRateProvider = settings.currencyRateProvider
+): Promise<{ settings: ExtensionSettings; result: CurrencyRateRefreshResult }> {
+  const result = await fetchCurrencyRates(provider);
+  const nextSettings = applyCurrencyRateResult(settings, result, provider);
+  await chrome.storage.local.set({ [SETTINGS_KEY]: nextSettings });
+  return { settings: nextSettings, result };
 }

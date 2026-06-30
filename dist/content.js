@@ -1127,11 +1127,12 @@
         "gap:8px",
         "margin:8px 0",
         "padding:8px",
-        "border:1px solid #ccd5df",
-        "border-radius:8px",
-        "background:#fff",
-        "box-shadow:0 8px 18px rgba(15,23,42,.12)",
+        "border:1px solid #2a2a2c",
+        "border-radius:10px",
+        "background:#141414",
+        "box-shadow:0 12px 30px rgba(0,0,0,.34)",
         "font:13px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
+        "color:#fafafa",
         "z-index:2147483647"
       ].join(";")
     );
@@ -1181,12 +1182,13 @@
       [
         "min-height:32px",
         "padding:0 10px",
-        "border:1px solid #1166cc",
-        "border-radius:6px",
-        "background:#1166cc",
-        "color:#fff",
+        "border:1px solid #f59e0b",
+        "border-radius:8px",
+        "background:#f59e0b",
+        "color:#111",
         "cursor:pointer",
         "font:inherit",
+        "font-weight:700",
         "white-space:nowrap"
       ].join(";")
     );
@@ -1205,7 +1207,7 @@
     }
     const header = document.createElement("div");
     header.className = "header";
-    header.innerHTML = `<div><strong>Pickup prices</strong><span>${escapeHtml(model.product.title || "Ozon product")}</span></div>`;
+    header.innerHTML = `<div class="headerTitle"><span class="eyebrow">Markonverter</span><strong>Pickup prices</strong><span>${escapeHtml(model.product.title || "Ozon product")}</span></div>`;
     const headerActions = document.createElement("div");
     headerActions.className = "headerActions";
     const saveButton = document.createElement("button");
@@ -1264,7 +1266,7 @@
         item.className = `row${row.isCheapest ? " cheapest" : ""}${row.result.status === "error" ? " failed" : ""}`;
         const meta = document.createElement("div");
         meta.className = "meta";
-        meta.innerHTML = `<strong>${escapeHtml(row.pickupPoint.name)}</strong><span>${escapeHtml(row.pickupPoint.country)}</span>`;
+        meta.innerHTML = `<strong>${escapeHtml(row.pickupPoint.name)}</strong><span class="locationMeta">${escapeHtml(row.pickupPoint.country)} / ${escapeHtml(row.pickupPoint.currency)}</span>`;
         const rowActions = document.createElement("div");
         rowActions.className = "rowActions";
         const deleteButton = document.createElement("button");
@@ -1285,7 +1287,7 @@
           const delivery = row.result.originalPrice.deliveryText;
           const manualLabel = row.result.originalPrice.source === "manual" ? `Captured ${formatCapturedAt(row.result.originalPrice.capturedAt)}` : "";
           const delta = row.deltaFromCheapest && row.deltaFromCheapest > 0 ? `+${formatCurrency(row.deltaFromCheapest, row.result.convertedCurrency)}` : row.isCheapest ? "best" : "";
-          value.innerHTML = `<strong>${converted}</strong><span>${escapeHtml(original)} ${escapeHtml(delta)}</span>${delivery ? `<span>${escapeHtml(delivery)}</span>` : ""}${manualLabel ? `<span>${escapeHtml(manualLabel)}</span>` : ""}`;
+          value.innerHTML = `<strong>${converted}</strong><span class="original">${escapeHtml(original)} ${escapeHtml(delta)}</span>${delivery ? `<span>${escapeHtml(delivery)}</span>` : ""}${manualLabel ? `<span>${escapeHtml(manualLabel)}</span>` : ""}`;
         } else {
           const error = row.result.error;
           value.title = error;
@@ -1335,7 +1337,7 @@
     wrapper.className = "pointManager";
     const top = document.createElement("div");
     top.className = "pointManagerTop";
-    top.innerHTML = `<strong>Saved in Markonverter</strong><span>${allPickupPoints.length} total</span>`;
+    top.innerHTML = `<div><span class="eyebrow">Points</span><strong>Saved in Markonverter</strong></div><span>${allPickupPoints.length} total</span>`;
     const controls = document.createElement("div");
     controls.className = "pointManagerControls";
     const allButton = document.createElement("button");
@@ -1371,7 +1373,7 @@
       });
       const label = document.createElement("span");
       label.className = "pointChoiceText";
-      label.innerHTML = `<strong>${escapeHtml(point.name)}</strong><span>${escapeHtml(point.country)} - ${escapeHtml(point.currency)}</span>`;
+      label.innerHTML = `<strong>${escapeHtml(point.name)}</strong><span>${escapeHtml(point.country)} / ${escapeHtml(point.currency)}</span>`;
       const deleteButton = document.createElement("button");
       deleteButton.type = "button";
       deleteButton.className = "deleteButton";
@@ -1386,7 +1388,7 @@
     const detected = latestPickupCandidates.slice(0, 8);
     const detectedHeader = document.createElement("div");
     detectedHeader.className = "pointManagerTop detectedHeader";
-    detectedHeader.innerHTML = `<strong>Detected on Ozon</strong><span>${detected.length} found</span>`;
+    detectedHeader.innerHTML = `<div><span class="eyebrow">Ozon page</span><strong>Detected on Ozon</strong></div><span>${detected.length} found</span>`;
     wrapper.append(detectedHeader);
     if (detected.length === 0) {
       const hint = document.createElement("p");
@@ -1400,7 +1402,7 @@
       const text = document.createElement("span");
       text.className = "pointChoiceText";
       const alreadySaved = savedExternalIds.has(candidate.externalLocationId);
-      text.innerHTML = `<strong>${escapeHtml(candidate.name)}</strong><span>${escapeHtml(candidate.country)} - ${escapeHtml(candidate.currency)}${alreadySaved ? " - saved" : ""}</span>`;
+      text.innerHTML = `<strong>${escapeHtml(candidate.name)}</strong><span>${escapeHtml(candidate.country)} / ${escapeHtml(candidate.currency)}${alreadySaved ? " - saved" : ""}</span>`;
       const saveButton = document.createElement("button");
       saveButton.type = "button";
       saveButton.className = "saveSmallButton";
@@ -1523,21 +1525,39 @@
   function panelCss() {
     return `
     :host {
-      color-scheme: light;
-      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color-scheme: dark;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       letter-spacing: 0;
+      --mk-bg: #0c0c0c;
+      --mk-surface: #141414;
+      --mk-surface-2: #1b1b1c;
+      --mk-surface-3: #202022;
+      --mk-border: #2a2a2c;
+      --mk-border-strong: #3f3f46;
+      --mk-text: #fafafa;
+      --mk-muted: #a1a1aa;
+      --mk-quiet: #71717a;
+      --mk-accent: #f59e0b;
+      --mk-accent-strong: #fbbf24;
+      --mk-success: #22c55e;
+      --mk-danger: #ef4444;
+      --mk-info: #3b82f6;
+    }
+    * {
+      box-sizing: border-box;
     }
     .panel {
-      width: min(360px, calc(100vw - 24px));
+      width: min(398px, calc(100vw - 24px));
       margin: 12px 0;
-      border: 1px solid #d6dde6;
-      border-radius: 8px;
-      background: #ffffff;
-      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+      border: 1px solid var(--mk-border);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.01)), var(--mk-surface);
+      box-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
       overflow: hidden;
       font-size: 13px;
       line-height: 1.35;
       z-index: 2147483647;
+      color: var(--mk-text);
     }
     .floating {
       position: fixed;
@@ -1549,26 +1569,51 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 12px;
-      border-bottom: 1px solid #edf1f5;
-      background: #f8fafc;
+      padding: 14px;
+      border-bottom: 1px solid var(--mk-border);
+      background:
+        radial-gradient(circle at top left, rgba(245, 158, 11, 0.12), transparent 240px),
+        #111111;
+    }
+    .headerTitle {
+      min-width: 0;
+    }
+    .eyebrow {
+      display: block;
+      margin: 0 0 5px;
+      color: var(--mk-accent-strong);
+      font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      text-transform: uppercase;
     }
     .header strong,
     .meta strong,
     .value strong {
       display: block;
-      color: #172033;
+      color: var(--mk-text);
       font-size: 13px;
-      font-weight: 650;
+      font-weight: 760;
     }
     .header span,
     .meta span,
     .value span {
       display: block;
       margin-top: 2px;
-      color: #647084;
+      color: var(--mk-muted);
       font-size: 12px;
       overflow-wrap: anywhere;
+    }
+    .headerTitle > span:last-child {
+      max-width: 210px;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+    .header .eyebrow,
+    .pointManagerTop .eyebrow {
+      margin: 0 0 5px;
+      color: var(--mk-accent-strong);
+      font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      text-transform: uppercase;
     }
     .headerActions {
       display: flex;
@@ -1582,44 +1627,56 @@
     .secondaryButton,
     .iconButton {
       min-height: 32px;
-      padding: 0 9px;
-      border: 1px solid #1166cc;
-      border-radius: 6px;
-      background: #1166cc;
-      color: #ffffff;
+      padding: 0 10px;
+      border: 1px solid var(--mk-accent);
+      border-radius: 8px;
+      background: var(--mk-accent);
+      color: #111111;
       cursor: pointer;
       font: inherit;
       font-size: 12px;
+      font-weight: 750;
       white-space: nowrap;
+      transition:
+        transform 100ms ease,
+        border-color 150ms ease,
+        background 150ms ease;
+    }
+    button:hover:not(:disabled) {
+      border-color: var(--mk-accent-strong);
+    }
+    button:active:not(:disabled) {
+      transform: translateY(1px);
     }
     .secondaryButton {
-      border-color: #ccd5df;
-      background: #ffffff;
-      color: #172033;
+      border-color: var(--mk-border-strong);
+      background: var(--mk-surface-2);
+      color: var(--mk-text);
     }
     .iconButton {
-      border: 1px solid #ccd5df;
-      background: #ffffff;
-      color: #172033;
+      border: 1px solid var(--mk-border-strong);
+      background: var(--mk-surface-2);
+      color: var(--mk-muted);
       cursor: pointer;
     }
     .message {
       margin: 0;
-      padding: 12px;
-      color: #415066;
+      padding: 12px 14px;
+      color: var(--mk-muted);
+      overflow-wrap: anywhere;
     }
     .message.error {
-      color: #a33131;
+      color: #fca5a5;
     }
     .capture {
       display: grid;
       gap: 7px;
-      padding: 12px;
-      border-top: 1px solid #edf1f5;
-      background: #fbfcfe;
+      padding: 12px 14px;
+      border-top: 1px solid var(--mk-border);
+      background: rgba(255, 255, 255, 0.02);
     }
     .capture > span {
-      color: #647084;
+      color: var(--mk-muted);
       font-size: 12px;
     }
     .capture .message {
@@ -1628,19 +1685,20 @@
     }
     .captureButton {
       min-height: 34px;
-      border: 1px solid #1166cc;
-      border-radius: 6px;
-      background: #1166cc;
-      color: #ffffff;
+      border: 1px solid var(--mk-accent);
+      border-radius: 8px;
+      background: var(--mk-accent);
+      color: #111111;
       font: inherit;
+      font-weight: 750;
       cursor: pointer;
     }
     .pointManager {
       display: grid;
       gap: 8px;
-      padding: 12px;
-      border-bottom: 1px solid #edf1f5;
-      background: #fbfcfe;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--mk-border);
+      background: #101011;
     }
     .pointManagerTop,
     .pointChoice {
@@ -1652,20 +1710,20 @@
       justify-content: space-between;
     }
     .detectedHeader {
-      margin-top: 6px;
-      padding-top: 10px;
-      border-top: 1px solid #edf1f5;
+      margin-top: 8px;
+      padding-top: 12px;
+      border-top: 1px solid var(--mk-border);
     }
     .pointManagerTop strong,
     .pointChoiceText strong {
-      color: #172033;
+      color: var(--mk-text);
       font-size: 12px;
-      font-weight: 650;
+      font-weight: 730;
     }
     .pointManagerTop span,
     .pointChoiceText span {
       display: block;
-      color: #647084;
+      color: var(--mk-muted);
       font-size: 11px;
     }
     .pointManagerControls {
@@ -1678,10 +1736,10 @@
     .detailsButton {
       min-height: 28px;
       padding: 0 8px;
-      border: 1px solid #ccd5df;
-      border-radius: 6px;
-      background: #ffffff;
-      color: #172033;
+      border: 1px solid var(--mk-border-strong);
+      border-radius: 8px;
+      background: var(--mk-surface-2);
+      color: var(--mk-text);
       font: inherit;
       font-size: 12px;
       cursor: pointer;
@@ -1695,6 +1753,7 @@
       height: 16px;
       margin: 0;
       flex: 0 0 auto;
+      accent-color: var(--mk-accent);
     }
     .pointChoiceText {
       flex: 1 1 auto;
@@ -1710,25 +1769,25 @@
       font-size: 11px;
     }
     .deleteButton {
-      border-color: #f0c5c5;
-      color: #9a2f2f;
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
     }
     .saveSmallButton {
-      border-color: #1166cc;
-      color: #1166cc;
+      border-color: rgba(245, 158, 11, 0.72);
+      color: var(--mk-accent-strong);
     }
     .detailsButton {
-      border-color: #ccd5df;
-      color: #415066;
+      border-color: var(--mk-border-strong);
+      color: var(--mk-muted);
     }
     .saveSmallButton:disabled {
-      border-color: #ccd5df;
-      color: #647084;
+      border-color: var(--mk-border);
+      color: var(--mk-quiet);
       cursor: default;
     }
     .pointManagerHint {
       margin: 0;
-      color: #647084;
+      color: var(--mk-muted);
       font-size: 12px;
     }
     .rows {
@@ -1739,21 +1798,32 @@
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 12px;
       align-items: start;
-      padding: 11px 12px;
-      border-top: 1px solid #edf1f5;
+      padding: 12px 14px;
+      border-top: 1px solid var(--mk-border);
+      background: transparent;
     }
     .row:first-child {
       border-top: 0;
     }
     .row.cheapest {
-      background: #eefaf2;
+      background: linear-gradient(90deg, rgba(34, 197, 94, 0.14), rgba(34, 197, 94, 0.03));
+      box-shadow: inset 3px 0 0 var(--mk-success);
     }
     .row.failed {
-      background: #fff7f7;
+      background: linear-gradient(90deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.03));
     }
     .value {
       text-align: right;
-      max-width: 150px;
+      max-width: 168px;
+    }
+    .value strong {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+    .value .original,
+    .locationMeta {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
     .row.failed .value {
       max-width: 190px;
@@ -1764,6 +1834,42 @@
       gap: 6px;
       margin-top: 8px;
       flex-wrap: wrap;
+    }
+    @media (max-width: 430px) {
+      .panel {
+        width: calc(100vw - 18px);
+      }
+      .header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .headerTitle > span:last-child {
+        max-width: 100%;
+      }
+      .headerActions {
+        width: 100%;
+        justify-content: flex-start;
+      }
+      .pointManagerTop {
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+      .pointManagerControls {
+        flex-wrap: wrap;
+      }
+      .pointChoice {
+        align-items: flex-start;
+      }
+      .row {
+        grid-template-columns: 1fr;
+      }
+      .value {
+        max-width: none;
+        text-align: left;
+      }
+      .failureActions {
+        justify-content: flex-start;
+      }
     }
   `;
   }

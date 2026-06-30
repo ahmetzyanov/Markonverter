@@ -6,41 +6,110 @@
     <title>Markonverter settings</title>
     <style>
       :root {
-        color-scheme: light;
-        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        color: #172033;
-        background: #f5f7fa;
+        color-scheme: dark;
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --bg: #0c0c0c;
+        --surface: #141414;
+        --surface-2: #1b1b1c;
+        --surface-3: #202022;
+        --border: #2a2a2c;
+        --border-strong: #3f3f46;
+        --text: #fafafa;
+        --muted: #a1a1aa;
+        --quiet: #71717a;
+        --accent: #f59e0b;
+        --accent-strong: #fbbf24;
+        --success: #22c55e;
+        --danger: #ef4444;
+        color: var(--text);
+        background: var(--bg);
         letter-spacing: 0;
+      }
+      * {
+        box-sizing: border-box;
       }
       body {
         margin: 0;
+        min-width: 340px;
+        background:
+          radial-gradient(circle at top left, rgba(245, 158, 11, 0.08), transparent 320px),
+          linear-gradient(180deg, #111111 0%, var(--bg) 280px);
       }
       main {
-        max-width: 980px;
+        max-width: 1060px;
         margin: 0 auto;
-        padding: 28px 20px 44px;
+        padding: 32px 20px 48px;
+      }
+      .topbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 18px;
+        align-items: end;
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--border);
       }
       h1 {
-        margin: 0 0 20px;
-        font-size: 28px;
+        margin: 0;
+        font-size: 34px;
         line-height: 1.1;
+        font-weight: 800;
       }
       h2 {
-        margin: 0 0 14px;
-        font-size: 18px;
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.3;
+        font-weight: 700;
       }
       section {
         margin-top: 18px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.01)), var(--surface);
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+        overflow: hidden;
+      }
+      .sectionHead {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        align-items: center;
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.025);
+      }
+      .sectionBody {
         padding: 18px;
-        border: 1px solid #d8e0ea;
-        border-radius: 8px;
-        background: #ffffff;
+      }
+      .eyebrow {
+        margin: 0 0 6px;
+        color: var(--accent-strong);
+        font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        text-transform: uppercase;
+      }
+      .lede {
+        max-width: 640px;
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+      .metric {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--muted);
+        background: var(--surface-2);
+        font: 600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       }
       label {
         display: grid;
         gap: 6px;
-        font-size: 13px;
-        color: #4a5668;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 650;
       }
       input,
       select,
@@ -51,36 +120,72 @@
       input,
       select,
       textarea {
-        box-sizing: border-box;
         width: 100%;
-        min-height: 38px;
-        border: 1px solid #c9d3df;
-        border-radius: 6px;
-        padding: 8px 10px;
-        color: #172033;
-        background: #ffffff;
+        min-height: 40px;
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        padding: 9px 10px;
+        color: var(--text);
+        background: #0f0f10;
+        outline: none;
+        transition:
+          border-color 150ms ease,
+          box-shadow 150ms ease,
+          background 150ms ease;
+      }
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+        background: #111112;
       }
       textarea {
         resize: vertical;
+        min-height: 76px;
       }
       button {
         min-height: 36px;
-        border: 1px solid #b8c4d2;
-        border-radius: 6px;
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
         padding: 8px 12px;
-        background: #ffffff;
-        color: #172033;
+        background: var(--surface-2);
+        color: var(--text);
         cursor: pointer;
+        transition:
+          border-color 150ms ease,
+          background 150ms ease,
+          color 150ms ease,
+          transform 100ms ease;
+      }
+      button:hover:not(:disabled) {
+        border-color: #52525b;
+        background: var(--surface-3);
+      }
+      button:active:not(:disabled) {
+        transform: translateY(1px);
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: default;
       }
       button.primary {
-        border-color: #1166cc;
-        background: #1166cc;
-        color: #ffffff;
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #111111;
+        font-weight: 750;
+      }
+      button.danger {
+        border-color: rgba(239, 68, 68, 0.55);
+        color: #fca5a5;
       }
       .grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 14px;
+      }
+      .rateGrid {
+        grid-template-columns: minmax(150px, 1.1fr) repeat(3, minmax(0, 1fr));
       }
       .wide {
         grid-column: 1 / -1;
@@ -90,133 +195,206 @@
         flex-wrap: wrap;
         gap: 8px;
         margin-top: 14px;
+        align-items: center;
       }
       .list {
         display: grid;
-        gap: 10px;
+        gap: 8px;
       }
       .point {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
-        gap: 12px;
-        padding: 12px;
-        border: 1px solid #e1e7ef;
+        gap: 14px;
+        align-items: center;
+        padding: 13px;
+        border: 1px solid var(--border);
         border-radius: 8px;
+        background: #101011;
       }
       .point strong,
       .point span {
         display: block;
       }
+      .point strong {
+        color: var(--text);
+        font-size: 14px;
+      }
       .point span {
-        margin-top: 3px;
-        color: #647084;
-        font-size: 13px;
+        margin-top: 4px;
+        color: var(--muted);
+        font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        overflow-wrap: anywhere;
+      }
+      .point .actions {
+        margin-top: 0;
+        justify-content: flex-end;
       }
       .status {
-        min-height: 20px;
-        margin-top: 12px;
-        color: #2f6846;
+        min-height: 22px;
+        margin-top: 14px;
+        color: var(--success);
+        font-size: 13px;
       }
       .status.error {
-        color: #a33131;
+        color: var(--danger);
       }
       .note {
         margin: 0;
-        color: #4a5668;
+        color: var(--muted);
         line-height: 1.45;
       }
       .note strong {
-        color: #172033;
+        color: var(--accent-strong);
+      }
+      .inlineHint {
+        color: var(--quiet);
+        font-size: 12px;
+      }
+      .rateInfo {
+        color: var(--quiet);
+        font-size: 12px;
       }
       @media (max-width: 760px) {
+        main {
+          padding: 22px 12px 32px;
+        }
+        .topbar,
         .grid,
+        .rateGrid,
         .point {
           grid-template-columns: 1fr;
+        }
+        .sectionHead {
+          align-items: start;
+          flex-direction: column;
+        }
+        .point .actions {
+          justify-content: flex-start;
         }
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>Markonverter</h1>
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Ozon price console</p>
+          <h1>Markonverter</h1>
+          <p class="lede">Compare saved pickup points, tune conversion rates, and keep manual Ozon location ids under control.</p>
+        </div>
+        <span class="metric">RUB / KZT</span>
+      </header>
 
       <section>
-        <h2>Currency</h2>
-        <div class="grid">
-          <label>
-            Default comparison
-            <select id="defaultCurrency">
-              <option value="RUB">RUB</option>
-              <option value="KZT">KZT</option>
-            </select>
-          </label>
-          <label>
-            1 RUB in RUB
-            <input id="rateRub" type="number" min="0.0001" step="0.0001" />
-          </label>
-          <label>
-            1 KZT in RUB
-            <input id="rateKzt" type="number" min="0.0001" step="0.0001" />
-          </label>
+        <div class="sectionHead">
+          <div>
+            <p class="eyebrow">Rates</p>
+            <h2>Currency</h2>
+          </div>
+          <span class="inlineHint">Used by the injected comparison panel</span>
         </div>
-        <div class="actions">
-          <button id="saveCurrency" class="primary" type="button">Save currency</button>
-        </div>
-      </section>
-
-      <section>
-        <h2>Pickup point</h2>
-        <p class="note">
-          Fast path: open an Ozon product, select a delivery point in Ozon, then press
-          <strong>Save selected point</strong> in the Markonverter panel. Use this form only to edit or add ids manually.
-        </p>
-        <form id="pointForm">
-          <input id="pointId" type="hidden" />
-          <div class="grid">
+        <div class="sectionBody">
+          <div class="grid rateGrid">
             <label>
-              Name
-              <input id="pointName" required />
-            </label>
-            <label>
-              Marketplace
-              <select id="pointMarketplace">
-                <option value="ozon">Ozon</option>
-                <option value="wildberries" disabled>Wildberries</option>
+              Rate source
+              <select id="rateProvider">
+                <option value="manual">Manual</option>
+                <option value="cbr">CBR</option>
+                <option value="nbk">National Bank KZ</option>
+                <option value="exchangeRateApi">ExchangeRate-API</option>
               </select>
             </label>
             <label>
-              Country
-              <select id="pointCountry">
-                <option value="RU">Russia</option>
-                <option value="KZ">Kazakhstan</option>
-              </select>
-            </label>
-            <label>
-              Currency
-              <select id="pointCurrency">
+              Default comparison
+              <select id="defaultCurrency">
                 <option value="RUB">RUB</option>
                 <option value="KZT">KZT</option>
               </select>
             </label>
             <label>
-              Ozon location id
-              <input id="pointExternalId" required />
+              1 RUB in RUB
+              <input id="rateRub" type="number" min="0.0001" step="0.0001" />
             </label>
-            <label class="wide">
-              Comment
-              <textarea id="pointComment" rows="2"></textarea>
+            <label>
+              1 KZT in RUB
+              <input id="rateKzt" type="number" min="0.0001" step="0.0001" />
             </label>
           </div>
           <div class="actions">
-            <button id="savePoint" class="primary" type="submit">Save pickup point</button>
-            <button id="resetPoint" type="button">Clear</button>
+            <button id="saveCurrency" class="primary" type="button">Save currency</button>
+            <button id="refreshCurrency" type="button">Update rates</button>
+            <span id="currencyRateInfo" class="rateInfo"></span>
           </div>
-        </form>
+        </div>
       </section>
 
       <section>
-        <h2>Configured pickup points</h2>
-        <div id="pointList" class="list"></div>
+        <div class="sectionHead">
+          <div>
+            <p class="eyebrow">Manual editor</p>
+            <h2>Pickup point</h2>
+          </div>
+        </div>
+        <div class="sectionBody">
+          <p class="note">
+            Fast path: open an Ozon product, select a delivery point in Ozon, then press
+            <strong>Save selected point</strong> in the Markonverter panel. Use this form only to edit or add ids manually.
+          </p>
+          <form id="pointForm">
+            <input id="pointId" type="hidden" />
+            <div class="grid">
+              <label>
+                Name
+                <input id="pointName" required />
+              </label>
+              <label>
+                Marketplace
+                <select id="pointMarketplace">
+                  <option value="ozon">Ozon</option>
+                  <option value="wildberries" disabled>Wildberries</option>
+                </select>
+              </label>
+              <label>
+                Country
+                <select id="pointCountry">
+                  <option value="RU">Russia</option>
+                  <option value="KZ">Kazakhstan</option>
+                </select>
+              </label>
+              <label>
+                Currency
+                <select id="pointCurrency">
+                  <option value="RUB">RUB</option>
+                  <option value="KZT">KZT</option>
+                </select>
+              </label>
+              <label>
+                Ozon location id
+                <input id="pointExternalId" required />
+              </label>
+              <label class="wide">
+                Comment
+                <textarea id="pointComment" rows="2"></textarea>
+              </label>
+            </div>
+            <div class="actions">
+              <button id="savePoint" class="primary" type="submit">Save pickup point</button>
+              <button id="resetPoint" type="button">Clear</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section>
+        <div class="sectionHead">
+          <div>
+            <p class="eyebrow">Saved locations</p>
+            <h2>Configured pickup points</h2>
+          </div>
+        </div>
+        <div class="sectionBody">
+          <div id="pointList" class="list"></div>
+        </div>
       </section>
 
       <div id="status" class="status" role="status"></div>
