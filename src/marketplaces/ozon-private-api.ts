@@ -18,10 +18,8 @@ interface EndpointCandidate {
 export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): Promise<PriceQuote> {
   const productUrl = new URL(request.productUrl);
   const pathWithSearch = `${productUrl.pathname}${productUrl.search}`;
-  const acceptedLocationIds = [
-    request.pickupExternalLocationId,
-    ...(await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId))
-  ];
+  const activation = await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId);
+  const acceptedLocationIds = normalizeLocationIds([request.pickupExternalLocationId, ...activation.aliases]);
   const candidates = buildEndpointCandidates(pathWithSearch, acceptedLocationIds);
   const errors: string[] = [];
 
@@ -39,7 +37,12 @@ export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): P
       }
 
       const json = await response.json();
-      if (!responseContainsAnyLocation(json, acceptedLocationIds)) {
+      const location = inspectResponseLocation(json, acceptedLocationIds);
+      if (location.hasConflictingExplicitLocation && !location.hasAcceptedExplicitLocation) {
+        errors.push(`${candidate.label}: response did not confirm requested pickup point (confirmed a different pickup point)`);
+        continue;
+      }
+      if (!location.hasAcceptedLocation && !activation.confirmed) {
         errors.push(`${candidate.label}: response did not confirm requested pickup point`);
         continue;
       }
@@ -59,9 +62,24 @@ export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): P
   throw new Error(`Ozon private API did not return a verified product price. ${errors.join("; ")}`);
 }
 
-async function activateOzonPickupLocation(pathWithSearch: string, pickupExternalLocationId: string): Promise<string[]> {
+interface OzonPickupActivationResult {
+  confirmed: boolean;
+  aliases: string[];
+}
+
+interface LocationInspection {
+  hasAcceptedLocation: boolean;
+  hasAcceptedExplicitLocation: boolean;
+  hasConflictingExplicitLocation: boolean;
+}
+
+async function activateOzonPickupLocation(
+  pathWithSearch: string,
+  pickupExternalLocationId: string
+): Promise<OzonPickupActivationResult> {
   const candidates = buildLocationActivationCandidates(pathWithSearch, pickupExternalLocationId);
   const aliases = new Set<string>();
+  let confirmed = false;
 
   for (const candidate of candidates) {
     try {
@@ -76,14 +94,19 @@ async function activateOzonPickupLocation(pathWithSearch: string, pickupExternal
       }
 
       const json = parseMaybeJson(await response.text());
-      extractConfirmedLocationAliases(json, pickupExternalLocationId).forEach((alias) => aliases.add(alias));
+      const activation = inspectActivationResponse(json, pickupExternalLocationId);
+      confirmed ||= activation.confirmed;
+      activation.aliases.forEach((alias) => aliases.add(alias));
     } catch {
       // Best effort only: the verified product-price request below decides whether the switch worked.
     }
   }
 
   aliases.delete(pickupExternalLocationId);
-  return [...aliases].slice(0, 6);
+  return {
+    confirmed,
+    aliases: [...aliases].slice(0, 6)
+  };
 }
 
 export function buildLocationActivationCandidates(pathWithSearch: string, pickupExternalLocationId: string): EndpointCandidate[] {
@@ -225,11 +248,59 @@ function responseContainsAnyLocation(json: unknown, pickupExternalLocationIds: s
   return normalizeLocationIds(pickupExternalLocationIds).some((id) => responseContainsLocation(json, id));
 }
 
-function extractConfirmedLocationAliases(json: unknown, pickupExternalLocationId: string): string[] {
+function inspectResponseLocation(json: unknown, pickupExternalLocationIds: string[]): LocationInspection {
+  const acceptedIds = normalizeLocationIds(pickupExternalLocationIds);
+  let hasAcceptedExplicitLocation = false;
+  let hasConflictingExplicitLocation = false;
+
+  walk(json, [], (path, value) => {
+    if (typeof value !== "string" && typeof value !== "number") {
+      return;
+    }
+
+    const text = String(value).trim();
+    if (!text || !isExplicitLocationConfirmationPath(path.join(".").toLowerCase())) {
+      return;
+    }
+
+    if (acceptedIds.some((id) => text.includes(id))) {
+      hasAcceptedExplicitLocation = true;
+      return;
+    }
+    if (isLocationAlias(text)) {
+      hasConflictingExplicitLocation = true;
+    }
+  });
+
+  return {
+    hasAcceptedLocation: responseContainsAnyLocation(json, acceptedIds),
+    hasAcceptedExplicitLocation,
+    hasConflictingExplicitLocation
+  };
+}
+
+function inspectActivationResponse(json: unknown, pickupExternalLocationId: string): OzonPickupActivationResult {
   const aliases = new Set<string>();
-  if (responseContainsLocation(json, pickupExternalLocationId)) {
-    collectLocationAliasValues(json).forEach((alias) => aliases.add(alias));
-  }
+  let confirmed = false;
+
+  walk(json, [], (path, value) => {
+    if (typeof value !== "string" && typeof value !== "number") {
+      return;
+    }
+
+    const text = String(value).trim();
+    if (!text.includes(pickupExternalLocationId)) {
+      return;
+    }
+
+    const joined = path.join(".").toLowerCase();
+    if (!isExplicitLocationConfirmationPath(joined)) {
+      return;
+    }
+
+    confirmed = true;
+    scalarLocationAliasValues(path, value).forEach((alias) => aliases.add(alias));
+  });
 
   walk(json, [], (path, value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -242,19 +313,20 @@ function extractConfirmedLocationAliases(json: unknown, pickupExternalLocationId
     if (!localConfirmationValues.some((item) => item.includes(pickupExternalLocationId))) {
       return;
     }
-    Object.entries(value as Record<string, unknown>)
-      .flatMap(([key, child]) => scalarLocationAliasValues([...path, key], child))
-      .forEach((item) => aliases.add(item));
-  });
-  return [...aliases];
-}
 
-function collectLocationAliasValues(json: unknown): string[] {
-  const aliases = new Set<string>();
-  walk(json, [], (path, value) => {
-    scalarLocationAliasValues(path, value).forEach((alias) => aliases.add(alias));
+    const entries = Object.entries(value as Record<string, unknown>);
+    const hasSelectedFlag = entries.some(([key, child]) => isSelectionFlag(key, child));
+    const selectedAliases = entries.flatMap(([key, child]) => scalarSelectedLocationAliasValues([...path, key], child));
+    if (!hasSelectedFlag && selectedAliases.length === 0) {
+      return;
+    }
+
+    confirmed = true;
+    entries.flatMap(([key, child]) => scalarLocationAliasValues([...path, key], child)).forEach((item) => aliases.add(item));
   });
-  return [...aliases];
+
+  aliases.delete(pickupExternalLocationId);
+  return { confirmed, aliases: [...aliases] };
 }
 
 function scalarLocationValues(path: string[], value: unknown): string[] {
@@ -266,6 +338,13 @@ function scalarLocationValues(path: string[], value: unknown): string[] {
 
 function scalarLocationAliasValues(path: string[], value: unknown): string[] {
   if ((typeof value !== "string" && typeof value !== "number") || !locationAliasPathScore(path.join(".").toLowerCase())) {
+    return [];
+  }
+  return [String(value).trim()].filter(isLocationAlias);
+}
+
+function scalarSelectedLocationAliasValues(path: string[], value: unknown): string[] {
+  if ((typeof value !== "string" && typeof value !== "number") || !isSelectedLocationPath(path.join(".").toLowerCase())) {
     return [];
   }
   return [String(value).trim()].filter(isLocationAlias);
@@ -505,6 +584,34 @@ function locationAliasPathScore(path: string): number {
     return 1;
   }
   return 0;
+}
+
+function isExplicitLocationConfirmationPath(path: string): boolean {
+  if (/(request|url|href|referrer|referer|query|param|tracking|analytics|debug|log|metrika|route)/i.test(path)) {
+    return false;
+  }
+  if (isSelectedLocationPath(path)) {
+    return true;
+  }
+  if (/(addressbook|book|list|items|available|suggest|candidate)/i.test(path)) {
+    return false;
+  }
+  return /(delivery|address|pickup|pickpoint|pvz|location)/i.test(path) && /(oid|id|uid)$/i.test(path);
+}
+
+function isSelectedLocationPath(path: string): boolean {
+  return (
+    /(selected|current|active|chosen)/i.test(path) &&
+    /(delivery|address|pickup|pickpoint|pvz|location)/i.test(path) &&
+    !/(request|url|href|referrer|referer|query|param|tracking|analytics|debug|log|metrika|route)/i.test(path)
+  );
+}
+
+function isSelectionFlag(key: string, value: unknown): boolean {
+  if (!/(selected|current|active|chosen)/i.test(key)) {
+    return false;
+  }
+  return value === true || value === 1 || value === "true" || value === "selected" || value === "active";
 }
 
 function compactText(value: string): string {

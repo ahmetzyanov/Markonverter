@@ -19,6 +19,9 @@
   var WEAK_ID_KEYS = /* @__PURE__ */ new Set(["locationId", "cityId", "geoId", "regionId"]);
   var RELEVANCE_RE = /(delivery|address|pickup|pickpoint|pvz|пвз|пункт|получ|достав|location|geo|city|region)/i;
   var BAD_ID_RE = /(product|sku|item|seller|brand|category|image|price|cart|widget|layout|session|fingerprint|analytics|banner)/i;
+  var SERVICE_LABEL_RE = /\b(?:url|href|action|layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?|analytics|tracking|component|state|params?|query)\b\s*[:=]/i;
+  var TECHNICAL_LABEL_RE = /^(?:api|network|content)\.[a-z0-9._/?=&%-]+$/i;
+  var TECHNICAL_ENDPOINT_LABEL_RE = /\b(?:composer|entrypoint)(?:-[a-z0-9]+)*-(?:addressbook|delivery|geo)\b/i;
   var KZ_RE = /(kazakhstan|казахстан|kz\b|алматы|астана|караганда|шымкент|атырау|актобе|павлодар|усть-каменогорск)/i;
   var RU_RE = /(russia|россия|ru\b|москва|санкт-петербург|екатеринбург|казань|новосибирск|краснодар)/i;
   function extractOzonPickupCandidatesFromSources(sources) {
@@ -197,7 +200,7 @@
       }
     }
     const sourceLabel = sourceText.match(/(?:пункт выдачи|пвз|pickup point|адрес)[:\s-]+([^|]{8,120})/i)?.[1];
-    return sourceLabel ? compact(sourceLabel) : "";
+    return sourceLabel && isUsefulLabel(compact(sourceLabel)) ? compact(sourceLabel) : "";
   }
   function extractNameNearId(text, id, matchIndex) {
     if (!text || matchIndex < 0) {
@@ -210,14 +213,15 @@
     const scopedText = localIdIndex >= 0 ? textScopeNearId(snippet, localIdIndex, id) : snippet;
     const labels = [];
     const structuredLabels = extractStructuredLabels(scopedText);
+    const scopedTextIsJson = isJsonLikeSnippet(scopedText);
     labels.push(...structuredLabels);
     labels.push(...extractOzonPointLabels(scopedText));
     if (localIdIndex >= 0) {
-      if (structuredLabels.length === 0 || scopedText.includes("<")) {
+      if (scopedText.includes("<") || structuredLabels.length === 0 && !scopedTextIsJson) {
         labels.push(stripMarkup(scopedText));
       }
       const scopedIdIndex = scopedText.indexOf(id);
-      if (scopedIdIndex >= 0 && structuredLabels.length === 0) {
+      if (scopedIdIndex >= 0 && structuredLabels.length === 0 && !scopedTextIsJson) {
         labels.push(stripMarkup(scopedText.slice(scopedIdIndex + id.length)));
       }
     }
@@ -342,6 +346,9 @@
   function stripMarkup(value) {
     return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ");
   }
+  function isJsonLikeSnippet(value) {
+    return /^\s*[{[]/.test(value) || /["'][a-z][\w-]*["']\s*:/i.test(value) || SERVICE_LABEL_RE.test(value);
+  }
   function inferCountry(text) {
     if (/https?:\/\/(?:[^/]+\.)?ozon\.kz\b/i.test(text) || /\bozon\.kz\b/i.test(text)) {
       return "KZ";
@@ -389,14 +396,14 @@
   }
   function isUsefulLabel(value) {
     const ozonPointMatches = value.match(/Пункт\s+Ozon\s*№/gi);
-    return value.length >= 3 && value.length <= 180 && !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
+    return value.length >= 3 && value.length <= 180 && !SERVICE_LABEL_RE.test(value) && !/\b(?:layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?)\b/i.test(value) && !TECHNICAL_LABEL_RE.test(value) && !TECHNICAL_ENDPOINT_LABEL_RE.test(value) && (value.match(/["']?[a-z][\w-]*["']?\s*[:=]/gi)?.length || 0) < 2 && !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
   }
   function compact(value) {
     return value.replace(/\s+/g, " ").trim();
   }
   function scorePickupLabel(name, externalLocationId) {
     const label = compact(name);
-    if (isGenericOzonPickupName(label, externalLocationId)) {
+    if (isGenericOzonPickupName(label, externalLocationId) || !isUsefulLabel(label)) {
       return 0;
     }
     let score = 1;

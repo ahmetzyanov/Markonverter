@@ -36,6 +36,10 @@ const STRONG_ID_KEYS = new Set([
 const WEAK_ID_KEYS = new Set(["locationId", "cityId", "geoId", "regionId"]);
 const RELEVANCE_RE = /(delivery|address|pickup|pickpoint|pvz|пвз|пункт|получ|достав|location|geo|city|region)/i;
 const BAD_ID_RE = /(product|sku|item|seller|brand|category|image|price|cart|widget|layout|session|fingerprint|analytics|banner)/i;
+const SERVICE_LABEL_RE =
+  /\b(?:url|href|action|layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?|analytics|tracking|component|state|params?|query)\b\s*[:=]/i;
+const TECHNICAL_LABEL_RE = /^(?:api|network|content)\.[a-z0-9._/?=&%-]+$/i;
+const TECHNICAL_ENDPOINT_LABEL_RE = /\b(?:composer|entrypoint)(?:-[a-z0-9]+)*-(?:addressbook|delivery|geo)\b/i;
 const KZ_RE = /(kazakhstan|казахстан|kz\b|алматы|астана|караганда|шымкент|атырау|актобе|павлодар|усть-каменогорск)/i;
 const RU_RE = /(russia|россия|ru\b|москва|санкт-петербург|екатеринбург|казань|новосибирск|краснодар)/i;
 
@@ -256,7 +260,7 @@ function extractName(object: Record<string, unknown>, sourceText: string): strin
   }
 
   const sourceLabel = sourceText.match(/(?:пункт выдачи|пвз|pickup point|адрес)[:\s-]+([^|]{8,120})/i)?.[1];
-  return sourceLabel ? compact(sourceLabel) : "";
+  return sourceLabel && isUsefulLabel(compact(sourceLabel)) ? compact(sourceLabel) : "";
 }
 
 function extractNameNearId(text: string, id: string, matchIndex: number): string {
@@ -271,16 +275,17 @@ function extractNameNearId(text: string, id: string, matchIndex: number): string
   const scopedText = localIdIndex >= 0 ? textScopeNearId(snippet, localIdIndex, id) : snippet;
   const labels: string[] = [];
   const structuredLabels = extractStructuredLabels(scopedText);
+  const scopedTextIsJson = isJsonLikeSnippet(scopedText);
 
   labels.push(...structuredLabels);
   labels.push(...extractOzonPointLabels(scopedText));
 
   if (localIdIndex >= 0) {
-    if (structuredLabels.length === 0 || scopedText.includes("<")) {
+    if (scopedText.includes("<") || (structuredLabels.length === 0 && !scopedTextIsJson)) {
       labels.push(stripMarkup(scopedText));
     }
     const scopedIdIndex = scopedText.indexOf(id);
-    if (scopedIdIndex >= 0 && structuredLabels.length === 0) {
+    if (scopedIdIndex >= 0 && structuredLabels.length === 0 && !scopedTextIsJson) {
       labels.push(stripMarkup(scopedText.slice(scopedIdIndex + id.length)));
     }
   }
@@ -443,6 +448,10 @@ function stripMarkup(value: string): string {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ");
 }
 
+function isJsonLikeSnippet(value: string): boolean {
+  return /^\s*[{[]/.test(value) || /["'][a-z][\w-]*["']\s*:/i.test(value) || SERVICE_LABEL_RE.test(value);
+}
+
 function inferCountry(text: string): PickupCountry {
   if (/https?:\/\/(?:[^/]+\.)?ozon\.kz\b/i.test(text) || /\bozon\.kz\b/i.test(text)) {
     return "KZ";
@@ -500,6 +509,11 @@ function isUsefulLabel(value: string): boolean {
   return (
     value.length >= 3 &&
     value.length <= 180 &&
+    !SERVICE_LABEL_RE.test(value) &&
+    !/\b(?:layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?)\b/i.test(value) &&
+    !TECHNICAL_LABEL_RE.test(value) &&
+    !TECHNICAL_ENDPOINT_LABEL_RE.test(value) &&
+    (value.match(/["']?[a-z][\w-]*["']?\s*[:=]/gi)?.length || 0) < 2 &&
     !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) &&
     !/^[a-z0-9_-]{4,80}$/i.test(value) &&
     !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) &&
@@ -513,7 +527,7 @@ function compact(value: string): string {
 
 function scorePickupLabel(name: string, externalLocationId: string): number {
   const label = compact(name);
-  if (isGenericOzonPickupName(label, externalLocationId)) {
+  if (isGenericOzonPickupName(label, externalLocationId) || !isUsefulLabel(label)) {
     return 0;
   }
 

@@ -26,3 +26,7 @@ updates, and non-trivial implementation changes.
 - Extended Ozon pickup activation to accept internal selected-address aliases
   only when they come from a response that also confirms the saved pickup id;
   request echoes remain untrusted.
+- Blocked Ozon modal service metadata from becoming pickup-point names; JSON
+  fragments with `layoutId`, `pageType`, `ruleId`, `referer`, or empty `url`
+  and internal API labels such as `api.composer-post-addressbook` now fall back
+  to the generic id label unless a real address label is present.

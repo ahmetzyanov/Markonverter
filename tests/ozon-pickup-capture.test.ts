@@ -142,6 +142,24 @@ describe("Ozon pickup capture", () => {
     });
   });
 
+  it("does not use Ozon modal service metadata as a pickup point name", () => {
+    const id = "528a5580-56f9-4e82-80cc-e801b5dbf252";
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: `api.composer-post-addressbook-/modal/addressbook?select_address=${id}`,
+        urlHint: `https://www.ozon.kz/api/entrypoint-api.bx/page/json/v2?url=%2Fmodal%2Faddressbook%3Fselect_address%3D${id}`,
+        value: `{"items":[{"action":{"url":"/modal/addressbook?select_address=${id}"},"url":" ","layoutId":39077,"layoutVersion":31,"pageType":"modal","ruleId":37945,"referer":"/product/example"}]}`
+      }
+    ]);
+
+    const candidate = candidates.find((item) => item.externalLocationId === id);
+    expect(candidate).toMatchObject({
+      externalLocationId: id,
+      name: `Ozon pickup ${id}`
+    });
+    expect(candidate?.name).not.toMatch(/layoutId|layoutVersion|pageType|ruleId|referer|url":"|composer-post-addressbook/i);
+  });
+
   it("does not borrow a nearby JSON label from another pickup id", () => {
     const candidates = extractOzonPickupCandidatesFromSources([
       {

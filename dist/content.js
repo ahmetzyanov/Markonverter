@@ -138,10 +138,8 @@
   async function fetchOzonPrivatePrice(request) {
     const productUrl = new URL(request.productUrl);
     const pathWithSearch = `${productUrl.pathname}${productUrl.search}`;
-    const acceptedLocationIds = [
-      request.pickupExternalLocationId,
-      ...await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId)
-    ];
+    const activation = await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId);
+    const acceptedLocationIds = normalizeLocationIds([request.pickupExternalLocationId, ...activation.aliases]);
     const candidates = buildEndpointCandidates(pathWithSearch, acceptedLocationIds);
     const errors = [];
     for (const candidate of candidates) {
@@ -157,7 +155,12 @@
           continue;
         }
         const json = await response.json();
-        if (!responseContainsAnyLocation(json, acceptedLocationIds)) {
+        const location2 = inspectResponseLocation(json, acceptedLocationIds);
+        if (location2.hasConflictingExplicitLocation && !location2.hasAcceptedExplicitLocation) {
+          errors.push(`${candidate.label}: response did not confirm requested pickup point (confirmed a different pickup point)`);
+          continue;
+        }
+        if (!location2.hasAcceptedLocation && !activation.confirmed) {
           errors.push(`${candidate.label}: response did not confirm requested pickup point`);
           continue;
         }
@@ -176,6 +179,7 @@
   async function activateOzonPickupLocation(pathWithSearch, pickupExternalLocationId) {
     const candidates = buildLocationActivationCandidates(pathWithSearch, pickupExternalLocationId);
     const aliases = /* @__PURE__ */ new Set();
+    let confirmed = false;
     for (const candidate of candidates) {
       try {
         const response = await fetch(candidate.url, {
@@ -188,12 +192,17 @@
           continue;
         }
         const json = parseMaybeJson(await response.text());
-        extractConfirmedLocationAliases(json, pickupExternalLocationId).forEach((alias) => aliases.add(alias));
+        const activation = inspectActivationResponse(json, pickupExternalLocationId);
+        confirmed ||= activation.confirmed;
+        activation.aliases.forEach((alias) => aliases.add(alias));
       } catch {
       }
     }
     aliases.delete(pickupExternalLocationId);
-    return [...aliases].slice(0, 6);
+    return {
+      confirmed,
+      aliases: [...aliases].slice(0, 6)
+    };
   }
   function buildLocationActivationCandidates(pathWithSearch, pickupExternalLocationId) {
     const modalPath = `/modal/addressbook?select_address=${encodeURIComponent(pickupExternalLocationId)}`;
@@ -328,11 +337,50 @@
   function responseContainsAnyLocation(json, pickupExternalLocationIds) {
     return normalizeLocationIds(pickupExternalLocationIds).some((id) => responseContainsLocation(json, id));
   }
-  function extractConfirmedLocationAliases(json, pickupExternalLocationId) {
+  function inspectResponseLocation(json, pickupExternalLocationIds) {
+    const acceptedIds = normalizeLocationIds(pickupExternalLocationIds);
+    let hasAcceptedExplicitLocation = false;
+    let hasConflictingExplicitLocation = false;
+    walk(json, [], (path, value) => {
+      if (typeof value !== "string" && typeof value !== "number") {
+        return;
+      }
+      const text = String(value).trim();
+      if (!text || !isExplicitLocationConfirmationPath(path.join(".").toLowerCase())) {
+        return;
+      }
+      if (acceptedIds.some((id) => text.includes(id))) {
+        hasAcceptedExplicitLocation = true;
+        return;
+      }
+      if (isLocationAlias(text)) {
+        hasConflictingExplicitLocation = true;
+      }
+    });
+    return {
+      hasAcceptedLocation: responseContainsAnyLocation(json, acceptedIds),
+      hasAcceptedExplicitLocation,
+      hasConflictingExplicitLocation
+    };
+  }
+  function inspectActivationResponse(json, pickupExternalLocationId) {
     const aliases = /* @__PURE__ */ new Set();
-    if (responseContainsLocation(json, pickupExternalLocationId)) {
-      collectLocationAliasValues(json).forEach((alias) => aliases.add(alias));
-    }
+    let confirmed = false;
+    walk(json, [], (path, value) => {
+      if (typeof value !== "string" && typeof value !== "number") {
+        return;
+      }
+      const text = String(value).trim();
+      if (!text.includes(pickupExternalLocationId)) {
+        return;
+      }
+      const joined = path.join(".").toLowerCase();
+      if (!isExplicitLocationConfirmationPath(joined)) {
+        return;
+      }
+      confirmed = true;
+      scalarLocationAliasValues(path, value).forEach((alias) => aliases.add(alias));
+    });
     walk(json, [], (path, value) => {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         return;
@@ -343,16 +391,17 @@
       if (!localConfirmationValues.some((item) => item.includes(pickupExternalLocationId))) {
         return;
       }
-      Object.entries(value).flatMap(([key, child]) => scalarLocationAliasValues([...path, key], child)).forEach((item) => aliases.add(item));
+      const entries = Object.entries(value);
+      const hasSelectedFlag = entries.some(([key, child]) => isSelectionFlag(key, child));
+      const selectedAliases = entries.flatMap(([key, child]) => scalarSelectedLocationAliasValues([...path, key], child));
+      if (!hasSelectedFlag && selectedAliases.length === 0) {
+        return;
+      }
+      confirmed = true;
+      entries.flatMap(([key, child]) => scalarLocationAliasValues([...path, key], child)).forEach((item) => aliases.add(item));
     });
-    return [...aliases];
-  }
-  function collectLocationAliasValues(json) {
-    const aliases = /* @__PURE__ */ new Set();
-    walk(json, [], (path, value) => {
-      scalarLocationAliasValues(path, value).forEach((alias) => aliases.add(alias));
-    });
-    return [...aliases];
+    aliases.delete(pickupExternalLocationId);
+    return { confirmed, aliases: [...aliases] };
   }
   function scalarLocationValues(path, value) {
     if (typeof value !== "string" && typeof value !== "number" || !locationConfirmationPathScore(path.join(".").toLowerCase())) {
@@ -362,6 +411,12 @@
   }
   function scalarLocationAliasValues(path, value) {
     if (typeof value !== "string" && typeof value !== "number" || !locationAliasPathScore(path.join(".").toLowerCase())) {
+      return [];
+    }
+    return [String(value).trim()].filter(isLocationAlias);
+  }
+  function scalarSelectedLocationAliasValues(path, value) {
+    if (typeof value !== "string" && typeof value !== "number" || !isSelectedLocationPath(path.join(".").toLowerCase())) {
       return [];
     }
     return [String(value).trim()].filter(isLocationAlias);
@@ -560,6 +615,27 @@
     }
     return 0;
   }
+  function isExplicitLocationConfirmationPath(path) {
+    if (/(request|url|href|referrer|referer|query|param|tracking|analytics|debug|log|metrika|route)/i.test(path)) {
+      return false;
+    }
+    if (isSelectedLocationPath(path)) {
+      return true;
+    }
+    if (/(addressbook|addressbook|book|list|items|available|suggest|candidate)/i.test(path)) {
+      return false;
+    }
+    return /(delivery|address|pickup|pickpoint|pvz|location)/i.test(path) && /(oid|id|uid)$/i.test(path);
+  }
+  function isSelectedLocationPath(path) {
+    return /(selected|current|active|chosen)/i.test(path) && /(delivery|address|pickup|pickpoint|pvz|location)/i.test(path) && !/(request|url|href|referrer|referer|query|param|tracking|analytics|debug|log|metrika|route)/i.test(path);
+  }
+  function isSelectionFlag(key, value) {
+    if (!/(selected|current|active|chosen)/i.test(key)) {
+      return false;
+    }
+    return value === true || value === 1 || value === "true" || value === "selected" || value === "active";
+  }
   function compactText(value) {
     return value.replace(/\s+/g, " ").trim();
   }
@@ -598,6 +674,9 @@
   var WEAK_ID_KEYS = /* @__PURE__ */ new Set(["locationId", "cityId", "geoId", "regionId"]);
   var RELEVANCE_RE = /(delivery|address|pickup|pickpoint|pvz|пвз|пункт|получ|достав|location|geo|city|region)/i;
   var BAD_ID_RE = /(product|sku|item|seller|brand|category|image|price|cart|widget|layout|session|fingerprint|analytics|banner)/i;
+  var SERVICE_LABEL_RE = /\b(?:url|href|action|layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?|analytics|tracking|component|state|params?|query)\b\s*[:=]/i;
+  var TECHNICAL_LABEL_RE = /^(?:api|network|content)\.[a-z0-9._/?=&%-]+$/i;
+  var TECHNICAL_ENDPOINT_LABEL_RE = /\b(?:composer|entrypoint)(?:-[a-z0-9]+)*-(?:addressbook|delivery|geo)\b/i;
   var KZ_RE = /(kazakhstan|казахстан|kz\b|алматы|астана|караганда|шымкент|атырау|актобе|павлодар|усть-каменогорск)/i;
   var RU_RE = /(russia|россия|ru\b|москва|санкт-петербург|екатеринбург|казань|новосибирск|краснодар)/i;
   function extractOzonPickupCandidatesFromSources(sources) {
@@ -779,7 +858,7 @@
       }
     }
     const sourceLabel = sourceText.match(/(?:пункт выдачи|пвз|pickup point|адрес)[:\s-]+([^|]{8,120})/i)?.[1];
-    return sourceLabel ? compact(sourceLabel) : "";
+    return sourceLabel && isUsefulLabel(compact(sourceLabel)) ? compact(sourceLabel) : "";
   }
   function extractNameNearId(text, id, matchIndex) {
     if (!text || matchIndex < 0) {
@@ -792,14 +871,15 @@
     const scopedText = localIdIndex >= 0 ? textScopeNearId(snippet, localIdIndex, id) : snippet;
     const labels = [];
     const structuredLabels = extractStructuredLabels(scopedText);
+    const scopedTextIsJson = isJsonLikeSnippet(scopedText);
     labels.push(...structuredLabels);
     labels.push(...extractOzonPointLabels(scopedText));
     if (localIdIndex >= 0) {
-      if (structuredLabels.length === 0 || scopedText.includes("<")) {
+      if (scopedText.includes("<") || structuredLabels.length === 0 && !scopedTextIsJson) {
         labels.push(stripMarkup(scopedText));
       }
       const scopedIdIndex = scopedText.indexOf(id);
-      if (scopedIdIndex >= 0 && structuredLabels.length === 0) {
+      if (scopedIdIndex >= 0 && structuredLabels.length === 0 && !scopedTextIsJson) {
         labels.push(stripMarkup(scopedText.slice(scopedIdIndex + id.length)));
       }
     }
@@ -924,6 +1004,9 @@
   function stripMarkup(value) {
     return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ");
   }
+  function isJsonLikeSnippet(value) {
+    return /^\s*[{[]/.test(value) || /["'][a-z][\w-]*["']\s*:/i.test(value) || SERVICE_LABEL_RE.test(value);
+  }
   function inferCountry(text) {
     if (/https?:\/\/(?:[^/]+\.)?ozon\.kz\b/i.test(text) || /\bozon\.kz\b/i.test(text)) {
       return "KZ";
@@ -971,14 +1054,14 @@
   }
   function isUsefulLabel(value) {
     const ozonPointMatches = value.match(/Пункт\s+Ozon\s*№/gi);
-    return value.length >= 3 && value.length <= 180 && !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
+    return value.length >= 3 && value.length <= 180 && !SERVICE_LABEL_RE.test(value) && !/\b(?:layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?)\b/i.test(value) && !TECHNICAL_LABEL_RE.test(value) && !TECHNICAL_ENDPOINT_LABEL_RE.test(value) && (value.match(/["']?[a-z][\w-]*["']?\s*[:=]/gi)?.length || 0) < 2 && !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
   }
   function compact(value) {
     return value.replace(/\s+/g, " ").trim();
   }
   function scorePickupLabel(name, externalLocationId) {
     const label = compact(name);
-    if (isGenericOzonPickupName(label, externalLocationId)) {
+    if (isGenericOzonPickupName(label, externalLocationId) || !isUsefulLabel(label)) {
       return 0;
     }
     let score = 1;

@@ -33,6 +33,11 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
 - If Ozon exposes a pickup-point id through `select_address` in HTML or JSON,
   parse nearby link text, subtitle, title, address, or similar fields before
   falling back to `Ozon pickup <id>`.
+- Do not use whole Ozon modal JSON objects as pickup-point labels. Service
+  metadata such as `url`, `layoutId`, `layoutVersion`, `pageType`, `ruleId`,
+  and `referer`, plus internal source labels such as
+  `api.composer-post-addressbook`, are not pickup-point names; keep the generic
+  label until a real address/title/subtitle is found.
 - Product-page price checks for saved Ozon pickup points run sequentially. Each
   check first tries Ozon's address-book `select_address` modal endpoint for that
   saved location id, then accepts a product price only when the product response
