@@ -38,11 +38,21 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
   and `referer`, plus internal source labels such as
   `api.composer-post-addressbook`, are not pickup-point names; keep the generic
   label until a real address/title/subtitle is found.
+- Treat already-saved Ozon names made from modal metadata, URL-encoded
+  fragments, or UI actions such as `Удалить` as unsafe temporary labels. They
+  may be replaced automatically by a real address label or the canonical
+  `Ozon pickup <id>` fallback.
+- Markonverter controls injected into the Ozon delivery selector must consume
+  their own pointer, click, and keyboard events before Ozon row handlers see
+  them. Saved badges still intercept clicks so a click on the badge does not
+  select a pickup point or reload the Ozon page.
 - Product-page price checks for saved Ozon pickup points run sequentially. Each
   check first tries Ozon's address-book `select_address` modal endpoint for that
-  saved location id, then accepts a product price only when the product response
-  confirms the same id. Keep this strict check to avoid showing a reused current
-  address price under the wrong saved point.
+  saved location id. A product price can be accepted when the product response
+  confirms the same id, or when the immediately preceding address-selection
+  response explicitly confirmed that point and the product response has no
+  conflicting selected-location id. Keep the conflicting-id rejection to avoid
+  showing a reused current address price under the wrong saved point.
 - Some Ozon product responses confirm an internal selected-address id instead of
   the saved `select_address` id. Accept those aliases only if the activation
   response also confirms the saved id; never trust aliases that appear only in

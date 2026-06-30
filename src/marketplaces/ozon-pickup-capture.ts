@@ -37,9 +37,10 @@ const WEAK_ID_KEYS = new Set(["locationId", "cityId", "geoId", "regionId"]);
 const RELEVANCE_RE = /(delivery|address|pickup|pickpoint|pvz|пвз|пункт|получ|достав|location|geo|city|region)/i;
 const BAD_ID_RE = /(product|sku|item|seller|brand|category|image|price|cart|widget|layout|session|fingerprint|analytics|banner)/i;
 const SERVICE_LABEL_RE =
-  /\b(?:url|href|action|layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?|analytics|tracking|component|state|params?|query)\b\s*[:=]/i;
+  /(?:^|[\s,{])\\?["']?(?:url|href|action|layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?|analytics|tracking|component|state|params?|query)\\?["']?\s*[:=]/i;
 const TECHNICAL_LABEL_RE = /^(?:api|network|content)\.[a-z0-9._/?=&%-]+$/i;
 const TECHNICAL_ENDPOINT_LABEL_RE = /\b(?:composer|entrypoint)(?:-[a-z0-9]+)*-(?:addressbook|delivery|geo)\b/i;
+const UI_ACTION_LABEL_RE = /^(?:удалить|delete|remove|add|save|saved|edit|options|hide|open|refresh pvz|show in panel)$/i;
 const KZ_RE = /(kazakhstan|казахстан|kz\b|алматы|астана|караганда|шымкент|атырау|актобе|павлодар|усть-каменогорск)/i;
 const RU_RE = /(russia|россия|ru\b|москва|санкт-петербург|екатеринбург|казань|новосибирск|краснодар)/i;
 
@@ -75,10 +76,17 @@ export function isGenericOzonPickupName(name: string, externalLocationId: string
   if (id && label.toLowerCase() === `pickup ${id}`.toLowerCase()) {
     return true;
   }
-  return false;
+  return isUnsafeOzonPickupName(label, id);
 }
 
 export function shouldReplaceOzonPickupCandidate(existing: OzonPickupCandidate, candidate: OzonPickupCandidate): boolean {
+  if (isUnsafeOzonPickupName(candidate.name, candidate.externalLocationId)) {
+    return false;
+  }
+  if (isUnsafeOzonPickupName(existing.name, existing.externalLocationId)) {
+    return true;
+  }
+
   const existingLabelScore = scorePickupLabel(existing.name, existing.externalLocationId);
   const candidateLabelScore = scorePickupLabel(candidate.name, candidate.externalLocationId);
 
@@ -95,6 +103,9 @@ export function shouldReplaceOzonPickupCandidate(existing: OzonPickupCandidate, 
 }
 
 export function shouldUseOzonPickupName(currentName: string, candidateName: string, externalLocationId: string): boolean {
+  if (isUnsafeOzonPickupName(currentName, externalLocationId) && isCanonicalGenericOzonPickupName(candidateName, externalLocationId)) {
+    return true;
+  }
   return (
     isGenericOzonPickupName(currentName, externalLocationId) &&
     scorePickupLabel(candidateName, externalLocationId) > scorePickupLabel(currentName, externalLocationId)
@@ -167,7 +178,7 @@ function collectFromObject(
       continue;
     }
 
-    const bestName = extractNameNearId(sourceText, id, sourceText.indexOf(id)) || name;
+    const bestName = name || extractNameNearId(sourceText, id, sourceText.indexOf(id));
     candidates.push({
       externalLocationId: id,
       name: bestName || `Ozon pickup ${id}`,
@@ -384,6 +395,9 @@ function extractStructuredLabels(text: string): string[] {
     /(?:fullAddress|formattedAddress|addressText|shortAddress|displayName|address|subtitle|description|caption|title|name|city|street|text)["'\s]*[:=]\s*["']([^"']{3,260})/gi;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(text))) {
+    if (match.index > 0 && /[\w-]/.test(text[match.index - 1] || "")) {
+      continue;
+    }
     labels.push(match[1]);
   }
   const attributePattern = /(?:aria-label|title|data-address|data-title)=["']([^"']{3,260})/gi;
@@ -513,11 +527,35 @@ function isUsefulLabel(value: string): boolean {
     !/\b(?:layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?)\b/i.test(value) &&
     !TECHNICAL_LABEL_RE.test(value) &&
     !TECHNICAL_ENDPOINT_LABEL_RE.test(value) &&
+    !UI_ACTION_LABEL_RE.test(value) &&
+    !/%[0-9a-f]{2}/i.test(value) &&
+    !/\\?["'][,;]\\?["']/.test(value) &&
     (value.match(/["']?[a-z][\w-]*["']?\s*[:=]/gi)?.length || 0) < 2 &&
     !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) &&
     !/^[a-z0-9_-]{4,80}$/i.test(value) &&
     !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) &&
     (ozonPointMatches?.length || 0) <= 1
+  );
+}
+
+function isUnsafeOzonPickupName(name: string, externalLocationId: string): boolean {
+  const label = compact(name);
+  if (!label || isCanonicalGenericOzonPickupName(label, externalLocationId)) {
+    return false;
+  }
+  return !isUsefulLabel(label);
+}
+
+function isCanonicalGenericOzonPickupName(name: string, externalLocationId: string): boolean {
+  const label = compact(name);
+  const id = compact(externalLocationId);
+  if (!id) {
+    return false;
+  }
+  return (
+    label.toLowerCase() === id.toLowerCase() ||
+    label.toLowerCase() === `pickup ${id}`.toLowerCase() ||
+    label.toLowerCase() === `ozon pickup ${id}`.toLowerCase()
   );
 }
 

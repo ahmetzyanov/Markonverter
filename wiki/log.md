@@ -26,7 +26,14 @@ updates, and non-trivial implementation changes.
 - Extended Ozon pickup activation to accept internal selected-address aliases
   only when they come from a response that also confirms the saved pickup id;
   request echoes remain untrusted.
+- Allowed Ozon product prices to use the immediately preceding confirmed
+  address selection when the product response has no selected-location id, while
+  still rejecting product responses that explicitly confirm a different point.
 - Blocked Ozon modal service metadata from becoming pickup-point names; JSON
   fragments with `layoutId`, `pageType`, `ruleId`, `referer`, or empty `url`
   and internal API labels such as `api.composer-post-addressbook` now fall back
   to the generic id label unless a real address label is present.
+- Hardened bad-name repair for Ozon pickup points that were already saved with
+  modal metadata, URL-encoded fragments, or `Удалить`, and made Markonverter
+  controls in Ozon's delivery selector consume their own clicks so they do not
+  pass through to Ozon row handlers.

@@ -622,7 +622,7 @@
     if (isSelectedLocationPath(path)) {
       return true;
     }
-    if (/(addressbook|addressbook|book|list|items|available|suggest|candidate)/i.test(path)) {
+    if (/(addressbook|book|list|items|available|suggest|candidate)/i.test(path)) {
       return false;
     }
     return /(delivery|address|pickup|pickpoint|pvz|location)/i.test(path) && /(oid|id|uid)$/i.test(path);
@@ -674,9 +674,10 @@
   var WEAK_ID_KEYS = /* @__PURE__ */ new Set(["locationId", "cityId", "geoId", "regionId"]);
   var RELEVANCE_RE = /(delivery|address|pickup|pickpoint|pvz|пвз|пункт|получ|достав|location|geo|city|region)/i;
   var BAD_ID_RE = /(product|sku|item|seller|brand|category|image|price|cart|widget|layout|session|fingerprint|analytics|banner)/i;
-  var SERVICE_LABEL_RE = /\b(?:url|href|action|layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?|analytics|tracking|component|state|params?|query)\b\s*[:=]/i;
+  var SERVICE_LABEL_RE = /(?:^|[\s,{])\\?["']?(?:url|href|action|layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?|analytics|tracking|component|state|params?|query)\\?["']?\s*[:=]/i;
   var TECHNICAL_LABEL_RE = /^(?:api|network|content)\.[a-z0-9._/?=&%-]+$/i;
   var TECHNICAL_ENDPOINT_LABEL_RE = /\b(?:composer|entrypoint)(?:-[a-z0-9]+)*-(?:addressbook|delivery|geo)\b/i;
+  var UI_ACTION_LABEL_RE = /^(?:удалить|delete|remove|add|save|saved|edit|options|hide|open|refresh pvz|show in panel)$/i;
   var KZ_RE = /(kazakhstan|казахстан|kz\b|алматы|астана|караганда|шымкент|атырау|актобе|павлодар|усть-каменогорск)/i;
   var RU_RE = /(russia|россия|ru\b|москва|санкт-петербург|екатеринбург|казань|новосибирск|краснодар)/i;
   function extractOzonPickupCandidatesFromSources(sources) {
@@ -708,9 +709,15 @@
     if (id && label.toLowerCase() === `pickup ${id}`.toLowerCase()) {
       return true;
     }
-    return false;
+    return isUnsafeOzonPickupName(label, id);
   }
   function shouldReplaceOzonPickupCandidate(existing, candidate) {
+    if (isUnsafeOzonPickupName(candidate.name, candidate.externalLocationId)) {
+      return false;
+    }
+    if (isUnsafeOzonPickupName(existing.name, existing.externalLocationId)) {
+      return true;
+    }
     const existingLabelScore = scorePickupLabel(existing.name, existing.externalLocationId);
     const candidateLabelScore = scorePickupLabel(candidate.name, candidate.externalLocationId);
     if (candidateLabelScore > existingLabelScore && candidate.score >= existing.score - 35) {
@@ -725,6 +732,9 @@
     return candidate.score === existing.score && candidateLabelScore >= existingLabelScore && candidate.name.length > existing.name.length;
   }
   function shouldUseOzonPickupName(currentName, candidateName, externalLocationId) {
+    if (isUnsafeOzonPickupName(currentName, externalLocationId) && isCanonicalGenericOzonPickupName(candidateName, externalLocationId)) {
+      return true;
+    }
     return isGenericOzonPickupName(currentName, externalLocationId) && scorePickupLabel(candidateName, externalLocationId) > scorePickupLabel(currentName, externalLocationId);
   }
   function collectFromUnknown(value, source, sourceText, candidates, path = [], depth = 0) {
@@ -772,7 +782,7 @@
       if (keyScore === 0 || keyScore < 35 && !relevantObject) {
         continue;
       }
-      const bestName = extractNameNearId(sourceText, id, sourceText.indexOf(id)) || name;
+      const bestName = name || extractNameNearId(sourceText, id, sourceText.indexOf(id));
       candidates.push({
         externalLocationId: id,
         name: bestName || `Ozon pickup ${id}`,
@@ -961,6 +971,9 @@
     const pattern = /(?:fullAddress|formattedAddress|addressText|shortAddress|displayName|address|subtitle|description|caption|title|name|city|street|text)["'\s]*[:=]\s*["']([^"']{3,260})/gi;
     let match;
     while (match = pattern.exec(text)) {
+      if (match.index > 0 && /[\w-]/.test(text[match.index - 1] || "")) {
+        continue;
+      }
       labels.push(match[1]);
     }
     const attributePattern = /(?:aria-label|title|data-address|data-title)=["']([^"']{3,260})/gi;
@@ -1054,7 +1067,22 @@
   }
   function isUsefulLabel(value) {
     const ozonPointMatches = value.match(/Пункт\s+Ozon\s*№/gi);
-    return value.length >= 3 && value.length <= 180 && !SERVICE_LABEL_RE.test(value) && !/\b(?:layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?)\b/i.test(value) && !TECHNICAL_LABEL_RE.test(value) && !TECHNICAL_ENDPOINT_LABEL_RE.test(value) && (value.match(/["']?[a-z][\w-]*["']?\s*[:=]/gi)?.length || 0) < 2 && !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
+    return value.length >= 3 && value.length <= 180 && !SERVICE_LABEL_RE.test(value) && !/\b(?:layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?)\b/i.test(value) && !TECHNICAL_LABEL_RE.test(value) && !TECHNICAL_ENDPOINT_LABEL_RE.test(value) && !UI_ACTION_LABEL_RE.test(value) && !/%[0-9a-f]{2}/i.test(value) && !/\\?["'][,;]\\?["']/.test(value) && (value.match(/["']?[a-z][\w-]*["']?\s*[:=]/gi)?.length || 0) < 2 && !/^(url|href|action|items?|widgetStates?|addressbook|delivery|address|title|name|subtitle)$/i.test(value) && !/^[a-z0-9_-]{4,80}$/i.test(value) && !/^ozon pickup [a-z0-9_-]{4,80}$/i.test(value) && (ozonPointMatches?.length || 0) <= 1;
+  }
+  function isUnsafeOzonPickupName(name, externalLocationId) {
+    const label = compact(name);
+    if (!label || isCanonicalGenericOzonPickupName(label, externalLocationId)) {
+      return false;
+    }
+    return !isUsefulLabel(label);
+  }
+  function isCanonicalGenericOzonPickupName(name, externalLocationId) {
+    const label = compact(name);
+    const id = compact(externalLocationId);
+    if (!id) {
+      return false;
+    }
+    return label.toLowerCase() === id.toLowerCase() || label.toLowerCase() === `pickup ${id}`.toLowerCase() || label.toLowerCase() === `ozon pickup ${id}`.toLowerCase();
   }
   function compact(value) {
     return value.replace(/\s+/g, " ").trim();
@@ -1094,6 +1122,7 @@
   var PANEL_ID = "markonverter-panel-root";
   var MENU_ASSIST_ID = "markonverter-ozon-delivery-assist";
   var MENU_ASSIST_STYLE_ID = "markonverter-ozon-delivery-assist-style";
+  var PAGE_ACTION_SELECTOR = "[data-markonverter-page-action]";
   var COLLECT_PICKUP_EVENT = "markonverter:collect-ozon-pickup";
   var PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
   var PANEL_STATE_KEY = "markonverter.panelState";
@@ -1112,6 +1141,8 @@
   var savedPickupNameSyncTimer = null;
   var suppressAssistObserverUntil = 0;
   var targetedPickupDiscoveryIds = /* @__PURE__ */ new Set();
+  var pageActionHandlers = /* @__PURE__ */ new WeakMap();
+  var pageActionEventGuardInstalled = false;
   void boot();
   async function boot() {
     document.addEventListener(PICKUP_CANDIDATES_EVENT, handlePickupCandidatesEvent);
@@ -2117,7 +2148,7 @@
     return compactText2(clone.innerText || clone.textContent || "");
   }
   function pickupRowName(text) {
-    const cleaned = compactText2(text.replace(/\b(Add|Saved|Refresh PVZ|Show in panel)\b/gi, ""));
+    const cleaned = compactText2(text.replace(/(?:^|[\s,;|•-])(?:Add|Saved|Refresh PVZ|Show in panel|Удалить|Delete|Remove)(?=$|[\s,;|•-])/giu, " "));
     return cleaned.length > 170 ? `${cleaned.slice(0, 167)}...` : cleaned;
   }
   function collectOzonRowEvidence(element) {
@@ -2177,17 +2208,9 @@
     action.setAttribute("role", "button");
     action.tabIndex = isSaved ? -1 : 0;
     action.setAttribute("aria-disabled", String(isSaved));
-    const save = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
+    bindGuardedPageAction(action, () => {
       if (!isSaved) {
         void saveDetectedPickupCandidate(candidate, product);
-      }
-    };
-    action.addEventListener("click", save);
-    action.addEventListener("keydown", (event) => {
-      if (event instanceof KeyboardEvent && (event.key === "Enter" || event.key === " ")) {
-        save(event);
       }
     });
     return action;
@@ -2223,9 +2246,7 @@
     status.className = "markonverter-assist-status";
     status.textContent = statusText;
     const refreshButton = pageButton("Refresh PVZ", "secondary");
-    refreshButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
+    bindGuardedPageAction(refreshButton, () => {
       requestPagePickupCandidates();
       const product = getCurrentProduct();
       if (product) {
@@ -2234,9 +2255,7 @@
       scheduleOzonDeliveryAssistSync();
     });
     const showButton = pageButton("Show in panel", "secondary");
-    showButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
+    bindGuardedPageAction(showButton, () => {
       requestPagePickupCandidates();
       renderLastPanel();
       document.getElementById(PANEL_ID)?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -2295,7 +2314,7 @@
       border-color: rgba(34, 197, 94, 0.55) !important;
       color: #86efac !important;
       cursor: default !important;
-      pointer-events: none !important;
+      pointer-events: auto !important;
     }
     .markonverter-ozon-pvz-action:hover:not(:disabled):not(.is-saved) {
       border-color: #fbbf24 !important;
@@ -2336,6 +2355,35 @@
       ].join(";")
     );
     return button;
+  }
+  function bindGuardedPageAction(element, handler) {
+    ensurePageActionEventGuard();
+    element.dataset.markonverterPageAction = "true";
+    pageActionHandlers.set(element, handler);
+  }
+  function ensurePageActionEventGuard() {
+    if (pageActionEventGuardInstalled) {
+      return;
+    }
+    pageActionEventGuardInstalled = true;
+    ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend", "click", "keydown"].forEach((type) => {
+      window.addEventListener(type, handleGuardedPageActionEvent, true);
+    });
+  }
+  function handleGuardedPageActionEvent(event) {
+    const target = event.target instanceof Element ? event.target.closest(PAGE_ACTION_SELECTOR) : null;
+    if (!target) {
+      return;
+    }
+    if (event instanceof KeyboardEvent && event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    if (event.type === "click" || event instanceof KeyboardEvent) {
+      pageActionHandlers.get(target)?.(event);
+    }
   }
   function renderPanel(shadow, model) {
     lastPanelModel = model;

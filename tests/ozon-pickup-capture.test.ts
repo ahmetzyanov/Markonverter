@@ -160,6 +160,65 @@ describe("Ozon pickup capture", () => {
     expect(candidate?.name).not.toMatch(/layoutId|layoutVersion|pageType|ruleId|referer|url":"|composer-post-addressbook/i);
   });
 
+  it("does not use Ozon button text as a pickup point name", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "dom.ozon-delivery-row",
+        urlHint: "https://www.ozon.ru/product/example",
+        textHint: "Удалить",
+        value: {
+          deliveryAddressOid: "ru-delete-button-123",
+          title: "Удалить",
+          address: "Удалить"
+        }
+      }
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      externalLocationId: "ru-delete-button-123",
+      name: "Ozon pickup ru-delete-button-123"
+    });
+  });
+
+  it("repairs saved pickup names that already contain service metadata or button labels", () => {
+    const id = "528a5580-56f9-4e82-80cc-e801b5dbf252";
+
+    expect(
+      shouldUseOzonPickupName(
+        'url":" ","layoutId":39077,"layoutVersion":31,"pageType":"modal","ruleId":37945,"referer',
+        "Астана, пр-кт Улы Дала, 31",
+        id
+      )
+    ).toBe(true);
+    expect(shouldUseOzonPickupName("Удалить", `Ozon pickup ${id}`, id)).toBe(true);
+  });
+
+  it("does not replace a usable pickup name with service metadata or button text", () => {
+    const existing = {
+      externalLocationId: "ru-addressbook-469716",
+      name: "Буинск, ул. Вахитова, 174Б",
+      country: "RU",
+      currency: "RUB" as const,
+      source: "api.addressbook",
+      score: 70
+    };
+
+    expect(
+      shouldReplaceOzonPickupCandidate(existing, {
+        ...existing,
+        name: 'url":" ","layoutId":39077,"pageType":"modal","referer',
+        score: 100
+      })
+    ).toBe(false);
+    expect(
+      shouldReplaceOzonPickupCandidate(existing, {
+        ...existing,
+        name: "Удалить",
+        score: 100
+      })
+    ).toBe(false);
+  });
+
   it("does not borrow a nearby JSON label from another pickup id", () => {
     const candidates = extractOzonPickupCandidatesFromSources([
       {
@@ -178,6 +237,47 @@ describe("Ozon pickup capture", () => {
         }),
         expect.objectContaining({
           externalLocationId: "ru-unsaved-789",
+          name: "Буинск, ул. Вахитова, 174Б"
+        })
+      ])
+    );
+  });
+
+  it("keeps addressbook labels scoped to their own pickup id in mixed modal payloads", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "api.composer-addressbook-json",
+        urlHint: "https://www.ozon.kz/product/example",
+        textHint: "Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31",
+        value: JSON.stringify({
+          items: [
+            {
+              action: {
+                url: "/modal/addressbook?select_address=528a5580-56f9-4e82-80cc-e801b5dbf252"
+              },
+              subtitle: "Астана, пр-кт Улы Дала, 31"
+            },
+            {
+              deliveryAddressOid: "ru-delete-button-123",
+              title: "Пункт Ozon № 469-716",
+              address: "Буинск, ул. Вахитова, 174Б"
+            }
+          ],
+          delivery: {
+            selectedAddressOid: "kz-visible-456"
+          }
+        })
+      }
+    ]);
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalLocationId: "528a5580-56f9-4e82-80cc-e801b5dbf252",
+          name: "Астана, пр-кт Улы Дала, 31"
+        }),
+        expect.objectContaining({
+          externalLocationId: "ru-delete-button-123",
           name: "Буинск, ул. Вахитова, 174Б"
         })
       ])

@@ -17,6 +17,7 @@ import {
 const PANEL_ID = "markonverter-panel-root";
 const MENU_ASSIST_ID = "markonverter-ozon-delivery-assist";
 const MENU_ASSIST_STYLE_ID = "markonverter-ozon-delivery-assist-style";
+const PAGE_ACTION_SELECTOR = "[data-markonverter-page-action]";
 const COLLECT_PICKUP_EVENT = "markonverter:collect-ozon-pickup";
 const PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
 const PANEL_STATE_KEY = "markonverter.panelState";
@@ -36,6 +37,8 @@ let assistSyncTimer: number | null = null;
 let savedPickupNameSyncTimer: number | null = null;
 let suppressAssistObserverUntil = 0;
 const targetedPickupDiscoveryIds = new Set<string>();
+const pageActionHandlers = new WeakMap<HTMLElement, (event: Event) => void>();
+let pageActionEventGuardInstalled = false;
 
 void boot();
 
@@ -1223,7 +1226,7 @@ function getOzonRowText(element: HTMLElement): string {
 }
 
 function pickupRowName(text: string): string {
-  const cleaned = compactText(text.replace(/\b(Add|Saved|Refresh PVZ|Show in panel)\b/gi, ""));
+  const cleaned = compactText(text.replace(/(?:^|[\s,;|•-])(?:Add|Saved|Refresh PVZ|Show in panel|Удалить|Delete|Remove)(?=$|[\s,;|•-])/giu, " "));
   return cleaned.length > 170 ? `${cleaned.slice(0, 167)}...` : cleaned;
 }
 
@@ -1297,18 +1300,9 @@ function buildOzonRowAction(
   action.setAttribute("role", "button");
   action.tabIndex = isSaved ? -1 : 0;
   action.setAttribute("aria-disabled", String(isSaved));
-
-  const save = (event: Event) => {
-    event.preventDefault();
-    event.stopPropagation();
+  bindGuardedPageAction(action, () => {
     if (!isSaved) {
       void saveDetectedPickupCandidate(candidate, product);
-    }
-  };
-  action.addEventListener("click", save);
-  action.addEventListener("keydown", (event) => {
-    if (event instanceof KeyboardEvent && (event.key === "Enter" || event.key === " ")) {
-      save(event);
     }
   });
   return action;
@@ -1351,9 +1345,7 @@ function renderOzonDeliveryAssist(assist: HTMLElement, rows: OzonPickupRowCandid
   status.textContent = statusText;
 
   const refreshButton = pageButton("Refresh PVZ", "secondary");
-  refreshButton.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
+  bindGuardedPageAction(refreshButton, () => {
     requestPagePickupCandidates();
     const product = getCurrentProduct();
     if (product) {
@@ -1363,9 +1355,7 @@ function renderOzonDeliveryAssist(assist: HTMLElement, rows: OzonPickupRowCandid
   });
 
   const showButton = pageButton("Show in panel", "secondary");
-  showButton.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
+  bindGuardedPageAction(showButton, () => {
     requestPagePickupCandidates();
     renderLastPanel();
     document.getElementById(PANEL_ID)?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -1426,7 +1416,7 @@ function ensureOzonDeliveryAssistStyles(): void {
       border-color: rgba(34, 197, 94, 0.55) !important;
       color: #86efac !important;
       cursor: default !important;
-      pointer-events: none !important;
+      pointer-events: auto !important;
     }
     .markonverter-ozon-pvz-action:hover:not(:disabled):not(.is-saved) {
       border-color: #fbbf24 !important;
@@ -1468,6 +1458,40 @@ function pageButton(text: string, variant: "primary" | "secondary" = "primary"):
     ].join(";")
   );
   return button;
+}
+
+function bindGuardedPageAction(element: HTMLElement, handler: (event: Event) => void): void {
+  ensurePageActionEventGuard();
+  element.dataset.markonverterPageAction = "true";
+  pageActionHandlers.set(element, handler);
+}
+
+function ensurePageActionEventGuard(): void {
+  if (pageActionEventGuardInstalled) {
+    return;
+  }
+  pageActionEventGuardInstalled = true;
+  ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend", "click", "keydown"].forEach((type) => {
+    window.addEventListener(type, handleGuardedPageActionEvent, true);
+  });
+}
+
+function handleGuardedPageActionEvent(event: Event): void {
+  const target = event.target instanceof Element ? event.target.closest<HTMLElement>(PAGE_ACTION_SELECTOR) : null;
+  if (!target) {
+    return;
+  }
+  if (event instanceof KeyboardEvent && event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+
+  if (event.type === "click" || event instanceof KeyboardEvent) {
+    pageActionHandlers.get(target)?.(event);
+  }
 }
 
 type PanelModel =
