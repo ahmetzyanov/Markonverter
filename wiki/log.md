@@ -12,3 +12,6 @@ updates, and non-trivial implementation changes.
 - Stabilized Ozon delivery-selector row actions by anchoring controls to
   normalized pickup-point cards, isolating their CSS from Ozon button styles,
   and skipping the Ozon "add address" control.
+- Merged saved pickup-point management into the price rows: removed the separate
+  `Points` toggle, show detected Ozon candidates only when unsaved, and avoid
+  per-row pending badges in the Ozon delivery selector.

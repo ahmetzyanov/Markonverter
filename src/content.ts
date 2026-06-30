@@ -27,7 +27,6 @@ let pickupApiDiscoveryKey = "";
 let pickupApiDiscoveryPromise: Promise<void> | null = null;
 let lastPanelModel: PanelModel | null = null;
 let captureStatus: { tone: "normal" | "error"; message: string } | null = null;
-let isPointManagerOpen = false;
 let isPanelCollapsed = false;
 let panelRecoveryTimer: number | null = null;
 let assistSyncTimer: number | null = null;
@@ -766,6 +765,11 @@ function ensureOzonDeliveryMenuAssist(): void {
     [
       "display:flex",
       "align-items:center",
+      "box-sizing:border-box",
+      "width:100%",
+      "max-width:100%",
+      "min-width:0",
+      "flex-wrap:wrap",
       "gap:8px",
       "margin:8px 0",
       "padding:8px",
@@ -775,6 +779,7 @@ function ensureOzonDeliveryMenuAssist(): void {
       "box-shadow:0 12px 30px rgba(0,0,0,.34)",
       "font:13px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
       "color:#fafafa",
+      "overflow:hidden",
       "z-index:2147483647"
     ].join(";")
   );
@@ -1086,15 +1091,18 @@ function decorateOzonDeliveryRows(
     }
   });
 
-  for (const { row, candidate, rowKey } of rows) {
-    const stateKey = candidate ? `${candidate.externalLocationId}:${savedExternalIds.has(candidate.externalLocationId) ? "saved" : "add"}` : `${rowKey}:pending`;
+  for (const { row, candidate } of rows) {
+    if (!candidate) {
+      continue;
+    }
+    const stateKey = `${candidate.externalLocationId}:${savedExternalIds.has(candidate.externalLocationId) ? "saved" : "add"}`;
     const existing = Array.from(row.children).find(
       (child): child is HTMLElement => child instanceof HTMLElement && child.dataset.markonverterPvzAction === "true"
     );
     if (existing?.dataset.markonverterActionState === stateKey) {
       continue;
     }
-    const action = buildOzonRowAction(candidate, candidate ? savedExternalIds.has(candidate.externalLocationId) : false, product, row, stateKey);
+    const action = buildOzonRowAction(candidate, savedExternalIds.has(candidate.externalLocationId), product, stateKey);
     row.classList.add("markonverter-ozon-pvz-row");
     if (existing) {
       existing.replaceWith(action);
@@ -1105,33 +1113,26 @@ function decorateOzonDeliveryRows(
 }
 
 function buildOzonRowAction(
-  candidate: OzonPickupCandidate | null,
+  candidate: OzonPickupCandidate,
   isSaved: boolean,
   product: ProductIdentity,
-  row: HTMLElement,
   stateKey: string
 ): HTMLElement {
   const action = document.createElement("span");
   action.dataset.markonverterPvzAction = "true";
   action.dataset.markonverterActionState = stateKey;
-  if (candidate) {
-    action.dataset.markonverterExternalLocationId = candidate.externalLocationId;
-  }
-  action.className = `markonverter-ozon-pvz-action${isSaved ? " is-saved" : ""}${candidate ? "" : " is-pending"}`;
-  action.textContent = candidate ? (isSaved ? "Saved" : "Add") : "Detecting";
-  action.title = candidate
-    ? isSaved
-      ? "Already saved in Markonverter"
-      : `Add ${candidate.name} to Markonverter`
-    : "Waiting for Ozon to expose this pickup point id";
+  action.dataset.markonverterExternalLocationId = candidate.externalLocationId;
+  action.className = `markonverter-ozon-pvz-action${isSaved ? " is-saved" : ""}`;
+  action.textContent = isSaved ? "Saved" : "Add";
+  action.title = isSaved ? "Already saved in Markonverter" : `Add ${candidate.name} to Markonverter`;
   action.setAttribute("role", "button");
-  action.tabIndex = isSaved || !candidate ? -1 : 0;
-  action.setAttribute("aria-disabled", String(isSaved || !candidate));
+  action.tabIndex = isSaved ? -1 : 0;
+  action.setAttribute("aria-disabled", String(isSaved));
 
   const save = (event: Event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (candidate && !isSaved) {
+    if (!isSaved) {
       void saveDetectedPickupCandidate(candidate, product);
     }
   };
@@ -1196,7 +1197,6 @@ function renderOzonDeliveryAssist(assist: HTMLElement, rows: OzonPickupRowCandid
   showButton.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    isPointManagerOpen = true;
     requestPagePickupCandidates();
     renderLastPanel();
     document.getElementById(PANEL_ID)?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -1214,6 +1214,7 @@ function ensureOzonDeliveryAssistStyles(): void {
   style.textContent = `
     .markonverter-ozon-pvz-row {
       position: relative !important;
+      box-sizing: border-box !important;
     }
     .markonverter-ozon-pvz-action {
       all: initial !important;
@@ -1224,23 +1225,23 @@ function ensureOzonDeliveryAssistStyles(): void {
       align-items: center !important;
       justify-content: center !important;
       position: absolute !important;
-      right: 48px !important;
-      bottom: 14px !important;
+      right: 12px !important;
+      bottom: 12px !important;
       width: auto !important;
-      min-width: 58px !important;
-      max-width: 110px !important;
-      height: 28px !important;
-      min-height: 28px !important;
-      max-height: 28px !important;
+      min-width: 44px !important;
+      max-width: min(84px, calc(100% - 24px)) !important;
+      height: 24px !important;
+      min-height: 24px !important;
+      max-height: 24px !important;
       margin: 0 !important;
-      padding: 0 10px !important;
+      padding: 0 8px !important;
       border: 1px solid rgba(245, 158, 11, 0.78) !important;
-      border-radius: 8px !important;
+      border-radius: 7px !important;
       background: #141414 !important;
       color: #fbbf24 !important;
       cursor: pointer !important;
       pointer-events: auto !important;
-      font: 700 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      font: 700 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
       letter-spacing: 0 !important;
       text-align: center !important;
       text-decoration: none !important;
@@ -1258,19 +1259,13 @@ function ensureOzonDeliveryAssistStyles(): void {
       cursor: default !important;
       pointer-events: none !important;
     }
-    .markonverter-ozon-pvz-action.is-pending {
-      border-color: rgba(63, 63, 70, 0.9) !important;
-      color: #a1a1aa !important;
-      cursor: default !important;
-      pointer-events: none !important;
-    }
     .markonverter-ozon-pvz-action:hover:not(:disabled):not(.is-saved) {
       border-color: #fbbf24 !important;
       background: #1b1b1c !important;
     }
     .markonverter-assist-status {
       flex: 1 1 auto;
-      min-width: 120px;
+      min-width: 0;
       color: #a1a1aa;
       font-size: 12px;
       overflow-wrap: anywhere;
@@ -1288,6 +1283,8 @@ function pageButton(text: string, variant: "primary" | "secondary" = "primary"):
     "style",
     [
       "min-height:32px",
+      "box-sizing:border-box",
+      "max-width:100%",
       "padding:0 10px",
       `border:1px solid ${isPrimary ? "#f59e0b" : "#3f3f46"}`,
       "border-radius:8px",
@@ -1296,7 +1293,9 @@ function pageButton(text: string, variant: "primary" | "secondary" = "primary"):
       "cursor:pointer",
       "font:inherit",
       "font-weight:700",
-      "white-space:nowrap"
+      "white-space:nowrap",
+      "overflow:hidden",
+      "text-overflow:ellipsis"
     ].join(";")
   );
   return button;
@@ -1314,6 +1313,14 @@ type PanelModel =
       pickupPoints: PickupPoint[];
       results: ComparisonResult[];
     };
+
+interface PanelComparisonRow {
+  pickupPoint: PickupPoint;
+  result: ComparisonResult | null;
+  deltaFromCheapest?: number;
+  isCheapest: boolean;
+  isSelected: boolean;
+}
 
 function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   lastPanelModel = model;
@@ -1362,16 +1369,6 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
     });
   }
 
-  const pointsButton = document.createElement("button");
-  pointsButton.type = "button";
-  pointsButton.className = "secondaryButton";
-  pointsButton.title = "Choose saved pickup points";
-  pointsButton.textContent = "Points";
-  pointsButton.addEventListener("click", () => {
-    isPointManagerOpen = !isPointManagerOpen;
-    renderLastPanel();
-  });
-
   const settingsButton = document.createElement("button");
   settingsButton.type = "button";
   settingsButton.className = "iconButton";
@@ -1396,7 +1393,7 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
     if (saveButton) {
       headerActions.append(saveButton);
     }
-    headerActions.append(pointsButton, settingsButton, collapseButton);
+    headerActions.append(settingsButton, collapseButton);
   }
   header.append(headerActions);
   root.append(header);
@@ -1413,95 +1410,18 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
     }
   } else if (model.state === "empty") {
     root.append(messageNode("No Ozon pickup points configured."));
-    root.append(pointManager(model.settings, [], model.product));
+    appendDetectedPickupCandidates(root, model.settings, model.product, true);
     appendCaptureStatus(root);
   } else if (model.state === "noSelection") {
     root.append(messageNode("No saved pickup points selected for comparison."));
-    root.append(pointManager(model.settings, model.allPickupPoints, model.product));
+    appendPickupRows(root, model.settings, [], [], model.product);
+    appendDetectedPickupCandidates(root, model.settings, model.product, false);
     appendCaptureStatus(root);
   } else if (model.state === "fatal") {
     root.append(messageNode(model.message, "error"));
   } else {
-    if (isPointManagerOpen || latestPickupCandidates.length > 0) {
-      root.append(pointManager(model.settings, model.pickupPoints, model.product));
-    }
-    const rows = buildComparisonRows(model.pickupPoints, model.results);
-    const list = document.createElement("div");
-    list.className = "rows";
-
-    for (const row of rows) {
-      const item = document.createElement("div");
-      item.className = `row${row.isCheapest ? " cheapest" : ""}${row.result.status === "error" ? " failed" : ""}`;
-
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      meta.innerHTML = `<strong>${escapeHtml(row.pickupPoint.name)}</strong><span class="locationMeta">${escapeHtml(row.pickupPoint.country)} / ${escapeHtml(row.pickupPoint.currency)}</span>`;
-
-      const rowActions = document.createElement("div");
-      rowActions.className = "rowActions";
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.className = "deleteButton";
-      deleteButton.textContent = "Delete";
-      deleteButton.title = "Delete saved pickup point";
-      deleteButton.addEventListener("click", () => {
-        void deleteSavedPickupPoint(row.pickupPoint, model.product);
-      });
-      rowActions.append(deleteButton);
-      meta.append(rowActions);
-
-      const value = document.createElement("div");
-      value.className = "value";
-      if (row.result.status === "success") {
-        const original = formatCurrency(row.result.originalPrice.amount, row.result.originalPrice.currency);
-        const converted = formatCurrency(row.result.convertedAmount, row.result.convertedCurrency);
-        const delivery = row.result.originalPrice.deliveryText;
-        const manualLabel =
-          row.result.originalPrice.source === "manual"
-            ? `Captured ${formatCapturedAt(row.result.originalPrice.capturedAt)}`
-            : "";
-        const delta =
-          row.deltaFromCheapest && row.deltaFromCheapest > 0
-            ? `+${formatCurrency(row.deltaFromCheapest, row.result.convertedCurrency)}`
-            : row.isCheapest
-              ? "best"
-              : "";
-        value.innerHTML = `<strong>${converted}</strong><span class="original">${escapeHtml(original)} ${escapeHtml(delta)}</span>${
-          delivery ? `<span>${escapeHtml(delivery)}</span>` : ""
-        }${manualLabel ? `<span>${escapeHtml(manualLabel)}</span>` : ""}`;
-      } else {
-        const error = row.result.error;
-        value.title = error;
-        const unavailable = document.createElement("strong");
-        unavailable.textContent = "Unavailable";
-        const reason = document.createElement("span");
-        reason.textContent = readableResultError(error);
-        const actions = document.createElement("div");
-        actions.className = "failureActions";
-        const captureButton = document.createElement("button");
-        captureButton.type = "button";
-        captureButton.className = "saveSmallButton";
-        captureButton.textContent = "Capture current";
-        captureButton.title = "After selecting this pickup point in Ozon, capture the visible page price for this product.";
-        captureButton.addEventListener("click", () => {
-          void captureCurrentPriceForPickupPoint(row.pickupPoint, model.product);
-        });
-        const detailsButton = document.createElement("button");
-        detailsButton.type = "button";
-        detailsButton.className = "detailsButton";
-        detailsButton.textContent = "Copy details";
-        detailsButton.title = "Copy technical details for debugging this pickup point.";
-        detailsButton.addEventListener("click", () => {
-          void copyFailureDiagnostics(row.pickupPoint, error, model.product);
-        });
-        actions.append(captureButton, detailsButton);
-        value.append(unavailable, reason, actions);
-      }
-
-      item.append(meta, value);
-      list.append(item);
-    }
-    root.append(list);
+    appendDetectedPickupCandidates(root, model.settings, model.product, false);
+    appendPickupRows(root, model.settings, model.pickupPoints, model.results, model.product);
     appendCaptureStatus(root);
   }
 
@@ -1563,76 +1483,174 @@ function getFirstUnsavedPickupCandidate(settings: ExtensionSettings): OzonPickup
   return latestPickupCandidates.find((candidate) => !isPickupCandidateSaved(candidate, settings)) || null;
 }
 
-function pointManager(settings: ExtensionSettings, visiblePickupPoints: PickupPoint[], product: ProductIdentity): HTMLElement {
-  const allPickupPoints = settings.pickupPoints.filter((point) => point.marketplace === "ozon");
-  const selectedIds = settings.comparisonPickupPointIds ? new Set(settings.comparisonPickupPointIds) : null;
-  const savedExternalIds = getSavedOzonExternalIds(settings);
-
-  const wrapper = document.createElement("div");
-  wrapper.className = "pointManager";
-
-  const top = document.createElement("div");
-  top.className = "pointManagerTop";
-  top.innerHTML = `<div><span class="eyebrow">Points</span><strong>Saved in Markonverter</strong></div><span>${allPickupPoints.length} total</span>`;
-
-  const controls = document.createElement("div");
-  controls.className = "pointManagerControls";
-  const allButton = document.createElement("button");
-  allButton.type = "button";
-  allButton.textContent = "All";
-  allButton.addEventListener("click", () => {
-    void updateComparisonSelection(null, product);
-  });
-  const noneButton = document.createElement("button");
-  noneButton.type = "button";
-  noneButton.textContent = "None";
-  noneButton.addEventListener("click", () => {
-    void updateComparisonSelection([], product);
-  });
-  controls.append(allButton, noneButton);
-  top.append(controls);
-  wrapper.append(top);
-
-  const points = visiblePickupPoints.length === allPickupPoints.length ? visiblePickupPoints : allPickupPoints;
-  if (points.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "pointManagerHint";
-    empty.textContent = "No saved Markonverter points yet.";
-    wrapper.append(empty);
+function appendPickupRows(
+  root: HTMLElement,
+  settings: ExtensionSettings,
+  comparedPickupPoints: PickupPoint[],
+  results: ComparisonResult[],
+  product: ProductIdentity
+): void {
+  const rows = buildPanelComparisonRows(settings, comparedPickupPoints, results);
+  if (rows.length > 0) {
+    root.append(renderPickupRows(rows, settings, product));
   }
+}
 
-  for (const point of points) {
-    const row = document.createElement("label");
-    row.className = "pointChoice";
+function buildPanelComparisonRows(
+  settings: ExtensionSettings,
+  comparedPickupPoints: PickupPoint[],
+  results: ComparisonResult[]
+): PanelComparisonRow[] {
+  const comparedRows = buildComparisonRows(comparedPickupPoints, results);
+  const comparedByPointId = new Map(comparedRows.map((row) => [row.pickupPoint.id, row]));
+  return settings.pickupPoints
+    .filter((point) => point.marketplace === "ozon")
+    .map((pickupPoint) => {
+      const compared = comparedByPointId.get(pickupPoint.id);
+      if (compared) {
+        return { ...compared, isSelected: true };
+      }
+      return {
+        pickupPoint,
+        result: null,
+        isCheapest: false,
+        isSelected: isComparisonPointSelected(pickupPoint, settings)
+      };
+    });
+}
 
+function isComparisonPointSelected(pickupPoint: PickupPoint, settings: ExtensionSettings): boolean {
+  return settings.comparisonPickupPointIds ? settings.comparisonPickupPointIds.includes(pickupPoint.id) : true;
+}
+
+function renderPickupRows(rows: PanelComparisonRow[], settings: ExtensionSettings, product: ProductIdentity): HTMLElement {
+  const list = document.createElement("div");
+  list.className = "rows";
+
+  for (const row of rows) {
+    const item = document.createElement("div");
+    item.className = `row${row.isCheapest ? " cheapest" : ""}${row.result?.status === "error" ? " failed" : ""}${
+      row.isSelected ? "" : " unselected"
+    }`;
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+
+    const metaHead = document.createElement("div");
+    metaHead.className = "metaHead";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
-    checkbox.checked = selectedIds ? selectedIds.has(point.id) : true;
+    checkbox.className = "compareToggle";
+    checkbox.checked = row.isSelected;
+    checkbox.title = row.isSelected ? "Remove this pickup point from comparison" : "Compare this pickup point";
     checkbox.addEventListener("change", () => {
-      void toggleComparisonPoint(point.id, checkbox.checked, settings, product);
+      void toggleComparisonPoint(row.pickupPoint.id, checkbox.checked, settings, product);
     });
 
-    const label = document.createElement("span");
-    label.className = "pointChoiceText";
-    label.innerHTML = `<strong>${escapeHtml(point.name)}</strong><span>${escapeHtml(point.country)} / ${escapeHtml(point.currency)}</span>`;
+    const metaText = document.createElement("div");
+    metaText.className = "metaText";
+    metaText.innerHTML = `<strong>${escapeHtml(row.pickupPoint.name)}</strong><span class="locationMeta">${escapeHtml(
+      row.pickupPoint.country
+    )} / ${escapeHtml(row.pickupPoint.currency)}</span>`;
+    metaHead.append(checkbox, metaText);
 
+    const rowActions = document.createElement("div");
+    rowActions.className = "rowActions";
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "deleteButton";
     deleteButton.textContent = "Delete";
-    deleteButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      void deleteSavedPickupPoint(point, product);
+    deleteButton.title = "Delete saved pickup point";
+    deleteButton.addEventListener("click", () => {
+      void deleteSavedPickupPoint(row.pickupPoint, product);
     });
+    rowActions.append(deleteButton);
+    meta.append(metaHead, rowActions);
 
-    row.append(checkbox, label, deleteButton);
-    wrapper.append(row);
+    const value = document.createElement("div");
+    value.className = "value";
+    if (!row.result) {
+      const idle = document.createElement("strong");
+      idle.textContent = row.isSelected ? "Waiting" : "Not compared";
+      const hint = document.createElement("span");
+      hint.textContent = row.isSelected ? "Waiting for Ozon response" : "Enable to fetch this point";
+      value.append(idle, hint);
+    } else if (row.result.status === "success") {
+      const original = formatCurrency(row.result.originalPrice.amount, row.result.originalPrice.currency);
+      const converted = formatCurrency(row.result.convertedAmount, row.result.convertedCurrency);
+      const delivery = row.result.originalPrice.deliveryText;
+      const manualLabel =
+        row.result.originalPrice.source === "manual" ? `Captured ${formatCapturedAt(row.result.originalPrice.capturedAt)}` : "";
+      const delta =
+        row.deltaFromCheapest && row.deltaFromCheapest > 0
+          ? `+${formatCurrency(row.deltaFromCheapest, row.result.convertedCurrency)}`
+          : row.isCheapest
+            ? "best"
+            : "";
+      value.innerHTML = `<strong>${converted}</strong><span class="original">${escapeHtml(original)} ${escapeHtml(delta)}</span>${
+        delivery ? `<span>${escapeHtml(delivery)}</span>` : ""
+      }${manualLabel ? `<span>${escapeHtml(manualLabel)}</span>` : ""}`;
+    } else {
+      const error = row.result.error;
+      value.title = error;
+      const unavailable = document.createElement("strong");
+      unavailable.textContent = "Unavailable";
+      const reason = document.createElement("span");
+      reason.textContent = readableResultError(error);
+      const actions = document.createElement("div");
+      actions.className = "failureActions";
+      const captureButton = document.createElement("button");
+      captureButton.type = "button";
+      captureButton.className = "saveSmallButton";
+      captureButton.textContent = "Capture current";
+      captureButton.title = "After selecting this pickup point in Ozon, capture the visible page price for this product.";
+      captureButton.addEventListener("click", () => {
+        void captureCurrentPriceForPickupPoint(row.pickupPoint, product);
+      });
+      const detailsButton = document.createElement("button");
+      detailsButton.type = "button";
+      detailsButton.className = "detailsButton";
+      detailsButton.textContent = "Copy details";
+      detailsButton.title = "Copy technical details for debugging this pickup point.";
+      detailsButton.addEventListener("click", () => {
+        void copyFailureDiagnostics(row.pickupPoint, error, product);
+      });
+      actions.append(captureButton, detailsButton);
+      value.append(unavailable, reason, actions);
+    }
+
+    item.append(meta, value);
+    list.append(item);
   }
 
-  const detected = latestPickupCandidates.slice(0, 8);
+  return list;
+}
+
+function appendDetectedPickupCandidates(
+  root: HTMLElement,
+  settings: ExtensionSettings,
+  product: ProductIdentity,
+  showEmptyHint: boolean
+): void {
+  const list = detectedPickupCandidateList(settings, product, showEmptyHint);
+  if (list) {
+    root.append(list);
+  }
+}
+
+function detectedPickupCandidateList(settings: ExtensionSettings, product: ProductIdentity, showEmptyHint: boolean): HTMLElement | null {
+  const savedExternalIds = getSavedOzonExternalIds(settings);
+  const detected = latestPickupCandidates.filter((candidate) => !savedExternalIds.has(candidate.externalLocationId)).slice(0, 8);
+  if (detected.length === 0 && !showEmptyHint) {
+    return null;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "detectedCandidates";
+
   const detectedHeader = document.createElement("div");
-  detectedHeader.className = "pointManagerTop detectedHeader";
-  detectedHeader.innerHTML = `<div><span class="eyebrow">Ozon page</span><strong>Detected on Ozon</strong></div><span>${detected.length} found</span>`;
+  detectedHeader.className = "detectedCandidatesTop";
+  detectedHeader.innerHTML = `<div><span class="eyebrow">Ozon page</span><strong>New pickup points</strong></div><span>${detected.length} new</span>`;
   wrapper.append(detectedHeader);
 
   if (detected.length === 0) {
@@ -1640,24 +1658,21 @@ function pointManager(settings: ExtensionSettings, visiblePickupPoints: PickupPo
     hint.className = "pointManagerHint";
     hint.textContent = "Open Ozon delivery selection, then choose or view a point so Markonverter can detect it.";
     wrapper.append(hint);
+    return wrapper;
   }
 
   for (const candidate of detected) {
     const row = document.createElement("div");
-    row.className = "pointChoice detectedChoice";
+    row.className = "detectedCandidate";
 
     const text = document.createElement("span");
-    text.className = "pointChoiceText";
-    const alreadySaved = savedExternalIds.has(candidate.externalLocationId);
-    text.innerHTML = `<strong>${escapeHtml(candidate.name)}</strong><span>${escapeHtml(candidate.country)} / ${escapeHtml(candidate.currency)}${
-      alreadySaved ? " - saved" : ""
-    }</span>`;
+    text.className = "detectedCandidateText";
+    text.innerHTML = `<strong>${escapeHtml(candidate.name)}</strong><span>${escapeHtml(candidate.country)} / ${escapeHtml(candidate.currency)}</span>`;
 
     const saveButton = document.createElement("button");
     saveButton.type = "button";
     saveButton.className = "saveSmallButton";
-    saveButton.textContent = alreadySaved ? "Saved" : "Save";
-    saveButton.disabled = alreadySaved;
+    saveButton.textContent = "Save";
     saveButton.addEventListener("click", () => {
       void saveDetectedPickupCandidate(candidate, product);
     });
@@ -1874,7 +1889,8 @@ function panelCss(): string {
       overflow: hidden;
     }
     .header .eyebrow,
-    .pointManagerTop .eyebrow {
+    .pointManagerTop .eyebrow,
+    .detectedCandidatesTop .eyebrow {
       margin: 0 0 5px;
       color: var(--mk-accent-strong);
       font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -1965,7 +1981,8 @@ function panelCss(): string {
       font-weight: 750;
       cursor: pointer;
     }
-    .pointManager {
+    .pointManager,
+    .detectedCandidates {
       display: grid;
       gap: 8px;
       padding: 12px 14px;
@@ -1973,12 +1990,15 @@ function panelCss(): string {
       background: #101011;
     }
     .pointManagerTop,
-    .pointChoice {
+    .pointChoice,
+    .detectedCandidatesTop,
+    .detectedCandidate {
       display: flex;
       align-items: center;
       gap: 9px;
     }
-    .pointManagerTop {
+    .pointManagerTop,
+    .detectedCandidatesTop {
       justify-content: space-between;
     }
     .detectedHeader {
@@ -1987,13 +2007,17 @@ function panelCss(): string {
       border-top: 1px solid var(--mk-border);
     }
     .pointManagerTop strong,
-    .pointChoiceText strong {
+    .detectedCandidatesTop strong,
+    .pointChoiceText strong,
+    .detectedCandidateText strong {
       color: var(--mk-text);
       font-size: 12px;
       font-weight: 730;
     }
     .pointManagerTop span,
-    .pointChoiceText span {
+    .pointChoiceText span,
+    .detectedCandidatesTop span,
+    .detectedCandidateText span {
       display: block;
       color: var(--mk-muted);
       font-size: 11px;
@@ -2020,17 +2044,29 @@ function panelCss(): string {
     .pointChoice {
       min-height: 32px;
     }
-    .pointChoice input {
+    .pointChoice input,
+    .compareToggle {
       width: 16px;
       height: 16px;
       margin: 0;
       flex: 0 0 auto;
       accent-color: var(--mk-accent);
     }
-    .pointChoiceText {
+    .pointChoiceText,
+    .detectedCandidateText,
+    .metaText {
       flex: 1 1 auto;
       min-width: 0;
       overflow-wrap: anywhere;
+    }
+    .meta {
+      min-width: 0;
+    }
+    .metaHead {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      min-width: 0;
     }
     .rowActions {
       margin-top: 7px;
@@ -2067,7 +2103,7 @@ function panelCss(): string {
     }
     .row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) minmax(96px, 44%);
       gap: 12px;
       align-items: start;
       padding: 12px 14px;
@@ -2084,14 +2120,20 @@ function panelCss(): string {
     .row.failed {
       background: linear-gradient(90deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.03));
     }
+    .row.unselected {
+      opacity: 0.72;
+    }
     .value {
+      min-width: 0;
       text-align: right;
-      max-width: 168px;
+      max-width: 100%;
+      overflow-wrap: anywhere;
     }
     .value strong {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 14px;
       letter-spacing: 0;
+      overflow-wrap: anywhere;
     }
     .value .original,
     .locationMeta {
@@ -2122,14 +2164,16 @@ function panelCss(): string {
         width: 100%;
         justify-content: flex-start;
       }
-      .pointManagerTop {
+      .pointManagerTop,
+      .detectedCandidatesTop {
         align-items: flex-start;
         flex-wrap: wrap;
       }
       .pointManagerControls {
         flex-wrap: wrap;
       }
-      .pointChoice {
+      .pointChoice,
+      .detectedCandidate {
         align-items: flex-start;
       }
       .row {

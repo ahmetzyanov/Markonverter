@@ -18,3 +18,12 @@ a browser extension panel.
 ## Design Anchor
 
 Use `DESIGN.md` as the source of truth for UI and visual design decisions.
+
+## Ozon Content UI
+
+- Delivery-selector row actions should be drawn only for rows with an identified
+  pickup-point id. Do not add per-row pending badges; use the assist status for
+  loading state instead.
+- The product-page panel should avoid repeating the same pickup point across
+  separate saved, detected, and price lists. Saved points are managed from their
+  comparison rows, and the detected list is only for unsaved Ozon candidates.
