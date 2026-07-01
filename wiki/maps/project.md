@@ -38,6 +38,21 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
 - When Ozon first exposes only a pickup-point id, content-script discovery should
   prefer later addressbook labels for the same id and silently update saved
   points only if their current name is an auto-generated id label.
+- On product-page load, saved Ozon points with generic id labels should trigger
+  read-only addressbook discovery, including product-context `/modal/addressbook`
+  requests, so addresses can replace UUID labels without opening the selector
+  manually. This discovery must not include `select_address`,
+  `select_location`, or other saved-PVZ activation parameters.
+- If background discovery still leaves generic saved labels, the content script
+  may open the Ozon delivery selector once for that product/id set, then rerun
+  read-only addressbook discovery while the visible selector rows are present.
+  This mirrors the safe manual sequence of opening the selector and pressing
+  `Refresh PVZ`; it must not click a PVZ row or select a saved point.
+- Real Ozon addressbook refresh traffic can use
+  `/modal/addressbook?set_sm=1&page_changed=true` and return
+  `commonAddressBook` widget state rows where the pickup id is `addressBookId`
+  and the address is stored in nested `elements[].text`. Treat that as first
+  class PVZ label evidence.
 - If Ozon exposes a pickup-point id through `select_address` in HTML or JSON,
   parse nearby link text, subtitle, title, address, or similar fields before
   falling back to `Ozon pickup <id>`. In JSON modal payloads, do not climb to a

@@ -207,11 +207,9 @@ async function verifySelectorIdsOnlyNameResolution(page, worker) {
     ])
   );
   await openFakeProduct(page, "selector-ids-only");
-  await waitForPageText(page, /PVZ visible/, "delivery selector helper for ids-only refresh");
-  await clickPageButton(page, "Refresh PVZ");
 
-  await waitForPanelText(page, /Буинск, ул\. Вахитова, 174Б/, "RU selector id resolved from ordered visible row label");
-  await waitForPanelText(page, /Астана, пр-кт Улы Дала, 31/, "KZ selector id resolved from ordered visible row label");
+  await waitForPanelText(page, /Буинск, ул\. Вахитова, 174Б/, "RU selector id auto-resolved from common addressbook row");
+  await waitForPanelText(page, /Астана, пр-кт Улы Дала, 31/, "KZ selector id auto-resolved from common addressbook row");
 
   const settings = await readSettings(worker);
   assert(
@@ -494,6 +492,9 @@ function manualQuotesForFakePoints() {
 
 function fakeOzonApiResponse(request) {
   if (routeState.scenario === "selector-ids-only") {
+    if (requestContainsAddressbookSetSm(request)) {
+      return fakeAddressbookSetSmResponse();
+    }
     return {
       delivery: {
         selectedAddressOid: fakePoints.kz.externalLocationId
@@ -570,6 +571,47 @@ function fakeOzonApiResponse(request) {
   };
 }
 
+function requestContainsAddressbookSetSm(request) {
+  const chunks = [request.url(), request.postData() || ""];
+  return chunks.flatMap((value) => [value, safeDecodeURIComponent(value)]).some((value) => /\/modal\/addressbook\?set_sm=1/i.test(value));
+}
+
+function fakeAddressbookSetSmResponse() {
+  return {
+    layout: [
+      {
+        component: "commonAddressBook",
+        stateId: "commonAddressBook-960478-default-1",
+        name: "addressBookMap.commonAddressBook"
+      }
+    ],
+    widgetStates: {
+      "commonAddressBook-960478-default-1": JSON.stringify({
+        title: { text: "Выберите адрес доставки" },
+        addresses: Object.values(fakePoints).map((point) => ({
+          addressBookId: point.externalLocationId,
+          title: { text: "Пункт Ozon", textStyle: "tsCompactControl500Medium" },
+          isEnabled: true,
+          isSelected: point.externalLocationId === fakePoints.kz.externalLocationId,
+          elements: [
+            { text: visibleSelectorLabel(point), textStyle: "tsBodyM", textColor: "textPrimary" },
+            { text: "Срок хранения заказа – 14 дней", textStyle: "tsBodyM", textColor: "textSecondary" }
+          ],
+          controls: [
+            {
+              text: "Редактировать",
+              action: {
+                behavior: "BEHAVIOR_TYPE_COMPOSER_NESTED_PAGE",
+                link: `/modal/commonDelivery?addrbookid=${point.externalLocationId}&pid=5&pp=${point.externalLocationId === fakePoints.kz.externalLocationId ? "440129" : "469716"}`
+              }
+            }
+          ]
+        }))
+      })
+    }
+  };
+}
+
 function selectedLocationForRequest(requested) {
   if (routeState.scenario === "success" && pointByExternalLocationId(requested)) {
     return requested;
@@ -615,6 +657,20 @@ function requestedLocationFromRequest(request) {
 
 function fakeProductHtml() {
   const selectorIdsOnly = routeState.scenario === "selector-ids-only";
+  const deliveryDialogHtml = `<div class="delivery-dialog" data-widget="deliveryDialog" role="dialog" aria-label="Delivery selector">
+        <h2>Выберите пункт выдачи</h2>
+        ${Object.values(fakePoints)
+          .map(
+            (point) => `<div class="pvz-row" role="option" ${
+              selectorIdsOnly ? "" : `data-delivery-address-oid="${point.externalLocationId}"`
+            } title="${visibleSelectorLabel(point)}">
+          ${visibleSelectorLabel(point)} Срок хранения заказа - 14 дней
+          <button type="button">Редактировать</button>
+        </div>`
+          )
+          .join("")}
+        ${selectorIdsOnly ? '<div class="home-row" role="option">Дом Буинск, ул. Комарова, 87</div>' : ""}
+      </div>`;
   const state = {
     delivery: {
       selectedAddress: selectorIdsOnly
@@ -653,6 +709,12 @@ function fakeProductHtml() {
     <script>
       window.__INITIAL_STATE__ = ${JSON.stringify(state)};
       localStorage.setItem("ozon-delivery-state", ${JSON.stringify(JSON.stringify(state))});
+      window.__openFakeDeliverySelector = () => {
+        if (document.querySelector(".delivery-dialog")) {
+          return;
+        }
+        document.querySelector("main").insertAdjacentHTML("beforeend", ${JSON.stringify(deliveryDialogHtml)});
+      };
     </script>
   </head>
   <body>
@@ -664,22 +726,9 @@ function fakeProductHtml() {
             <strong>Доставка и возврат</strong>
             <div>Пункт Ozon № 440-129 ${fakePoints.kz.name}, Астана, пр-кт Улы Дала, 31</div>
             <div>Пункты выдачи Ozon · С 19 июля</div>
-            <button type="button">Редактировать</button>
+            <button type="button" onclick="window.__openFakeDeliverySelector()">Редактировать</button>
           </div>
-          <div class="delivery-dialog" data-widget="deliveryDialog" role="dialog" aria-label="Delivery selector">
-            <h2>Выберите пункт выдачи</h2>
-            ${Object.values(fakePoints)
-              .map(
-                (point) => `<div class="pvz-row" role="option" ${
-                  selectorIdsOnly ? "" : `data-delivery-address-oid="${point.externalLocationId}"`
-                } title="${visibleSelectorLabel(point)}">
-          ${visibleSelectorLabel(point)} Срок хранения заказа - 14 дней
-          <button type="button">Редактировать</button>
-        </div>`
-              )
-              .join("")}
-            ${selectorIdsOnly ? '<div class="home-row" role="option">Дом Буинск, ул. Комарова, 87</div>' : ""}
-          </div>
+          ${selectorIdsOnly ? "" : deliveryDialogHtml}
         </section>
         <aside class="price-card">
           <div data-widget="webPrice"><span>100 000 ₸</span></div>

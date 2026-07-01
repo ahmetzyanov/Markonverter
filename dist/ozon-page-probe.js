@@ -373,8 +373,37 @@
         return label;
       }
     }
+    const nestedLabel = pickBestLabel(nestedLabelValues(object), "");
+    if (nestedLabel) {
+      return nestedLabel;
+    }
     const sourceLabel = sourceText.match(/(?:пункт выдачи|пвз|pickup point|адрес)[:\s-]+([^|]{8,120})/i)?.[1];
     return sourceLabel ? extractUsefulLabel(sourceLabel, "") : "";
+  }
+  function nestedLabelValues(value, depth = 0) {
+    if (depth > 4 || value == null) {
+      return [];
+    }
+    if (typeof value === "string") {
+      return [value];
+    }
+    if (Array.isArray(value)) {
+      return value.slice(0, 40).flatMap((item) => nestedLabelValues(item, depth + 1));
+    }
+    if (typeof value !== "object") {
+      return [];
+    }
+    const labels = [];
+    for (const [key, child] of Object.entries(value).slice(0, 80)) {
+      if (/^(?:text|content|fullAddress|formattedAddress|address|addressText|shortAddress|displayName|subtitle|description|caption|title|name|city|street)$/i.test(key)) {
+        labels.push(...nestedLabelValues(child, depth + 1));
+        continue;
+      }
+      if (/^(?:elements|descriptionRs|title|subtitle|address|addresses|cells|leftBlock|rightBlock|common)$/i.test(key)) {
+        labels.push(...nestedLabelValues(child, depth + 1));
+      }
+    }
+    return labels;
   }
   function extractNameNearId(text, id, matchIndex) {
     if (!text || matchIndex < 0) {

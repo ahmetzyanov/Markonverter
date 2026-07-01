@@ -154,6 +154,61 @@ describe("Ozon pickup capture", () => {
     });
   });
 
+  it("extracts common addressbook rows whose id is addressBookId and address is in nested elements", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "api.entrypoint-addressbook-set-sm",
+        urlHint: "https://www.ozon.ru/product/example-2103540263/",
+        value: {
+          widgetStates: {
+            "commonAddressBook-960478-default-1": JSON.stringify({
+              title: { text: "Выберите адрес доставки" },
+              addresses: [
+                {
+                  addressBookId: "daa6eeff-8093-429a-9fee-9c73e5ef6036",
+                  title: { text: "Пункт Ozon" },
+                  elements: [
+                    { text: "Буинск, ул. Вахитова, 174Б" },
+                    { text: "Срок хранения заказа – 14 дней" }
+                  ],
+                  controls: [
+                    {
+                      text: "Редактировать",
+                      action: {
+                        link: "/modal/commonDelivery?addrbookid=daa6eeff-8093-429a-9fee-9c73e5ef6036&pid=5&pp=469716"
+                      }
+                    }
+                  ]
+                },
+                {
+                  addressBookId: "893d1947-0550-477e-866f-3b936d116e35",
+                  title: { text: "Пункт Ozon" },
+                  elements: [
+                    { text: "Астана, пр-кт Улы Дала, 31" },
+                    { text: "Срок хранения заказа – 14 дней" }
+                  ]
+                }
+              ]
+            })
+          }
+        }
+      }
+    ]);
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalLocationId: "daa6eeff-8093-429a-9fee-9c73e5ef6036",
+          name: "Буинск, ул. Вахитова, 174Б"
+        }),
+        expect.objectContaining({
+          externalLocationId: "893d1947-0550-477e-866f-3b936d116e35",
+          name: "Астана, пр-кт Улы Дала, 31"
+        })
+      ])
+    );
+  });
+
   it("uses current delivery widget text when the same widget exposes a select_address href", () => {
     const candidates = extractOzonPickupCandidatesFromSources([
       {

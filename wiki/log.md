@@ -100,6 +100,20 @@ updates, and non-trivial implementation changes.
   makes destructive buttons look broken because `confirm()` auto-cancels.
 - Trimmed Ozon selector service text such as `Срок хранения заказа` from
   visible PVZ row names before saving or repairing pickup-point labels.
+- Added automatic read-only Ozon PVZ name refresh on product-page load for
+  saved points whose names are still generic UUID labels. The refresh uses
+  product-context addressbook discovery and still avoids `select_address` /
+  `select_location`, so it updates labels without changing the selected Ozon
+  delivery point.
 - Made the Ozon product-page panel size to the price-card container it is
   injected into, with compact row/header layout triggered by the container
   width rather than only by the browser viewport.
+- Fixed the first-load PVZ name refresh to match the real manual flow: when
+  background addressbook discovery is not enough, Markonverter opens the Ozon
+  delivery selector once, refetches read-only addressbook data while selector
+  row labels are visible, and repairs generic saved labels from that combined
+  evidence.
+- Used captured real Ozon fixtures for product `2103540263` to add the missing
+  read-only `/modal/addressbook?set_sm=1&page_changed=true` discovery endpoint
+  and parse `commonAddressBook` rows that expose `addressBookId` plus nested
+  `elements[].text` address labels.

@@ -983,9 +983,33 @@
       font-size: 17px;
       line-height: 1;
     }
+    .collapseButton {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      padding: 0;
+    }
+    .chevronIcon {
+      width: 9px;
+      height: 9px;
+      border: solid currentColor;
+      border-width: 0 2px 2px 0;
+    }
+    .chevronDown {
+      transform: translateY(-2px) rotate(45deg);
+    }
+    .chevronUp {
+      transform: translateY(2px) rotate(-135deg);
+    }
     .collapsed .collapseButton {
+      width: 28px;
       min-height: 28px;
-      padding: 0 9px;
+      padding: 0;
+    }
+    .collapsed .chevronIcon {
+      width: 8px;
+      height: 8px;
     }
     .message {
       margin: 0;
@@ -1821,8 +1845,37 @@
         return label;
       }
     }
+    const nestedLabel = pickBestLabel(nestedLabelValues(object), "");
+    if (nestedLabel) {
+      return nestedLabel;
+    }
     const sourceLabel = sourceText.match(/(?:пункт выдачи|пвз|pickup point|адрес)[:\s-]+([^|]{8,120})/i)?.[1];
     return sourceLabel ? extractUsefulLabel(sourceLabel, "") : "";
+  }
+  function nestedLabelValues(value, depth = 0) {
+    if (depth > 4 || value == null) {
+      return [];
+    }
+    if (typeof value === "string") {
+      return [value];
+    }
+    if (Array.isArray(value)) {
+      return value.slice(0, 40).flatMap((item) => nestedLabelValues(item, depth + 1));
+    }
+    if (typeof value !== "object") {
+      return [];
+    }
+    const labels = [];
+    for (const [key, child] of Object.entries(value).slice(0, 80)) {
+      if (/^(?:text|content|fullAddress|formattedAddress|address|addressText|shortAddress|displayName|subtitle|description|caption|title|name|city|street)$/i.test(key)) {
+        labels.push(...nestedLabelValues(child, depth + 1));
+        continue;
+      }
+      if (/^(?:elements|descriptionRs|title|subtitle|address|addresses|cells|leftBlock|rightBlock|common)$/i.test(key)) {
+        labels.push(...nestedLabelValues(child, depth + 1));
+      }
+    }
+    return labels;
   }
   function extractNameNearId(text, id, matchIndex) {
     if (!text || matchIndex < 0) {
@@ -2132,6 +2185,7 @@
   var pendingPanelConfirmationCancel = null;
   var suppressAssistObserverUntil = 0;
   var targetedPickupDiscoveryIds = /* @__PURE__ */ new Set();
+  var autoPickupSelectorOpenKeys = /* @__PURE__ */ new Set();
   var pageActionHandlers = /* @__PURE__ */ new WeakMap();
   var autoCaptureInFlight = /* @__PURE__ */ new Set();
   var pageActionEventGuardInstalled = false;
@@ -2200,6 +2254,7 @@
     }
     if (pageChanged) {
       targetedPickupDiscoveryIds.clear();
+      autoPickupSelectorOpenKeys.clear();
     }
     activeUrl = currentUrl;
     const panel = ensurePanel();
@@ -2218,6 +2273,10 @@
     latestSettings = settings;
     discoverOzonPickupCandidatesFromApi(product);
     mergePickupCandidates(extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources()));
+    settings = await refreshSavedOzonPickupNamesOnLoad(product, settings);
+    if (runId !== activeRun) {
+      return;
+    }
     settings = await repairUnsafeSavedPickupNames(settings);
     settings = await autoCaptureCurrentVisibleQuote(product, settings);
     latestSettings = settings;
@@ -2388,7 +2447,7 @@
   function discoverOzonPickupCandidatesFromApi(product) {
     const key = `${location.origin}:${product.productId}:${location.pathname}`;
     if (pickupApiDiscoveryKey === key && pickupApiDiscoveryPromise) {
-      return;
+      return pickupApiDiscoveryPromise;
     }
     pickupApiDiscoveryKey = key;
     const discoveryPromise = fetchOzonPickupCandidatesFromApi(product).then((candidates) => {
@@ -2396,12 +2455,14 @@
         renderLastPanel();
         scheduleOzonDeliveryAssistSync();
       }
-    }).catch(() => void 0).finally(() => {
+      return candidates;
+    }).catch(() => []).finally(() => {
       if (pickupApiDiscoveryPromise === discoveryPromise) {
         pickupApiDiscoveryPromise = null;
       }
     });
     pickupApiDiscoveryPromise = discoveryPromise;
+    return discoveryPromise;
   }
   async function fetchOzonPickupCandidatesFromApi(product) {
     const sources = [];
@@ -2443,29 +2504,43 @@
     };
     const productUrl = new URL(product.url);
     const productPath = `${productUrl.pathname}${productUrl.search}`;
+    const encodedProductPath = encodeURIComponent(productPath);
     const modalPaths = [
       "/modal/addressbook",
       "/modal/delivery",
       "/modal/geo"
     ];
     const endpoints = [];
-    for (const modalPath of modalPaths) {
+    const modalPathVariants = modalPaths.flatMap((modalPath) => [
+      { label: modalPath, modalPath },
+      ...modalPath === "/modal/addressbook" ? [
+        {
+          label: `${modalPath}-set-sm`,
+          modalPath: `${modalPath}?set_sm=1&page_changed=true`
+        },
+        {
+          label: `${modalPath}-product-context`,
+          modalPath: `${modalPath}?src_main=${encodedProductPath}&page_changed=true`
+        }
+      ] : []
+    ]);
+    for (const { label, modalPath } of modalPathVariants) {
       const encodedModalPath = encodeURIComponent(modalPath);
       endpoints.push(
         {
-          label: `composer-addressbook-${modalPath}`,
+          label: `composer-addressbook-${label}`,
           method: "GET",
           url: `/api/composer-api.bx/page/json/v2?url=${encodedModalPath}`,
           headers
         },
         {
-          label: `entrypoint-addressbook-${modalPath}`,
+          label: `entrypoint-addressbook-${label}`,
           method: "GET",
           url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedModalPath}`,
           headers
         },
         {
-          label: `composer-post-addressbook-${modalPath}`,
+          label: `composer-post-addressbook-${label}`,
           method: "POST",
           url: "/api/composer-api.bx/page/json/v2",
           headers,
@@ -2477,6 +2552,58 @@
       );
     }
     return endpoints;
+  }
+  async function refreshSavedOzonPickupNamesOnLoad(product, settings) {
+    if (!shouldAutoRefreshSavedOzonPickupNames(settings)) {
+      return settings;
+    }
+    requestPagePickupCandidates();
+    mergePickupCandidates(extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources()));
+    await discoverOzonPickupCandidatesFromApi(product);
+    mergePickupCandidates(extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources()));
+    let nextSettings = await repairUnsafeSavedPickupNames(settings);
+    if (!shouldAutoRefreshSavedOzonPickupNames(nextSettings)) {
+      return nextSettings;
+    }
+    await collectPickupNamesFromAutoOpenedSelector(product, nextSettings);
+    nextSettings = await repairUnsafeSavedPickupNames(nextSettings);
+    return nextSettings;
+  }
+  function shouldAutoRefreshSavedOzonPickupNames(settings) {
+    return settings.pickupPoints.some(
+      (point) => point.marketplace === "ozon" && point.externalLocationId.trim() !== "" && isGenericOzonPickupName(point.name, point.externalLocationId)
+    );
+  }
+  async function collectPickupNamesFromAutoOpenedSelector(product, settings) {
+    const genericIds = settings.pickupPoints.filter(
+      (point) => point.marketplace === "ozon" && point.externalLocationId.trim() !== "" && isGenericOzonPickupName(point.name, point.externalLocationId)
+    ).map((point) => point.externalLocationId).sort();
+    if (genericIds.length === 0) {
+      return false;
+    }
+    const key = `${location.origin}:${product.productId}:${genericIds.join("|")}`;
+    if (autoPickupSelectorOpenKeys.has(key)) {
+      return false;
+    }
+    autoPickupSelectorOpenKeys.add(key);
+    const existingContainer = findOzonDeliveryContainer();
+    if (existingContainer) {
+      const collectedFromRows2 = collectOzonPickupCandidatesFromDeliveryContainer(existingContainer);
+      await discoverOzonPickupCandidatesFromApi(product);
+      return collectOzonPickupCandidatesFromDeliveryContainer(existingContainer) || collectedFromRows2;
+    }
+    const opener = await waitForOzonDeliverySelectorOpener();
+    if (!opener) {
+      return false;
+    }
+    dispatchSyntheticClick(opener);
+    const container = await waitForOzonDeliveryContainer();
+    if (!container) {
+      return false;
+    }
+    const collectedFromRows = collectOzonPickupCandidatesFromDeliveryContainer(container);
+    await discoverOzonPickupCandidatesFromApi(product);
+    return collectOzonPickupCandidatesFromDeliveryContainer(container) || collectedFromRows;
   }
   function scheduleGenericPickupNameDiscovery() {
     const genericCandidateIds = latestPickupCandidates.filter(
@@ -3035,6 +3162,104 @@
       )
     );
     return candidates.find((element) => isLikelyOzonDeliverySelectorContainer(element)) || null;
+  }
+  function collectOzonPickupCandidatesFromDeliveryContainer(target) {
+    requestPagePickupCandidates();
+    const rows = collectOzonDeliveryRowCandidates(target);
+    const rowCandidates = rows.flatMap((row) => row.candidate ? [row.candidate] : []);
+    if (rowCandidates.length === 0) {
+      return false;
+    }
+    if (mergePickupCandidates(rowCandidates)) {
+      renderLastPanel();
+    }
+    scheduleOzonDeliveryAssistSync();
+    return true;
+  }
+  async function waitForOzonDeliveryContainer(timeoutMs = 3e3) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const container = findOzonDeliveryContainer();
+      if (container) {
+        return container;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return findOzonDeliveryContainer();
+  }
+  async function waitForOzonDeliverySelectorOpener(timeoutMs = 2500) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const opener = findOzonDeliverySelectorOpener();
+      if (opener) {
+        return opener;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return findOzonDeliverySelectorOpener();
+  }
+  function findOzonDeliverySelectorOpener() {
+    const directControls = Array.from(
+      document.querySelectorAll(
+        [
+          '[data-widget*="delivery" i] button',
+          '[data-widget*="delivery" i] a',
+          '[data-widget*="delivery" i] [role="button"]',
+          '[data-widget*="address" i] button',
+          '[data-widget*="address" i] a',
+          '[data-widget*="address" i] [role="button"]',
+          '[href*="/modal/addressbook" i]',
+          '[href*="/modal/delivery" i]'
+        ].join(",")
+      )
+    );
+    const directMatch = directControls.find((element) => isOzonDeliverySelectorOpener(element));
+    if (directMatch) {
+      return directMatch;
+    }
+    const clickableBlocks = Array.from(
+      document.querySelectorAll('[data-widget*="delivery" i], [data-widget*="address" i], [data-widget*="geo" i]')
+    );
+    return clickableBlocks.find((element) => isOzonDeliverySelectorOpener(element, { allowBlock: true })) || null;
+  }
+  function isOzonDeliverySelectorOpener(element, options = {}) {
+    if (element.id === PANEL_ID || element.closest(`#${PANEL_ID}`) || element.id === MENU_ASSIST_ID || element.closest(`#${MENU_ASSIST_ID}`)) {
+      return false;
+    }
+    if (element.closest('[role="dialog"], [aria-modal="true"], [data-widget*="dialog" i], [data-widget*="modal" i]')) {
+      return false;
+    }
+    if (!isClickableOzonOpenerVisible(element, options.allowBlock === true)) {
+      return false;
+    }
+    const context = element.closest('[data-widget*="delivery" i], [data-widget*="address" i], [data-widget*="geo" i]');
+    const text = compactText3(
+      [
+        element.innerText || element.textContent || "",
+        element.getAttribute("aria-label") || "",
+        element.getAttribute("title") || "",
+        element.getAttribute("href") || "",
+        context && context !== element ? context.innerText || context.textContent || "" : ""
+      ].join(" ")
+    ).slice(0, 1e3);
+    if (!/(достав|адрес|пункт|пвз|получ|куда|delivery|address|pickup|addressbook|geo)/i.test(text)) {
+      return false;
+    }
+    if (/(редакт|измен|выб|достав|адрес|пункт|куда|edit|change|select|delivery|address|pickup)/i.test(text)) {
+      return true;
+    }
+    return options.allowBlock === true && /(button|link)/i.test(element.getAttribute("role") || "");
+  }
+  function isClickableOzonOpenerVisible(element, allowBlock) {
+    const rect = element.getBoundingClientRect();
+    const minWidth = allowBlock ? 120 : 16;
+    const minHeight = allowBlock ? 40 : 12;
+    return rect.width > minWidth && rect.height > minHeight && rect.bottom > 0 && rect.right > 0;
+  }
+  function dispatchSyntheticClick(element) {
+    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, composed: true }));
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, composed: true }));
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, composed: true }));
   }
   function isVisible(element) {
     const rect = element.getBoundingClientRect();
@@ -3655,8 +3880,13 @@
     const collapseButton = document.createElement("button");
     collapseButton.type = "button";
     collapseButton.className = "iconButton collapseButton";
-    collapseButton.title = isPanelCollapsed ? "Expand Markonverter panel" : "Collapse Markonverter panel";
-    collapseButton.textContent = isPanelCollapsed ? "Open" : "Hide";
+    const collapseButtonLabel = isPanelCollapsed ? "Expand Markonverter panel" : "Collapse Markonverter panel";
+    collapseButton.setAttribute("aria-label", collapseButtonLabel);
+    collapseButton.title = collapseButtonLabel;
+    const collapseIcon = document.createElement("span");
+    collapseIcon.className = isPanelCollapsed ? "chevronIcon chevronDown" : "chevronIcon chevronUp";
+    collapseIcon.setAttribute("aria-hidden", "true");
+    collapseButton.append(collapseIcon);
     collapseButton.addEventListener("click", () => {
       void setPanelCollapsed(!isPanelCollapsed);
     });
