@@ -26,6 +26,7 @@ import {
 } from "../marketplaces/ozon/pickup-capture";
 
 const PANEL_ID = "markonverter-panel-root";
+const PANEL_CONFIRMATION_ID = "markonverter-panel-confirmation";
 const MENU_ASSIST_ID = "markonverter-ozon-delivery-assist";
 const MENU_ASSIST_STYLE_ID = "markonverter-ozon-delivery-assist-style";
 const PAGE_ACTION_SELECTOR = "[data-markonverter-page-action]";
@@ -53,6 +54,7 @@ let isPanelCollapsed = false;
 let panelRecoveryTimer: number | null = null;
 let assistSyncTimer: number | null = null;
 let savedPickupNameSyncTimer: number | null = null;
+let pendingPanelConfirmationCancel: (() => void) | null = null;
 let suppressAssistObserverUntil = 0;
 const targetedPickupDiscoveryIds = new Set<string>();
 const pageActionHandlers = new WeakMap<HTMLElement, (event: Event) => void>();
@@ -634,17 +636,21 @@ async function saveCurrentVisibleQuoteForPoint(
     const currentCandidate = await getBestPickupCandidate();
     const pickupPointName = ozonPickupDisplayName(pickupPoint);
     if (currentCandidate && currentCandidate.externalLocationId !== pickupPoint.externalLocationId) {
-      const shouldContinue = window.confirm(
-        `The currently detected Ozon point looks like "${ozonCandidateDisplayName(currentCandidate)}", not "${pickupPointName}". Capture the visible page price for "${pickupPointName}" anyway?`
-      );
+      const shouldContinue = await requestPanelConfirmation({
+        title: "Capture visible price?",
+        message: `The currently detected Ozon point looks like "${ozonCandidateDisplayName(currentCandidate)}", not "${pickupPointName}". Capture the visible page price for "${pickupPointName}" anyway?`,
+        confirmText: "Capture price"
+      });
       if (!shouldContinue) {
         captureStatus = { tone: "normal", message: "Price capture cancelled" };
         return false;
       }
     } else if (!currentCandidate) {
-      const shouldContinue = window.confirm(
-        `I could not verify the selected Ozon point. Capture the visible page price for "${pickupPointName}" anyway?`
-      );
+      const shouldContinue = await requestPanelConfirmation({
+        title: "Capture visible price?",
+        message: `I could not verify the selected Ozon point. Capture the visible page price for "${pickupPointName}" anyway?`,
+        confirmText: "Capture price"
+      });
       if (!shouldContinue) {
         captureStatus = { tone: "normal", message: "Price capture cancelled" };
         return false;
@@ -942,7 +948,13 @@ async function saveManualQuoteForPoint(
 
 async function deleteSavedPickupPoint(pickupPoint: PickupPoint, product: ProductIdentity): Promise<void> {
   const pickupPointName = ozonPickupDisplayName(pickupPoint);
-  if (!window.confirm(`Delete "${pickupPointName}" from saved pickup points?`)) {
+  const shouldDelete = await requestPanelConfirmation({
+    title: "Delete pickup point?",
+    message: `Delete "${pickupPointName}" from saved pickup points?`,
+    confirmText: "Delete point",
+    danger: true
+  });
+  if (!shouldDelete) {
     return;
   }
 
@@ -1520,7 +1532,7 @@ function pickupRowName(text: string): string {
     text.replace(
       /(?:^|[\s,;|•-])(?:Add|Saved|Refresh PVZ|Show in panel|Удалить|Редактировать|Изменить|Edit|Delete|Remove)(?=$|[\s,;|•-])/giu,
       " "
-    )
+    ).replace(/(?:срок\s+хранения\s+заказа|storage\s+period).*$/i, " ")
   );
   return cleaned.length > 170 ? `${cleaned.slice(0, 167)}...` : cleaned;
 }
@@ -1812,6 +1824,7 @@ interface PanelComparisonRow {
 
 function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   lastPanelModel = model;
+  cancelPendingPanelConfirmation();
   shadow.innerHTML = "";
   const style = document.createElement("style");
   style.textContent = panelCss();
@@ -1859,9 +1872,10 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
 
   const settingsButton = document.createElement("button");
   settingsButton.type = "button";
-  settingsButton.className = "iconButton";
+  settingsButton.className = "iconButton settingsButton";
+  settingsButton.setAttribute("aria-label", "Open settings");
   settingsButton.title = "Settings";
-  settingsButton.textContent = "Options";
+  settingsButton.textContent = "\u2699";
   settingsButton.addEventListener("click", () => {
     openOptionsPage();
   });
@@ -1921,6 +1935,90 @@ function renderLastPanel(): void {
   if (lastPanelModel) {
     renderPanel(ensurePanel(), lastPanelModel);
   }
+}
+
+interface PanelConfirmationOptions {
+  title: string;
+  message: string;
+  confirmText: string;
+  cancelText?: string;
+  danger?: boolean;
+}
+
+function cancelPendingPanelConfirmation(): void {
+  if (!pendingPanelConfirmationCancel) {
+    return;
+  }
+  const cancel = pendingPanelConfirmationCancel;
+  pendingPanelConfirmationCancel = null;
+  cancel();
+}
+
+async function requestPanelConfirmation(options: PanelConfirmationOptions): Promise<boolean> {
+  cancelPendingPanelConfirmation();
+  const shadow = ensurePanel();
+  const panel = shadow.querySelector<HTMLElement>(".panel");
+  if (!panel || isPanelCollapsed) {
+    return false;
+  }
+
+  return new Promise<boolean>((resolve) => {
+    const existing = shadow.getElementById(PANEL_CONFIRMATION_ID);
+    existing?.remove();
+
+    const wrapper = document.createElement("div");
+    wrapper.id = PANEL_CONFIRMATION_ID;
+    wrapper.className = `panelConfirmation${options.danger ? " danger" : ""}`;
+    wrapper.tabIndex = -1;
+
+    const text = document.createElement("div");
+    text.className = "panelConfirmationText";
+    const title = document.createElement("strong");
+    title.textContent = options.title;
+    const message = document.createElement("span");
+    message.textContent = options.message;
+    text.append(title, message);
+
+    const actions = document.createElement("div");
+    actions.className = "panelConfirmationActions";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "confirmButton secondaryButton";
+    cancelButton.textContent = options.cancelText || "Cancel";
+    const confirmButton = document.createElement("button");
+    confirmButton.type = "button";
+    confirmButton.className = `confirmButton${options.danger ? " danger" : ""}`;
+    confirmButton.textContent = options.confirmText;
+    actions.append(cancelButton, confirmButton);
+    wrapper.append(text, actions);
+
+    let resolved = false;
+    const finish = (confirmed: boolean): void => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      wrapper.remove();
+      if (pendingPanelConfirmationCancel === cancelCurrent) {
+        pendingPanelConfirmationCancel = null;
+      }
+      resolve(confirmed);
+    };
+    const cancelCurrent = (): void => finish(false);
+    pendingPanelConfirmationCancel = cancelCurrent;
+
+    cancelButton.addEventListener("click", () => finish(false), { once: true });
+    confirmButton.addEventListener("click", () => finish(true), { once: true });
+    wrapper.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        finish(false);
+      }
+    });
+
+    panel.append(wrapper);
+    wrapper.scrollIntoView({ block: "nearest" });
+    cancelButton.focus();
+  });
 }
 
 async function loadPanelState(): Promise<void> {
@@ -2024,7 +2122,15 @@ async function copyOzonFixtures(): Promise<void> {
 }
 
 async function clearOzonFixtures(): Promise<void> {
-  if (ozonFixtureCount > 0 && !window.confirm("Clear recorded Ozon fixtures from this browser?")) {
+  if (
+    ozonFixtureCount > 0 &&
+    !(await requestPanelConfirmation({
+      title: "Clear Ozon fixtures?",
+      message: "Clear recorded Ozon API fixtures from this browser?",
+      confirmText: "Clear fixtures",
+      danger: true
+    }))
+  ) {
     return;
   }
   pendingFixtureInputs = [];

@@ -88,3 +88,15 @@ updates, and non-trivial implementation changes.
   use page-level current delivery `textHint` as the name for an echoed
   `select_address` id. Saved-name repair now also refuses to apply one
   non-generic candidate label to multiple different Ozon ids.
+- Restored safe `Refresh PVZ` address resolution for selector lists whose API
+  payload exposes ordered ids while the open selector exposes ordered visible
+  labels. Pairing now uses selector/addressbook item arrays instead of whole
+  API response text, so selected-address echoes before the list cannot shift or
+  block the mapping. The repair also handles real selector lists where Ozon
+  appends a non-PVZ address id after PVZ rows.
+- Replaced product-panel browser confirmation dialogs with inline panel
+  confirmations for manual capture, saved-PVZ deletion, and fixture clearing.
+  Chrome can suppress repeated native dialogs after "do not ask again", which
+  makes destructive buttons look broken because `confirm()` auto-cancels.
+- Trimmed Ozon selector service text such as `Срок хранения заказа` from
+  visible PVZ row names before saving or repairing pickup-point labels.

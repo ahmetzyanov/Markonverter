@@ -33,7 +33,8 @@
       const context = {
         relevanceText: `${labelText} ${source.textHint || ""}`,
         labelText,
-        sameDomLabelText: `${labelText} ${source.textHint || ""}`
+        sameDomLabelText: `${labelText} ${source.textHint || ""}`,
+        textHint: source.textHint || ""
       };
       collectFromUnknown(parseMaybeJson(source.value), source.source, context, candidates);
       if (typeof source.value === "string") {
@@ -96,6 +97,7 @@
       return;
     }
     if (Array.isArray(value)) {
+      collectFromOrderedPickupArray(value, source, context, candidates);
       value.slice(0, 150).forEach((item, index) => {
         collectFromUnknown(item, source, context, candidates, [...path, String(index)], depth + 1);
       });
@@ -169,8 +171,162 @@
       }
     }
   }
+  function collectFromOrderedPickupArray(value, source, context, candidates) {
+    const labels = orderedPickupLabelsInText(context.textHint).map((label) => ({
+      label,
+      pointNumber: extractOzonPointNumber(label)
+    }));
+    if (labels.length < 2) {
+      return;
+    }
+    const entries = orderedPickupEntriesFromArray(value);
+    if (entries.length < 2 || entries.length < labels.length) {
+      return;
+    }
+    const uniqueIds = new Set(entries.map((entry) => entry.externalLocationId));
+    const uniqueLabels = new Set(labels.map((label) => compact(label.label).toLowerCase()));
+    if (uniqueIds.size !== entries.length || uniqueLabels.size !== labels.length) {
+      return;
+    }
+    const mappings = orderedPickupLabelMappings(entries, labels);
+    mappings.forEach(({ entry, label }) => {
+      const name = label.label;
+      if (isUnsafeOzonPickupName(name, entry.externalLocationId)) {
+        return;
+      }
+      const country = inferCountry(`${context.relevanceText} ${name}`);
+      candidates.push({
+        externalLocationId: entry.externalLocationId,
+        name,
+        country,
+        currency: country === "KZ" ? "KZT" : "RUB",
+        source,
+        score: 85,
+        comment: `Captured from ordered Ozon selector rows in ${source}`
+      });
+    });
+  }
+  function orderedPickupLabelMappings(entries, labels) {
+    const mappings = [];
+    const usedEntries = /* @__PURE__ */ new Set();
+    const usedLabels = /* @__PURE__ */ new Set();
+    const labelIndexesByNumber = /* @__PURE__ */ new Map();
+    labels.forEach((label, index) => {
+      if (!label.pointNumber) {
+        return;
+      }
+      labelIndexesByNumber.set(label.pointNumber, [...labelIndexesByNumber.get(label.pointNumber) || [], index]);
+    });
+    entries.forEach((entry, entryIndex) => {
+      if (!entry.pointNumber) {
+        return;
+      }
+      const labelIndexes = labelIndexesByNumber.get(entry.pointNumber);
+      if (!labelIndexes || labelIndexes.length !== 1) {
+        return;
+      }
+      const labelIndex = labelIndexes[0];
+      mappings.push({ entry, label: labels[labelIndex] });
+      usedEntries.add(entryIndex);
+      usedLabels.add(labelIndex);
+    });
+    const remainingEntries = entries.filter((_entry, index) => !usedEntries.has(index));
+    const remainingLabels = labels.filter((_label, index) => !usedLabels.has(index));
+    if (remainingLabels.length === 0) {
+      return mappings;
+    }
+    if (remainingEntries.length === remainingLabels.length) {
+      remainingEntries.forEach((entry, index) => {
+        mappings.push({ entry, label: remainingLabels[index] });
+      });
+      return mappings;
+    }
+    if (mappings.length > 0) {
+      return mappings;
+    }
+    if (entries.length > labels.length && labels.every((label) => label.pointNumber)) {
+      return labels.map((label, index) => ({ entry: entries[index], label }));
+    }
+    return [];
+  }
+  function orderedPickupEntriesFromArray(value) {
+    const entries = [];
+    for (const item of value.slice(0, 150)) {
+      const text = valueSearchText(item);
+      if (!text || !RELEVANCE_RE.test(text)) {
+        continue;
+      }
+      const ids = orderedPickupIdsInText(text);
+      if (ids.length === 0) {
+        continue;
+      }
+      if (ids.length > 1) {
+        return [];
+      }
+      const id = ids[0];
+      const ownName = extractNameNearId(text, id, text.indexOf(id));
+      if (scorePickupLabel(ownName, id) >= 5) {
+        continue;
+      }
+      const pointNumber = extractOzonPointNumber(`${ownName} ${text.slice(0, 800)}`);
+      entries.push({ externalLocationId: id, pointNumber });
+    }
+    return entries;
+  }
+  function valueSearchText(value) {
+    if (typeof value === "string") {
+      return value;
+    }
+    if (value == null) {
+      return "";
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  }
   function extractSameDomSourceLabel(source, sourceText, externalLocationId) {
     return /^(?:content\.current-delivery|dom\.ozon-delivery-row)$/i.test(source) ? extractUsefulLabel(sourceText, externalLocationId) : "";
+  }
+  function orderedPickupIdsInText(text) {
+    const ids = [];
+    for (const pattern of pickupIdPatterns()) {
+      let match;
+      while (match = pattern.exec(text)) {
+        const id = normalizeId(match[1]);
+        if (id && !ids.includes(id)) {
+          ids.push(id);
+        }
+      }
+    }
+    return ids;
+  }
+  function orderedPickupLabelsInText(text) {
+    const labels = [];
+    for (const rawLabel of extractOzonPointLabels(selectorLabelScope(text))) {
+      const label = pickBestLabel([rawLabel], "");
+      if (label && !labels.some((item) => compact(item).toLowerCase() === compact(label).toLowerCase())) {
+        labels.push(label);
+      }
+    }
+    return labels;
+  }
+  function selectorLabelScope(text) {
+    const marker = text.search(
+      /(?:выберите\s+(?:пункт|адрес)|выбор\s+(?:пункта|адреса|способа)|куда\s+доставить|delivery selector|select address)/i
+    );
+    return marker >= 0 ? text.slice(marker) : text;
+  }
+  function extractOzonPointNumber(text) {
+    return compact(text.match(/(?:№|N[°o.]?)\s*([\d-]{3,})/i)?.[1] || "");
+  }
+  function pickupIdPatterns() {
+    return [
+      /(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'=:\s]+([a-z0-9_-]{4,80})/gi,
+      /(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'\s]*[:=]["'\s]*([a-z0-9_-]{4,80})/gi,
+      /[?&](?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)=([a-z0-9_-]{4,80})/gi
+    ];
   }
   function scoreIdKey(key) {
     if (STRONG_ID_KEYS.has(key)) {
@@ -353,7 +509,7 @@
   }
   function extractOzonPointLabels(text) {
     const labels = [];
-    const pattern = /Пункт\s+Ozon\s*№\s*[\d-]+[^|<>{}\[\]\n\r]{0,170}/gi;
+    const pattern = /Пункт\s+Ozon\s*№\s*[\d-]+(?:(?!Пункт\s+Ozon\s*№|Срок\s+хранения|Добавить\s+адрес|Дом\s)[^|<>{}\[\]\n\r]){0,170}/gi;
     let match;
     while (match = pattern.exec(text)) {
       labels.push(match[0]);

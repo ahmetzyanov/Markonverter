@@ -970,6 +970,12 @@
       color: var(--mk-muted);
       cursor: pointer;
     }
+    .settingsButton {
+      width: 32px;
+      padding: 0;
+      font-size: 17px;
+      line-height: 1;
+    }
     .collapsed .collapseButton {
       min-height: 28px;
       padding: 0 9px;
@@ -1056,7 +1062,8 @@
     .pointManagerControls button,
     .deleteButton,
     .saveSmallButton,
-    .detailsButton {
+    .detailsButton,
+    .confirmButton {
       min-height: 28px;
       padding: 0 8px;
       border: 1px solid var(--mk-border-strong);
@@ -1115,10 +1122,48 @@
       border-color: var(--mk-border-strong);
       color: var(--mk-muted);
     }
+    .confirmButton.danger {
+      border-color: var(--mk-danger);
+      background: var(--mk-danger);
+      color: #ffffff;
+      font-weight: 750;
+    }
     .saveSmallButton:disabled {
       border-color: var(--mk-border);
       color: var(--mk-quiet);
       cursor: default;
+    }
+    .panelConfirmation {
+      display: grid;
+      gap: 10px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--mk-border);
+      background: #151516;
+    }
+    .panelConfirmation.danger {
+      box-shadow: inset 3px 0 0 var(--mk-danger);
+    }
+    .panelConfirmationText {
+      min-width: 0;
+    }
+    .panelConfirmationText strong {
+      display: block;
+      color: var(--mk-text);
+      font-size: 12px;
+      font-weight: 730;
+    }
+    .panelConfirmationText span {
+      display: block;
+      margin-top: 3px;
+      color: var(--mk-muted);
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+    .panelConfirmationActions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
     }
     .pointManagerHint {
       margin: 0;
@@ -1381,7 +1426,8 @@
       const context = {
         relevanceText: `${labelText} ${source.textHint || ""}`,
         labelText,
-        sameDomLabelText: `${labelText} ${source.textHint || ""}`
+        sameDomLabelText: `${labelText} ${source.textHint || ""}`,
+        textHint: source.textHint || ""
       };
       collectFromUnknown(parseMaybeJson2(source.value), source.source, context, candidates);
       if (typeof source.value === "string") {
@@ -1457,6 +1503,7 @@
       return;
     }
     if (Array.isArray(value)) {
+      collectFromOrderedPickupArray(value, source, context, candidates);
       value.slice(0, 150).forEach((item, index) => {
         collectFromUnknown(item, source, context, candidates, [...path, String(index)], depth + 1);
       });
@@ -1530,8 +1577,162 @@
       }
     }
   }
+  function collectFromOrderedPickupArray(value, source, context, candidates) {
+    const labels = orderedPickupLabelsInText(context.textHint).map((label) => ({
+      label,
+      pointNumber: extractOzonPointNumber(label)
+    }));
+    if (labels.length < 2) {
+      return;
+    }
+    const entries = orderedPickupEntriesFromArray(value);
+    if (entries.length < 2 || entries.length < labels.length) {
+      return;
+    }
+    const uniqueIds = new Set(entries.map((entry) => entry.externalLocationId));
+    const uniqueLabels = new Set(labels.map((label) => compact(label.label).toLowerCase()));
+    if (uniqueIds.size !== entries.length || uniqueLabels.size !== labels.length) {
+      return;
+    }
+    const mappings = orderedPickupLabelMappings(entries, labels);
+    mappings.forEach(({ entry, label }) => {
+      const name = label.label;
+      if (isUnsafeOzonPickupName(name, entry.externalLocationId)) {
+        return;
+      }
+      const country = inferCountry(`${context.relevanceText} ${name}`);
+      candidates.push({
+        externalLocationId: entry.externalLocationId,
+        name,
+        country,
+        currency: country === "KZ" ? "KZT" : "RUB",
+        source,
+        score: 85,
+        comment: `Captured from ordered Ozon selector rows in ${source}`
+      });
+    });
+  }
+  function orderedPickupLabelMappings(entries, labels) {
+    const mappings = [];
+    const usedEntries = /* @__PURE__ */ new Set();
+    const usedLabels = /* @__PURE__ */ new Set();
+    const labelIndexesByNumber = /* @__PURE__ */ new Map();
+    labels.forEach((label, index) => {
+      if (!label.pointNumber) {
+        return;
+      }
+      labelIndexesByNumber.set(label.pointNumber, [...labelIndexesByNumber.get(label.pointNumber) || [], index]);
+    });
+    entries.forEach((entry, entryIndex) => {
+      if (!entry.pointNumber) {
+        return;
+      }
+      const labelIndexes = labelIndexesByNumber.get(entry.pointNumber);
+      if (!labelIndexes || labelIndexes.length !== 1) {
+        return;
+      }
+      const labelIndex = labelIndexes[0];
+      mappings.push({ entry, label: labels[labelIndex] });
+      usedEntries.add(entryIndex);
+      usedLabels.add(labelIndex);
+    });
+    const remainingEntries = entries.filter((_entry, index) => !usedEntries.has(index));
+    const remainingLabels = labels.filter((_label, index) => !usedLabels.has(index));
+    if (remainingLabels.length === 0) {
+      return mappings;
+    }
+    if (remainingEntries.length === remainingLabels.length) {
+      remainingEntries.forEach((entry, index) => {
+        mappings.push({ entry, label: remainingLabels[index] });
+      });
+      return mappings;
+    }
+    if (mappings.length > 0) {
+      return mappings;
+    }
+    if (entries.length > labels.length && labels.every((label) => label.pointNumber)) {
+      return labels.map((label, index) => ({ entry: entries[index], label }));
+    }
+    return [];
+  }
+  function orderedPickupEntriesFromArray(value) {
+    const entries = [];
+    for (const item of value.slice(0, 150)) {
+      const text = valueSearchText(item);
+      if (!text || !RELEVANCE_RE.test(text)) {
+        continue;
+      }
+      const ids = orderedPickupIdsInText(text);
+      if (ids.length === 0) {
+        continue;
+      }
+      if (ids.length > 1) {
+        return [];
+      }
+      const id = ids[0];
+      const ownName = extractNameNearId(text, id, text.indexOf(id));
+      if (scorePickupLabel(ownName, id) >= 5) {
+        continue;
+      }
+      const pointNumber = extractOzonPointNumber(`${ownName} ${text.slice(0, 800)}`);
+      entries.push({ externalLocationId: id, pointNumber });
+    }
+    return entries;
+  }
+  function valueSearchText(value) {
+    if (typeof value === "string") {
+      return value;
+    }
+    if (value == null) {
+      return "";
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  }
   function extractSameDomSourceLabel(source, sourceText, externalLocationId) {
     return /^(?:content\.current-delivery|dom\.ozon-delivery-row)$/i.test(source) ? extractUsefulLabel(sourceText, externalLocationId) : "";
+  }
+  function orderedPickupIdsInText(text) {
+    const ids = [];
+    for (const pattern of pickupIdPatterns()) {
+      let match;
+      while (match = pattern.exec(text)) {
+        const id = normalizeId(match[1]);
+        if (id && !ids.includes(id)) {
+          ids.push(id);
+        }
+      }
+    }
+    return ids;
+  }
+  function orderedPickupLabelsInText(text) {
+    const labels = [];
+    for (const rawLabel of extractOzonPointLabels(selectorLabelScope(text))) {
+      const label = pickBestLabel([rawLabel], "");
+      if (label && !labels.some((item) => compact(item).toLowerCase() === compact(label).toLowerCase())) {
+        labels.push(label);
+      }
+    }
+    return labels;
+  }
+  function selectorLabelScope(text) {
+    const marker = text.search(
+      /(?:выберите\s+(?:пункт|адрес)|выбор\s+(?:пункта|адреса|способа)|куда\s+доставить|delivery selector|select address)/i
+    );
+    return marker >= 0 ? text.slice(marker) : text;
+  }
+  function extractOzonPointNumber(text) {
+    return compact(text.match(/(?:№|N[°o.]?)\s*([\d-]{3,})/i)?.[1] || "");
+  }
+  function pickupIdPatterns() {
+    return [
+      /(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'=:\s]+([a-z0-9_-]{4,80})/gi,
+      /(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)["'\s]*[:=]["'\s]*([a-z0-9_-]{4,80})/gi,
+      /[?&](?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)=([a-z0-9_-]{4,80})/gi
+    ];
   }
   function scoreIdKey(key) {
     if (STRONG_ID_KEYS.has(key)) {
@@ -1714,7 +1915,7 @@
   }
   function extractOzonPointLabels(text) {
     const labels = [];
-    const pattern = /Пункт\s+Ozon\s*№\s*[\d-]+[^|<>{}\[\]\n\r]{0,170}/gi;
+    const pattern = /Пункт\s+Ozon\s*№\s*[\d-]+(?:(?!Пункт\s+Ozon\s*№|Срок\s+хранения|Добавить\s+адрес|Дом\s)[^|<>{}\[\]\n\r]){0,170}/gi;
     let match;
     while (match = pattern.exec(text)) {
       labels.push(match[0]);
@@ -1860,6 +2061,7 @@
 
   // src/content/app.ts
   var PANEL_ID = "markonverter-panel-root";
+  var PANEL_CONFIRMATION_ID = "markonverter-panel-confirmation";
   var MENU_ASSIST_ID = "markonverter-ozon-delivery-assist";
   var MENU_ASSIST_STYLE_ID = "markonverter-ozon-delivery-assist-style";
   var PAGE_ACTION_SELECTOR = "[data-markonverter-page-action]";
@@ -1885,6 +2087,7 @@
   var panelRecoveryTimer = null;
   var assistSyncTimer = null;
   var savedPickupNameSyncTimer = null;
+  var pendingPanelConfirmationCancel = null;
   var suppressAssistObserverUntil = 0;
   var targetedPickupDiscoveryIds = /* @__PURE__ */ new Set();
   var pageActionHandlers = /* @__PURE__ */ new WeakMap();
@@ -2374,17 +2577,21 @@
       const currentCandidate = await getBestPickupCandidate();
       const pickupPointName = ozonPickupDisplayName(pickupPoint);
       if (currentCandidate && currentCandidate.externalLocationId !== pickupPoint.externalLocationId) {
-        const shouldContinue = window.confirm(
-          `The currently detected Ozon point looks like "${ozonCandidateDisplayName(currentCandidate)}", not "${pickupPointName}". Capture the visible page price for "${pickupPointName}" anyway?`
-        );
+        const shouldContinue = await requestPanelConfirmation({
+          title: "Capture visible price?",
+          message: `The currently detected Ozon point looks like "${ozonCandidateDisplayName(currentCandidate)}", not "${pickupPointName}". Capture the visible page price for "${pickupPointName}" anyway?`,
+          confirmText: "Capture price"
+        });
         if (!shouldContinue) {
           captureStatus = { tone: "normal", message: "Price capture cancelled" };
           return false;
         }
       } else if (!currentCandidate) {
-        const shouldContinue = window.confirm(
-          `I could not verify the selected Ozon point. Capture the visible page price for "${pickupPointName}" anyway?`
-        );
+        const shouldContinue = await requestPanelConfirmation({
+          title: "Capture visible price?",
+          message: `I could not verify the selected Ozon point. Capture the visible page price for "${pickupPointName}" anyway?`,
+          confirmText: "Capture price"
+        });
         if (!shouldContinue) {
           captureStatus = { tone: "normal", message: "Price capture cancelled" };
           return false;
@@ -2623,7 +2830,13 @@
   }
   async function deleteSavedPickupPoint(pickupPoint, product) {
     const pickupPointName = ozonPickupDisplayName(pickupPoint);
-    if (!window.confirm(`Delete "${pickupPointName}" from saved pickup points?`)) {
+    const shouldDelete = await requestPanelConfirmation({
+      title: "Delete pickup point?",
+      message: `Delete "${pickupPointName}" from saved pickup points?`,
+      confirmText: "Delete point",
+      danger: true
+    });
+    if (!shouldDelete) {
       return;
     }
     captureStatus = { tone: "normal", message: `Deleted: ${pickupPointName}` };
@@ -3109,7 +3322,7 @@
       text.replace(
         /(?:^|[\s,;|•-])(?:Add|Saved|Refresh PVZ|Show in panel|Удалить|Редактировать|Изменить|Edit|Delete|Remove)(?=$|[\s,;|•-])/giu,
         " "
-      )
+      ).replace(/(?:срок\s+хранения\s+заказа|storage\s+period).*$/i, " ")
     );
     return cleaned.length > 170 ? `${cleaned.slice(0, 167)}...` : cleaned;
   }
@@ -3349,6 +3562,7 @@
   }
   function renderPanel(shadow, model) {
     lastPanelModel = model;
+    cancelPendingPanelConfirmation();
     shadow.innerHTML = "";
     const style = document.createElement("style");
     style.textContent = panelCss();
@@ -3389,9 +3603,10 @@
     }
     const settingsButton = document.createElement("button");
     settingsButton.type = "button";
-    settingsButton.className = "iconButton";
+    settingsButton.className = "iconButton settingsButton";
+    settingsButton.setAttribute("aria-label", "Open settings");
     settingsButton.title = "Settings";
-    settingsButton.textContent = "Options";
+    settingsButton.textContent = "\u2699";
     settingsButton.addEventListener("click", () => {
       openOptionsPage();
     });
@@ -3445,6 +3660,73 @@
     if (lastPanelModel) {
       renderPanel(ensurePanel(), lastPanelModel);
     }
+  }
+  function cancelPendingPanelConfirmation() {
+    if (!pendingPanelConfirmationCancel) {
+      return;
+    }
+    const cancel = pendingPanelConfirmationCancel;
+    pendingPanelConfirmationCancel = null;
+    cancel();
+  }
+  async function requestPanelConfirmation(options) {
+    cancelPendingPanelConfirmation();
+    const shadow = ensurePanel();
+    const panel = shadow.querySelector(".panel");
+    if (!panel || isPanelCollapsed) {
+      return false;
+    }
+    return new Promise((resolve) => {
+      const existing = shadow.getElementById(PANEL_CONFIRMATION_ID);
+      existing?.remove();
+      const wrapper = document.createElement("div");
+      wrapper.id = PANEL_CONFIRMATION_ID;
+      wrapper.className = `panelConfirmation${options.danger ? " danger" : ""}`;
+      wrapper.tabIndex = -1;
+      const text = document.createElement("div");
+      text.className = "panelConfirmationText";
+      const title = document.createElement("strong");
+      title.textContent = options.title;
+      const message = document.createElement("span");
+      message.textContent = options.message;
+      text.append(title, message);
+      const actions = document.createElement("div");
+      actions.className = "panelConfirmationActions";
+      const cancelButton = document.createElement("button");
+      cancelButton.type = "button";
+      cancelButton.className = "confirmButton secondaryButton";
+      cancelButton.textContent = options.cancelText || "Cancel";
+      const confirmButton = document.createElement("button");
+      confirmButton.type = "button";
+      confirmButton.className = `confirmButton${options.danger ? " danger" : ""}`;
+      confirmButton.textContent = options.confirmText;
+      actions.append(cancelButton, confirmButton);
+      wrapper.append(text, actions);
+      let resolved = false;
+      const finish = (confirmed) => {
+        if (resolved) {
+          return;
+        }
+        resolved = true;
+        wrapper.remove();
+        if (pendingPanelConfirmationCancel === cancelCurrent) {
+          pendingPanelConfirmationCancel = null;
+        }
+        resolve(confirmed);
+      };
+      const cancelCurrent = () => finish(false);
+      pendingPanelConfirmationCancel = cancelCurrent;
+      cancelButton.addEventListener("click", () => finish(false), { once: true });
+      confirmButton.addEventListener("click", () => finish(true), { once: true });
+      wrapper.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          finish(false);
+        }
+      });
+      panel.append(wrapper);
+      wrapper.scrollIntoView({ block: "nearest" });
+      cancelButton.focus();
+    });
   }
   async function loadPanelState() {
     try {
@@ -3532,7 +3814,12 @@
     renderLastPanel();
   }
   async function clearOzonFixtures() {
-    if (ozonFixtureCount > 0 && !window.confirm("Clear recorded Ozon fixtures from this browser?")) {
+    if (ozonFixtureCount > 0 && !await requestPanelConfirmation({
+      title: "Clear Ozon fixtures?",
+      message: "Clear recorded Ozon API fixtures from this browser?",
+      confirmText: "Clear fixtures",
+      danger: true
+    })) {
       return;
     }
     pendingFixtureInputs = [];

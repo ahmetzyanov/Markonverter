@@ -209,6 +209,260 @@ describe("Ozon pickup capture", () => {
     });
   });
 
+  it("can pair ordered selector ids with ordered visible selector labels", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "network.https://www.ozon.kz/api/composer-api.bx/page/json/v2?url=%2Fmodal%2Faddressbook",
+        urlHint: "https://www.ozon.kz/product/example",
+        textHint:
+          "Доставка и возврат Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31 | Выберите пункт выдачи | Пункт Ozon № 469-716 Буинск, ул. Вахитова, 174Б | Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31",
+        value:
+          '{"items":[{"action":{"url":"/modal/addressbook?select_address=ru-selector-469716"},"layoutId":39077},{"action":{"url":"/modal/addressbook?select_address=kz-selector-440129"},"layoutId":39077}]}'
+      }
+    ]);
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalLocationId: "ru-selector-469716",
+          name: "Пункт Ozon № 469-716 Буинск, ул. Вахитова, 174Б"
+        }),
+        expect.objectContaining({
+          externalLocationId: "kz-selector-440129",
+          name: "Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31"
+        })
+      ])
+    );
+  });
+
+  it("ignores selected-address echoes before pairing ordered selector ids with visible labels", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "network.https://www.ozon.kz/api/composer-api.bx/page/json/v2?url=%2Fmodal%2Faddressbook",
+        urlHint: "https://www.ozon.kz/product/example",
+        textHint:
+          "Доставка и возврат Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31 | Выберите пункт выдачи | Пункт Ozon № 469-716 Буинск, ул. Вахитова, 174Б | Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31",
+        value: JSON.stringify({
+          delivery: {
+            selectedAddressOid: "kz-selector-440129"
+          },
+          items: [
+            {
+              action: {
+                url: "/modal/addressbook?select_address=ru-selector-469716"
+              },
+              layoutId: 39077
+            },
+            {
+              action: {
+                url: "/modal/addressbook?select_address=kz-selector-440129"
+              },
+              layoutId: 39077
+            }
+          ]
+        })
+      }
+    ]);
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalLocationId: "ru-selector-469716",
+          name: "Пункт Ozon № 469-716 Буинск, ул. Вахитова, 174Б"
+        }),
+        expect.objectContaining({
+          externalLocationId: "kz-selector-440129",
+          name: "Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31"
+        })
+      ])
+    );
+  });
+
+  it("uses ordered visible selector addresses when API rows only expose point-number titles", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "network.https://www.ozon.kz/api/composer-api.bx/page/json/v2?url=%2Fmodal%2Faddressbook",
+        urlHint: "https://www.ozon.kz/product/example",
+        textHint:
+          "Выберите пункт выдачи | Пункт Ozon № 469-716 Буинск, ул. Вахитова, 174Б | Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31",
+        value: JSON.stringify({
+          items: [
+            {
+              action: {
+                url: "/modal/addressbook?select_address=ru-selector-469716"
+              },
+              title: "Пункт Ozon № 469-716"
+            },
+            {
+              action: {
+                url: "/modal/addressbook?select_address=kz-selector-440129"
+              },
+              title: "Пункт Ozon № 440-129"
+            }
+          ]
+        })
+      }
+    ]);
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalLocationId: "ru-selector-469716",
+          name: "Пункт Ozon № 469-716 Буинск, ул. Вахитова, 174Б"
+        }),
+        expect.objectContaining({
+          externalLocationId: "kz-selector-440129",
+          name: "Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31"
+        })
+      ])
+    );
+  });
+
+  it("pairs visible selector labels when Ozon appends a non-PVZ address id after pickup rows", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "network.https://www.ozon.kz/api/composer-api.bx/page/json/v2?url=%2Fmodal%2Faddressbook",
+        urlHint: "https://www.ozon.kz/product/example",
+        textHint:
+          "Выберите адрес доставки Пункт Ozon № 469-716 Буинск, ул. Вахитова, 174Б Срок хранения заказа - 14 дней Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31 Срок хранения заказа - 14 дней Пункт Ozon № 186-995 Буинск, ул. Вахитова, 71б Срок хранения заказа - 14 дней Дом Буинск, ул. Комарова, 87",
+        value: JSON.stringify({
+          items: [
+            {
+              action: {
+                url: "/modal/addressbook?select_address=ru-selector-469716"
+              },
+              layoutId: 39077
+            },
+            {
+              action: {
+                url: "/modal/addressbook?select_address=kz-selector-440129"
+              },
+              layoutId: 39077
+            },
+            {
+              action: {
+                url: "/modal/addressbook?select_address=ru-selector-186995"
+              },
+              layoutId: 39077
+            },
+            {
+              action: {
+                url: "/modal/addressbook?select_address=home-address-0001"
+              },
+              layoutId: 39077
+            }
+          ]
+        })
+      }
+    ]);
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalLocationId: "ru-selector-469716",
+          name: "Пункт Ozon № 469-716 Буинск, ул. Вахитова, 174Б"
+        }),
+        expect.objectContaining({
+          externalLocationId: "kz-selector-440129",
+          name: "Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31"
+        }),
+        expect.objectContaining({
+          externalLocationId: "ru-selector-186995",
+          name: "Пункт Ozon № 186-995 Буинск, ул. Вахитова, 71б"
+        })
+      ])
+    );
+    expect(candidates.find((candidate) => candidate.externalLocationId === "home-address-0001")?.name).toBe(
+      "Ozon pickup home-address-0001"
+    );
+  });
+
+  it("uses Ozon point numbers when an extra address id appears before pickup rows", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "network.https://www.ozon.kz/api/composer-api.bx/page/json/v2?url=%2Fmodal%2Faddressbook",
+        urlHint: "https://www.ozon.kz/product/example",
+        textHint:
+          "Выберите адрес доставки Пункт Ozon № 469-716 Буинск, ул. Вахитова, 174Б Срок хранения заказа - 14 дней Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31 Срок хранения заказа - 14 дней",
+        value: JSON.stringify({
+          items: [
+            {
+              action: {
+                url: "/modal/addressbook?select_address=home-address-0001"
+              },
+              title: "Дом"
+            },
+            {
+              action: {
+                url: "/modal/addressbook?select_address=kz-selector-440129"
+              },
+              title: "Пункт Ozon № 440-129"
+            },
+            {
+              action: {
+                url: "/modal/addressbook?select_address=ru-selector-469716"
+              },
+              title: "Пункт Ozon № 469-716"
+            }
+          ]
+        })
+      }
+    ]);
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalLocationId: "ru-selector-469716",
+          name: "Пункт Ozon № 469-716 Буинск, ул. Вахитова, 174Б"
+        }),
+        expect.objectContaining({
+          externalLocationId: "kz-selector-440129",
+          name: "Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31"
+        })
+      ])
+    );
+  });
+
+  it("does not replace response-owned pickup labels with ordered visible selector text", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "network.https://www.ozon.kz/api/composer-api.bx/page/json/v2?url=%2Fmodal%2Faddressbook",
+        urlHint: "https://www.ozon.kz/product/example",
+        textHint:
+          "Выберите пункт выдачи | Пункт Ozon № 469-716 Буинск, ул. Вахитова, 174Б | Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31",
+        value: JSON.stringify({
+          items: [
+            {
+              action: {
+                url: "/modal/addressbook?select_address=kz-selector-440129"
+              },
+              subtitle: "Астана, пр-кт Улы Дала, 31"
+            },
+            {
+              action: {
+                url: "/modal/addressbook?select_address=ru-selector-469716"
+              },
+              subtitle: "Буинск, ул. Вахитова, 174Б"
+            }
+          ]
+        })
+      }
+    ]);
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalLocationId: "kz-selector-440129",
+          name: "Астана, пр-кт Улы Дала, 31"
+        }),
+        expect.objectContaining({
+          externalLocationId: "ru-selector-469716",
+          name: "Буинск, ул. Вахитова, 174Б"
+        })
+      ])
+    );
+  });
+
   it("does not use Ozon button text as a pickup point name", () => {
     const deleteCandidates = extractOzonPickupCandidatesFromSources([
       {

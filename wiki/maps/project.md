@@ -77,6 +77,15 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
   not pickup-name evidence. A real pickup name must come from the response body,
   URL-local HTML text, or a same-row/current-widget DOM source that also exposes
   the id.
+- The only safe exception is an opened selector list where an API/network
+  payload exposes two or more ordered `select_address` ids and the visible
+  selector text exposes the same number of unique ordered `Пункт Ozon № ...`
+  labels. In that case labels may be paired by order only from the
+  selector/addressbook item array, not from the whole API body. If current
+  delivery text or a selected-address echo appears before the selector list,
+  ignore it for this pairing. If Ozon appends extra non-PVZ address ids, match
+  by visible Ozon point number where possible and only fall back to prefix order
+  for the remaining clearly numbered PVZ labels.
 - Keep any session-mutating Ozon address activation behind an explicit internal
   opt-in; do not call it from the product-page UI by default.
 - Some Ozon product responses confirm an internal selected-address id instead of
@@ -91,6 +100,10 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
   the page probe records relevant Ozon network responses, the content script
   stores a bounded buffer under `markonverter.ozonFixtures`, and the product
   panel's `Ozon fixtures` row can copy or clear that local buffer.
+- Product-panel confirmations should be inline UI, not native browser
+  `confirm()` dialogs. Chrome can suppress repeated page dialogs after the user
+  opts out, causing later destructive actions such as saved-PVZ deletion or
+  fixture clearing to auto-cancel.
 - A product-page-only real fixture can be insufficient for price/PVZ replay.
   A captured `webDelivery` widget may include address text and delivery dates
   but no `select_address`, `deliveryAddressOid`, or PVZ id. Its `priceBadge`

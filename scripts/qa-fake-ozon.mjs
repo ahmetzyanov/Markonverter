@@ -80,6 +80,7 @@ try {
   await verifyDetectedPickupSave(page, worker);
   await verifyCurrentAddressReuseRegression(page, worker);
   await verifyCorruptedEditNameRecovery(page, worker);
+  await verifySelectorIdsOnlyNameResolution(page, worker);
   await verifyGenericUuidNameResolution(page, worker);
   await verifyManualTwoPointSuccess(page, worker);
 
@@ -167,9 +168,9 @@ async function verifyCurrentAddressReuseRegression(page, worker) {
   await clickPanelButton(page, "Copy details");
   await waitForPanelText(page, /Copied pickup-point diagnostics|Could not copy diagnostics/, "diagnostics copy status");
 
-  const dialogPromise = page.waitForEvent("dialog", { timeout: 3_000 }).then((dialog) => dialog.accept()).catch(() => undefined);
   await clickPanelButton(page, "Capture current");
-  await dialogPromise;
+  await waitForPanelText(page, /Capture visible price\?/, "inline capture confirmation");
+  await clickPanelButton(page, "Capture price");
   await waitForPanelText(page, /Captured current page price for Moscow pickup|Captured /, "manual capture status");
 
   settings = await readSettings(worker);
@@ -194,6 +195,43 @@ async function verifyCorruptedEditNameRecovery(page, worker) {
   const settings = await readSettings(worker);
   assert(settings.pickupPoints.every((point) => point.name !== "Редактировать"), "corrupted saved pickup names were not repaired");
   assert(settings.manualQuotes["2229282395:kz"], "current KZ point was auto-captured after edit-name repair");
+}
+
+async function verifySelectorIdsOnlyNameResolution(page, worker) {
+  routeState.scenario = "selector-ids-only";
+  await seedStorage(
+    worker,
+    settingsWithPickupPoints([
+      { ...fakePoints.ru, name: `Ozon pickup ${fakePoints.ru.externalLocationId}` },
+      { ...fakePoints.kz, name: `Ozon pickup ${fakePoints.kz.externalLocationId}` }
+    ])
+  );
+  await openFakeProduct(page, "selector-ids-only");
+  await waitForPageText(page, /PVZ visible/, "delivery selector helper for ids-only refresh");
+  await clickPageButton(page, "Refresh PVZ");
+
+  await waitForPanelText(page, /Буинск, ул\. Вахитова, 174Б/, "RU selector id resolved from ordered visible row label");
+  await waitForPanelText(page, /Астана, пр-кт Улы Дала, 31/, "KZ selector id resolved from ordered visible row label");
+
+  const settings = await readSettings(worker);
+  assert(
+    settings.pickupPoints.some(
+      (point) => point.externalLocationId === fakePoints.ru.externalLocationId && /Буинск/.test(point.name)
+    ),
+    "RU generic saved pickup name was not repaired from selector refresh"
+  );
+  assert(
+    settings.pickupPoints.some(
+      (point) => point.externalLocationId === fakePoints.kz.externalLocationId && /Астана/.test(point.name)
+    ),
+    "KZ generic saved pickup name was not repaired from selector refresh"
+  );
+  assert(
+    settings.pickupPoints
+      .filter((point) => [fakePoints.ru.externalLocationId, fakePoints.kz.externalLocationId].includes(point.externalLocationId))
+      .every((point) => !/Срок хранения заказа/i.test(point.name)),
+    "selector refresh leaked Ozon storage-period text into saved pickup names"
+  );
 }
 
 async function verifyGenericUuidNameResolution(page, worker) {
@@ -234,9 +272,9 @@ async function verifyManualTwoPointSuccess(page, worker) {
   await waitForPanelText(page, /Not compared|Comparison points updated/, "inline comparison toggle");
   await waitForPanelText(page, /Delete/, "row delete action");
 
-  const dialogPromise = page.waitForEvent("dialog", { timeout: 3_000 }).then((dialog) => dialog.accept()).catch(() => undefined);
   await clickPanelButton(page, "Delete");
-  await dialogPromise;
+  await waitForPanelText(page, /Delete pickup point\?/, "inline delete confirmation");
+  await clickPanelButton(page, "Delete point");
   await waitForPanelText(page, /Deleted: Moscow pickup|Deleted: Astana pickup/, "row delete status");
 
   const settings = await readSettings(worker);
@@ -301,6 +339,17 @@ async function clickPanelButton(page, label) {
     const button = buttons.find((item) => item.textContent?.trim() === buttonLabel);
     if (!button) {
       throw new Error(`Panel button not found: ${buttonLabel}`);
+    }
+    button.click();
+  }, label);
+}
+
+async function clickPageButton(page, label) {
+  await page.evaluate((buttonLabel) => {
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const button = buttons.find((item) => item.textContent?.trim() === buttonLabel);
+    if (!button) {
+      throw new Error(`Page button not found: ${buttonLabel}`);
     }
     button.click();
   }, label);
@@ -418,6 +467,32 @@ function manualQuotesForFakePoints() {
 }
 
 function fakeOzonApiResponse(request) {
+  if (routeState.scenario === "selector-ids-only") {
+    return {
+      delivery: {
+        selectedAddressOid: fakePoints.kz.externalLocationId
+      },
+      items: [
+        ...Object.values(fakePoints).map((item) => ({
+          action: {
+            url: `/modal/addressbook?select_address=${item.externalLocationId}`
+          },
+          layoutId: 39077,
+          layoutVersion: 31,
+          pageType: "modal"
+        })),
+        {
+          action: {
+            url: "/modal/addressbook?select_address=home-address-extra"
+          },
+          layoutId: 39077,
+          layoutVersion: 31,
+          pageType: "modal"
+        }
+      ]
+    };
+  }
+
   const requested = requestedLocationFromRequest(request);
   const selected = selectedLocationForRequest(requested);
   const point = pointByExternalLocationId(selected) || fakePoints.kz;
@@ -513,17 +588,24 @@ function requestedLocationFromRequest(request) {
 }
 
 function fakeProductHtml() {
+  const selectorIdsOnly = routeState.scenario === "selector-ids-only";
   const state = {
     delivery: {
-      selectedAddress: {
-        deliveryAddressOid: fakePoints.kz.externalLocationId,
-        fullAddress: fakePoints.kz.name
-      },
-      items: Object.values(fakePoints).map((point) => ({
-        deliveryAddressOid: point.externalLocationId,
-        fullAddress: point.name,
-        title: point.name
-      }))
+      selectedAddress: selectorIdsOnly
+        ? {
+            fullAddress: fakePoints.kz.name
+          }
+        : {
+            deliveryAddressOid: fakePoints.kz.externalLocationId,
+            fullAddress: fakePoints.kz.name
+          },
+      items: selectorIdsOnly
+        ? []
+        : Object.values(fakePoints).map((point) => ({
+            deliveryAddressOid: point.externalLocationId,
+            fullAddress: point.name,
+            title: point.name
+          }))
     }
   };
 
@@ -557,10 +639,17 @@ function fakeProductHtml() {
       </div>
       <div class="delivery-dialog" data-widget="deliveryDialog" role="dialog" aria-label="Delivery selector">
         <h2>Выберите пункт выдачи</h2>
-        <div class="pvz-row" role="option" data-delivery-address-oid="${fakePoints.kz.externalLocationId}" title="Пункт Ozon № 440-129 ${fakePoints.kz.name}, Dostyk 1">
-          Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31 Срок хранения заказа - 14 дней
+        ${Object.values(fakePoints)
+          .map(
+            (point) => `<div class="pvz-row" role="option" ${
+              selectorIdsOnly ? "" : `data-delivery-address-oid="${point.externalLocationId}"`
+            } title="${visibleSelectorLabel(point)}">
+          ${visibleSelectorLabel(point)} Срок хранения заказа - 14 дней
           <button type="button">Редактировать</button>
-        </div>
+        </div>`
+          )
+          .join("")}
+        ${selectorIdsOnly ? '<div class="home-row" role="option">Дом Буинск, ул. Комарова, 87</div>' : ""}
       </div>
     </main>
   </body>
@@ -572,6 +661,12 @@ function addressbookLabel(point) {
     return `${point.name}, Астана, пр-кт Улы Дала, 31`;
   }
   return `${point.name}, Москва, ул. Тверская, 1`;
+}
+
+function visibleSelectorLabel(point) {
+  return point.externalLocationId === fakePoints.kz.externalLocationId
+    ? "Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31"
+    : "Пункт Ozon № 469-716 Буинск, ул. Вахитова, 174Б";
 }
 
 function safeDecodeURIComponent(value) {

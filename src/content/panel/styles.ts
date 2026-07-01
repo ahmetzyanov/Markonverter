@@ -154,6 +154,12 @@ export function panelCss(): string {
       color: var(--mk-muted);
       cursor: pointer;
     }
+    .settingsButton {
+      width: 32px;
+      padding: 0;
+      font-size: 17px;
+      line-height: 1;
+    }
     .collapsed .collapseButton {
       min-height: 28px;
       padding: 0 9px;
@@ -240,7 +246,8 @@ export function panelCss(): string {
     .pointManagerControls button,
     .deleteButton,
     .saveSmallButton,
-    .detailsButton {
+    .detailsButton,
+    .confirmButton {
       min-height: 28px;
       padding: 0 8px;
       border: 1px solid var(--mk-border-strong);
@@ -299,10 +306,48 @@ export function panelCss(): string {
       border-color: var(--mk-border-strong);
       color: var(--mk-muted);
     }
+    .confirmButton.danger {
+      border-color: var(--mk-danger);
+      background: var(--mk-danger);
+      color: #ffffff;
+      font-weight: 750;
+    }
     .saveSmallButton:disabled {
       border-color: var(--mk-border);
       color: var(--mk-quiet);
       cursor: default;
+    }
+    .panelConfirmation {
+      display: grid;
+      gap: 10px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--mk-border);
+      background: #151516;
+    }
+    .panelConfirmation.danger {
+      box-shadow: inset 3px 0 0 var(--mk-danger);
+    }
+    .panelConfirmationText {
+      min-width: 0;
+    }
+    .panelConfirmationText strong {
+      display: block;
+      color: var(--mk-text);
+      font-size: 12px;
+      font-weight: 730;
+    }
+    .panelConfirmationText span {
+      display: block;
+      margin-top: 3px;
+      color: var(--mk-muted);
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+    .panelConfirmationActions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
     }
     .pointManagerHint {
       margin: 0;
