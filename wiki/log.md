@@ -100,3 +100,6 @@ updates, and non-trivial implementation changes.
   makes destructive buttons look broken because `confirm()` auto-cancels.
 - Trimmed Ozon selector service text such as `Срок хранения заказа` from
   visible PVZ row names before saving or repairing pickup-point labels.
+- Made the Ozon product-page panel size to the price-card container it is
+  injected into, with compact row/header layout triggered by the container
+  width rather than only by the browser viewport.

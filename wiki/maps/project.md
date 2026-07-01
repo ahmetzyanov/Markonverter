@@ -61,6 +61,9 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
   endpoints. That old auto-price path can change the user's real selected PVZ
   and reload the Ozon product page. Manual `Capture current` is the supported
   price path for saved points without a product-specific manual quote.
+- The injected product-page panel is nested under Ozon's price widget and must
+  fit inside that price-card container. Prefer container-width CSS over widening
+  Ozon's own layout.
 - Safe automation is allowed only in the opposite direction: when Ozon already
   shows a selected delivery point and visible product price, Markonverter may
   auto-save that visible price for the single saved point whose name/id evidence

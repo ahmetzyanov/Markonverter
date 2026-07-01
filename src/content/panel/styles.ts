@@ -1,6 +1,11 @@
 export function panelCss(): string {
   return `
     :host {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      container-type: inline-size;
       color-scheme: dark;
       font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       letter-spacing: 0;
@@ -23,7 +28,9 @@ export function panelCss(): string {
       box-sizing: border-box;
     }
     .panel {
-      width: min(398px, calc(100vw - 24px));
+      width: 100%;
+      max-width: min(398px, calc(100vw - 24px));
+      min-width: 0;
       margin: 12px 0;
       border: 1px solid var(--mk-border);
       border-radius: 12px;
@@ -36,7 +43,7 @@ export function panelCss(): string {
       color: var(--mk-text);
     }
     .panel.collapsed {
-      width: min(246px, calc(100vw - 24px));
+      max-width: min(246px, calc(100vw - 24px));
       box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
     }
     .floating {
@@ -444,6 +451,41 @@ export function panelCss(): string {
       .panel {
         width: calc(100vw - 18px);
       }
+      .header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .headerTitle > span:last-child {
+        max-width: 100%;
+      }
+      .headerActions {
+        width: 100%;
+        justify-content: flex-start;
+      }
+      .pointManagerTop,
+      .detectedCandidatesTop {
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+      .pointManagerControls {
+        flex-wrap: wrap;
+      }
+      .pointChoice,
+      .detectedCandidate {
+        align-items: flex-start;
+      }
+      .row {
+        grid-template-columns: 1fr;
+      }
+      .value {
+        max-width: none;
+        text-align: left;
+      }
+      .failureActions {
+        justify-content: flex-start;
+      }
+    }
+    @container (max-width: 330px) {
       .header {
         align-items: flex-start;
         flex-direction: column;

@@ -292,6 +292,7 @@ async function openFakeProduct(page, label) {
     status: response?.status() ?? null
   };
   await page.locator("#markonverter-panel-root").waitFor({ state: "attached", timeout: timeoutMs });
+  await assertPanelFitsPriceCard(page, label);
 }
 
 async function assertNoPanel(page, label) {
@@ -331,6 +332,31 @@ async function panelText(page) {
   return page
     .locator("#markonverter-panel-root")
     .evaluate((host) => host.shadowRoot?.querySelector(".panel")?.textContent || "");
+}
+
+async function assertPanelFitsPriceCard(page, label) {
+  const metrics = await page.locator("#markonverter-panel-root").evaluate((host) => {
+    const panel = host.shadowRoot?.querySelector(".panel");
+    const card = host.closest(".price-card");
+    const hostRect = host.getBoundingClientRect();
+    const panelRect = panel?.getBoundingClientRect();
+    const cardRect = card?.getBoundingClientRect();
+    return {
+      hasPanel: Boolean(panel),
+      hasCard: Boolean(card),
+      host: { left: hostRect.left, right: hostRect.right, width: hostRect.width },
+      panel: panelRect ? { left: panelRect.left, right: panelRect.right, width: panelRect.width } : null,
+      card: cardRect ? { left: cardRect.left, right: cardRect.right, width: cardRect.width } : null
+    };
+  });
+
+  assert(metrics.hasPanel && metrics.panel, `${label} has no rendered Markonverter panel`);
+  assert(metrics.hasCard && metrics.card, `${label} panel was not nested in the fake price card`);
+  assert(metrics.host.width <= metrics.card.width + 0.5, `${label} panel host overflowed price card: ${JSON.stringify(metrics)}`);
+  assert(
+    metrics.panel.left >= metrics.card.left - 0.5 && metrics.panel.right <= metrics.card.right + 0.5,
+    `${label} panel overflowed price card: ${JSON.stringify(metrics)}`
+  );
 }
 
 async function clickPanelButton(page, label) {
@@ -617,7 +643,9 @@ function fakeProductHtml() {
     <style>
       body { margin: 0; padding: 32px; font-family: Arial, sans-serif; color: #111827; background: #f5f6f8; }
       main { max-width: 920px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; }
-      [data-widget="webPrice"] { width: 240px; min-height: 56px; margin: 16px 0; font-size: 32px; font-weight: 700; }
+      .product-layout { display: grid; grid-template-columns: minmax(0, 1fr) 288px; gap: 24px; align-items: start; }
+      .price-card { box-sizing: border-box; width: 288px; max-width: 100%; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
+      [data-widget="webPrice"] { width: 100%; min-height: 56px; margin: 0 0 16px; font-size: 32px; font-weight: 700; }
       [data-widget="webDelivery"] { width: 520px; min-height: 76px; margin: 16px 0; padding: 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
       .delivery-dialog { width: 520px; min-height: 260px; padding: 16px; border: 1px solid #d1d5db; border-radius: 12px; background: #fff; }
       .pvz-row { display: block; position: relative; width: 460px; min-height: 68px; margin-top: 10px; padding: 12px 120px 12px 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fafafa; }
@@ -629,27 +657,33 @@ function fakeProductHtml() {
   </head>
   <body>
     <main>
-      <h1>Fake Ozon Product</h1>
-      <div data-widget="webPrice"><span>100 000 ₸</span></div>
-      <div data-widget="webDelivery">
-        <strong>Доставка и возврат</strong>
-        <div>Пункт Ozon № 440-129 ${fakePoints.kz.name}, Астана, пр-кт Улы Дала, 31</div>
-        <div>Пункты выдачи Ozon · С 19 июля</div>
-        <button type="button">Редактировать</button>
-      </div>
-      <div class="delivery-dialog" data-widget="deliveryDialog" role="dialog" aria-label="Delivery selector">
-        <h2>Выберите пункт выдачи</h2>
-        ${Object.values(fakePoints)
-          .map(
-            (point) => `<div class="pvz-row" role="option" ${
-              selectorIdsOnly ? "" : `data-delivery-address-oid="${point.externalLocationId}"`
-            } title="${visibleSelectorLabel(point)}">
+      <div class="product-layout">
+        <section>
+          <h1>Fake Ozon Product</h1>
+          <div data-widget="webDelivery">
+            <strong>Доставка и возврат</strong>
+            <div>Пункт Ozon № 440-129 ${fakePoints.kz.name}, Астана, пр-кт Улы Дала, 31</div>
+            <div>Пункты выдачи Ozon · С 19 июля</div>
+            <button type="button">Редактировать</button>
+          </div>
+          <div class="delivery-dialog" data-widget="deliveryDialog" role="dialog" aria-label="Delivery selector">
+            <h2>Выберите пункт выдачи</h2>
+            ${Object.values(fakePoints)
+              .map(
+                (point) => `<div class="pvz-row" role="option" ${
+                  selectorIdsOnly ? "" : `data-delivery-address-oid="${point.externalLocationId}"`
+                } title="${visibleSelectorLabel(point)}">
           ${visibleSelectorLabel(point)} Срок хранения заказа - 14 дней
           <button type="button">Редактировать</button>
         </div>`
-          )
-          .join("")}
-        ${selectorIdsOnly ? '<div class="home-row" role="option">Дом Буинск, ул. Комарова, 87</div>' : ""}
+              )
+              .join("")}
+            ${selectorIdsOnly ? '<div class="home-row" role="option">Дом Буинск, ул. Комарова, 87</div>' : ""}
+          </div>
+        </section>
+        <aside class="price-card">
+          <div data-widget="webPrice"><span>100 000 ₸</span></div>
+        </aside>
       </div>
     </main>
   </body>
