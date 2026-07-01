@@ -1,8 +1,8 @@
-import { RuntimeRequest, RuntimeResponse } from "./shared/messages";
-import { CurrencyRateProvider, CurrencyRateRefreshResult, DEFAULT_SETTINGS, ExtensionSettings } from "./shared/types";
-import { applyCurrencyRateResult, fetchCurrencyRates, isCurrencyRateCacheFresh } from "./shared/exchange-rates";
-import { deletePickupPoint, setComparisonPickupPointIds, upsertManualQuote, upsertPickupPoint } from "./shared/settings";
-import { normalizeSettings } from "./shared/validation";
+import { RuntimeRequest, RuntimeResponse } from "../shared/messages";
+import { CurrencyRateProvider, CurrencyRateRefreshResult, DEFAULT_SETTINGS, ExtensionSettings } from "../shared/types";
+import { applyCurrencyRateResult, fetchCurrencyRates, isCurrencyRateCacheFresh } from "../shared/exchange-rates";
+import { deletePickupPoint, setComparisonPickupPointIds, upsertManualQuote, upsertPickupPoint } from "../shared/settings";
+import { normalizeSettings } from "../shared/validation";
 
 const SETTINGS_KEY = "markonverter.settings";
 let staleRateRefresh: Promise<ExtensionSettings> | null = null;

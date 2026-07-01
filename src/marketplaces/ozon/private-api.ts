@@ -1,10 +1,11 @@
-import { Currency, PriceQuote } from "../shared/types";
+import { Currency, PriceQuote } from "../../shared/types";
 
 export interface OzonPrivatePriceRequest {
   productId: string;
   productUrl: string;
   pickupExternalLocationId: string;
   currencyHint: Currency;
+  allowSessionMutatingLocationActivation?: boolean;
 }
 
 interface EndpointCandidate {
@@ -18,9 +19,14 @@ interface EndpointCandidate {
 export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): Promise<PriceQuote> {
   const productUrl = new URL(request.productUrl);
   const pathWithSearch = `${productUrl.pathname}${productUrl.search}`;
-  const activation = await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId);
+  const activation = request.allowSessionMutatingLocationActivation
+    ? await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId)
+    : { confirmed: false, aliases: [] };
   const acceptedLocationIds = normalizeLocationIds([request.pickupExternalLocationId, ...activation.aliases]);
-  const candidates = buildEndpointCandidates(pathWithSearch, acceptedLocationIds);
+  const candidates = buildEndpointCandidates(pathWithSearch, acceptedLocationIds, {
+    includeLocationCandidates: request.allowSessionMutatingLocationActivation === true,
+    includeSelectionCandidates: request.allowSessionMutatingLocationActivation === true
+  });
   const errors: string[] = [];
 
   for (const candidate of candidates) {
@@ -110,51 +116,78 @@ async function activateOzonPickupLocation(
 }
 
 export function buildLocationActivationCandidates(pathWithSearch: string, pickupExternalLocationId: string): EndpointCandidate[] {
-  const modalPath = `/modal/addressbook?select_address=${encodeURIComponent(pickupExternalLocationId)}`;
-  const encodedModalPath = encodeURIComponent(modalPath);
   const jsonHeaders = {
     "content-type": "application/json",
     "x-o3-app-name": "dweb_client",
     "x-o3-app-version": "release"
   };
 
+  return buildLocationActivationModalVariants(pathWithSearch, pickupExternalLocationId).flatMap(({ label, modalPath }) => {
+    const encodedModalPath = encodeURIComponent(modalPath);
+    return [
+      {
+        label: `entrypoint-${label}`,
+        method: "GET",
+        url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedModalPath}`,
+        headers: jsonHeaders
+      },
+      {
+        label: `composer-${label}`,
+        method: "GET",
+        url: `/api/composer-api.bx/page/json/v2?url=${encodedModalPath}`,
+        headers: jsonHeaders
+      },
+      {
+        label: `entrypoint-post-${label}`,
+        method: "POST",
+        url: "/api/entrypoint-api.bx/page/json/v2",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          url: modalPath,
+          referer: pathWithSearch
+        })
+      },
+      {
+        label: `composer-post-${label}`,
+        method: "POST",
+        url: "/api/composer-api.bx/page/json/v2",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          url: modalPath,
+          referer: pathWithSearch
+        })
+      }
+    ] satisfies EndpointCandidate[];
+  });
+}
+
+function buildLocationActivationModalVariants(
+  pathWithSearch: string,
+  pickupExternalLocationId: string
+): Array<{ label: string; modalPath: string }> {
+  const encodedLocation = encodeURIComponent(pickupExternalLocationId);
+  const encodedProductPath = encodeURIComponent(pathWithSearch);
   return [
     {
-      label: "entrypoint-select-address-modal",
-      method: "GET",
-      url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedModalPath}`,
-      headers: jsonHeaders
+      label: "select-address-product-context",
+      modalPath: `/modal/addressbook?select_address=${encodedLocation}&src_main=${encodedProductPath}&page_changed=true`
     },
     {
-      label: "composer-select-address-modal",
-      method: "GET",
-      url: `/api/composer-api.bx/page/json/v2?url=${encodedModalPath}`,
-      headers: jsonHeaders
+      label: "select-address-page-changed",
+      modalPath: `/modal/addressbook?select_address=${encodedLocation}&page_changed=true`
     },
     {
-      label: "entrypoint-post-select-address-modal",
-      method: "POST",
-      url: "/api/entrypoint-api.bx/page/json/v2",
-      headers: jsonHeaders,
-      body: JSON.stringify({
-        url: modalPath,
-        referer: pathWithSearch
-      })
-    },
-    {
-      label: "composer-post-select-address-modal",
-      method: "POST",
-      url: "/api/composer-api.bx/page/json/v2",
-      headers: jsonHeaders,
-      body: JSON.stringify({
-        url: modalPath,
-        referer: pathWithSearch
-      })
+      label: "select-address-legacy",
+      modalPath: `/modal/addressbook?select_address=${encodedLocation}`
     }
   ];
 }
 
-export function buildEndpointCandidates(pathWithSearch: string, pickupExternalLocationIds: string | string[]): EndpointCandidate[] {
+export function buildEndpointCandidates(
+  pathWithSearch: string,
+  pickupExternalLocationIds: string | string[],
+  options: { includeLocationCandidates?: boolean; includeSelectionCandidates?: boolean } = {}
+): EndpointCandidate[] {
   const encodedUrl = encodeURIComponent(pathWithSearch);
   const locationIds = normalizeLocationIds(pickupExternalLocationIds);
   const jsonHeaders = {
@@ -176,66 +209,71 @@ export function buildEndpointCandidates(pathWithSearch: string, pickupExternalLo
       url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}`,
       headers: jsonHeaders
     },
-    ...locationIds.flatMap((pickupExternalLocationId) => {
-      const encodedLocation = encodeURIComponent(pickupExternalLocationId);
-      return [
-        {
-          label: "composer-get-delivery-address",
-          method: "GET",
-          url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
-          headers: jsonHeaders
-        },
-        {
-          label: "entrypoint-get-delivery-address",
-          method: "GET",
-          url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
-          headers: jsonHeaders
-        },
-        {
-          label: "composer-get-selected-location",
-          method: "GET",
-          url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
-          headers: jsonHeaders
-        },
-        {
-          label: "entrypoint-get-selected-location",
-          method: "GET",
-          url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
-          headers: jsonHeaders
-        },
-        {
-          label: "composer-post-delivery-address",
-          method: "POST",
-          url: "/api/composer-api.bx/page/json/v2",
-          headers: jsonHeaders,
-          body: JSON.stringify({
-            url: pathWithSearch,
-            deliveryAddressOid: pickupExternalLocationId
-          })
-        },
-        {
-          label: "composer-post-selected-location",
-          method: "POST",
-          url: "/api/composer-api.bx/page/json/v2",
-          headers: jsonHeaders,
-          body: JSON.stringify({
-            url: pathWithSearch,
-            select_location: pickupExternalLocationId
-          })
-        },
-        {
-          label: "composer-post-location-both",
-          method: "POST",
-          url: "/api/composer-api.bx/page/json/v2",
-          headers: jsonHeaders,
-          body: JSON.stringify({
-            url: pathWithSearch,
-            deliveryAddressOid: pickupExternalLocationId,
-            select_location: pickupExternalLocationId
-          })
-        }
-      ] satisfies EndpointCandidate[];
-    })
+    ...(options.includeLocationCandidates
+      ? locationIds.flatMap((pickupExternalLocationId) => {
+          const encodedLocation = encodeURIComponent(pickupExternalLocationId);
+          const deliveryCandidates = [
+            {
+              label: "composer-get-delivery-address",
+              method: "GET",
+              url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
+              headers: jsonHeaders
+            },
+            {
+              label: "entrypoint-get-delivery-address",
+              method: "GET",
+              url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&deliveryAddressOid=${encodedLocation}`,
+              headers: jsonHeaders
+            },
+            {
+              label: "composer-post-delivery-address",
+              method: "POST",
+              url: "/api/composer-api.bx/page/json/v2",
+              headers: jsonHeaders,
+              body: JSON.stringify({
+                url: pathWithSearch,
+                deliveryAddressOid: pickupExternalLocationId
+              })
+            }
+          ] satisfies EndpointCandidate[];
+          const selectionCandidates = [
+            {
+              label: "composer-get-selected-location",
+              method: "GET",
+              url: `/api/composer-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
+              headers: jsonHeaders
+            },
+            {
+              label: "entrypoint-get-selected-location",
+              method: "GET",
+              url: `/api/entrypoint-api.bx/page/json/v2?url=${encodedUrl}&select_location=${encodedLocation}`,
+              headers: jsonHeaders
+            },
+            {
+              label: "composer-post-selected-location",
+              method: "POST",
+              url: "/api/composer-api.bx/page/json/v2",
+              headers: jsonHeaders,
+              body: JSON.stringify({
+                url: pathWithSearch,
+                select_location: pickupExternalLocationId
+              })
+            },
+            {
+              label: "composer-post-location-both",
+              method: "POST",
+              url: "/api/composer-api.bx/page/json/v2",
+              headers: jsonHeaders,
+              body: JSON.stringify({
+                url: pathWithSearch,
+                deliveryAddressOid: pickupExternalLocationId,
+                select_location: pickupExternalLocationId
+              })
+            }
+          ] satisfies EndpointCandidate[];
+          return options.includeSelectionCandidates ? [...deliveryCandidates, ...selectionCandidates] : deliveryCandidates;
+        })
+      : [])
   ];
 }
 
@@ -400,7 +438,12 @@ export function extractOzonPrice(json: unknown, currencyHint: Currency): PriceQu
       joined.includes("installment") ||
       joined.includes("bonus") ||
       joined.includes("points");
-    if (!looksProductScoped || looksWrongKind || (!key.includes("price") && typeof value !== "string")) {
+    if (
+      !looksProductScoped ||
+      looksWrongKind ||
+      looksPresentationPriceMetadata(joined, key) ||
+      (!key.includes("price") && typeof value !== "string")
+    ) {
       return;
     }
 
@@ -543,6 +586,16 @@ function dedupeCandidates<T extends PriceQuote & { score: number; path: string }
   return [...byKey.values()];
 }
 
+function looksPresentationPriceMetadata(path: string, key: string): boolean {
+  if (/(^|\.)pricebadge(\.|$)/i.test(path)) {
+    return true;
+  }
+  if (/(^|\.)(size|style|styletype|textstyle|font|typography|color|iconkey|iconcolor|theme|preset|trackinginfo)(\.|$)/i.test(path)) {
+    return true;
+  }
+  return /(^|\.)(padding|margin|radius|width|height|layout|params)(\.|$)/i.test(path) && key !== "price";
+}
+
 function walk(value: unknown, path: string[], visitor: (path: string[], value: unknown) => void): void {
   visitor(path, value);
   if (!value || typeof value !== "object") {
@@ -626,12 +679,17 @@ function parsePrice(value: unknown, currencyHint: Currency): PriceQuote | null {
     return null;
   }
 
-  const currency = value.includes("₽") || /руб/i.test(value) ? "RUB" : value.includes("₸") || /тг|тенге/i.test(value) ? "KZT" : currencyHint;
-  if (!/\d[\d\s.,]{1,}/.test(value)) {
+  const text = value.trim();
+  if (/^[a-z]+(?:_[a-z]+)*_\d+$/i.test(text)) {
     return null;
   }
 
-  const normalized = value
+  const currency = text.includes("₽") || /руб|rub/i.test(text) ? "RUB" : text.includes("₸") || /тг|тенге|kzt/i.test(text) ? "KZT" : currencyHint;
+  if (!/\d[\d\s.,]{1,}/.test(text)) {
+    return null;
+  }
+
+  const normalized = text
     .replace(/[^\d,.\s]/g, "")
     .replace(/\s+/g, "")
     .replace(",", ".");

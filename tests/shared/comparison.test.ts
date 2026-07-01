@@ -1,5 +1,5 @@
-import { buildComparisonRows, makeSuccessResult } from "../src/shared/comparison";
-import { DEFAULT_SETTINGS, PickupPoint } from "../src/shared/types";
+import { buildComparisonRows, makeSuccessResult } from "../../src/shared/comparison";
+import { DEFAULT_SETTINGS, PickupPoint } from "../../src/shared/types";
 
 const pickupPoints: PickupPoint[] = [
   { id: "ru", name: "Moscow", marketplace: "ozon", country: "RU", currency: "RUB", externalLocationId: "ru-1" },

@@ -15,31 +15,32 @@ await mkdir("dist", { recursive: true });
 await Promise.all([
   build({
     ...shared,
-    entryPoints: ["src/background.ts"],
+    entryPoints: ["src/entrypoints/background.ts"],
     outfile: "dist/background.js",
     format: "esm"
   }),
   build({
     ...shared,
-    entryPoints: ["src/content.ts"],
+    entryPoints: ["src/entrypoints/content.ts"],
     outfile: "dist/content.js",
     format: "iife"
   }),
   build({
     ...shared,
-    entryPoints: ["src/ozon-page-probe.ts"],
+    entryPoints: ["src/entrypoints/ozon-page-probe.ts"],
     outfile: "dist/ozon-page-probe.js",
     format: "iife"
   }),
   build({
     ...shared,
-    entryPoints: ["src/options.ts"],
+    entryPoints: ["src/entrypoints/options.ts"],
     outfile: "dist/options.js",
     format: "iife"
   })
 ]);
 
 await Promise.all([
+  cp("src/assets", "dist/assets", { recursive: true }),
   cp("src/manifest.json", "dist/manifest.json"),
-  cp("src/options.html", "dist/options.html")
+  cp("src/entrypoints/options.html", "dist/options.html")
 ]);

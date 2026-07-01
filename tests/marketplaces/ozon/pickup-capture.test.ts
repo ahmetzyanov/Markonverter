@@ -1,8 +1,9 @@
 import {
   extractOzonPickupCandidatesFromSources,
+  safeOzonPickupName,
   shouldReplaceOzonPickupCandidate,
   shouldUseOzonPickupName
-} from "../src/marketplaces/ozon-pickup-capture";
+} from "../../../src/marketplaces/ozon/pickup-capture";
 
 describe("Ozon pickup capture", () => {
   it("extracts selected delivery address candidates from Ozon-shaped state", () => {
@@ -39,6 +40,17 @@ describe("Ozon pickup capture", () => {
             title: "Phone"
           }
         }
+      }
+    ]);
+
+    expect(candidates).toHaveLength(0);
+  });
+
+  it("does not treat null-like JSON values as pickup point ids", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "network.delivery",
+        value: '{"deliveryAddressOid":null,"selectedAddressOid":"undefined","address":"Пункт Ozon № 440-129"}'
       }
     ]);
 
@@ -142,6 +154,25 @@ describe("Ozon pickup capture", () => {
     });
   });
 
+  it("uses current delivery widget text when the same widget exposes a select_address href", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "content.current-delivery",
+        urlHint: "https://www.ozon.kz/product/example",
+        textHint: "Доставка и возврат Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31 Пункты выдачи Ozon С 19 июля",
+        value: {
+          name: "Доставка и возврат Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31 Пункты выдачи Ozon С 19 июля",
+          href: "/modal/addressbook?select_address=893d1947-0550-477e-866f-3b936d116e35"
+        }
+      }
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      externalLocationId: "893d1947-0550-477e-866f-3b936d116e35",
+      name: "Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31"
+    });
+  });
+
   it("does not use Ozon modal service metadata as a pickup point name", () => {
     const id = "528a5580-56f9-4e82-80cc-e801b5dbf252";
     const candidates = extractOzonPickupCandidatesFromSources([
@@ -160,8 +191,26 @@ describe("Ozon pickup capture", () => {
     expect(candidate?.name).not.toMatch(/layoutId|layoutVersion|pageType|ruleId|referer|url":"|composer-post-addressbook/i);
   });
 
-  it("does not use Ozon button text as a pickup point name", () => {
+  it("does not use the current delivery text as the name for an echoed selected address id", () => {
+    const id = "528a5580-56f9-4e82-80cc-e801b5dbf252";
     const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: `network.https://www.ozon.kz/api/entrypoint-api.bx/page/json/v2?url=%2Fmodal%2Faddressbook%3Fselect_address%3D${id}`,
+        urlHint: "https://www.ozon.kz/product/example",
+        textHint: "Пункт Ozon № 440-129 Астана, пр-кт Улы Дала, 31",
+        value: `{"items":[{"action":{"url":"/modal/addressbook?select_address=${id}"},"url":" ","layoutId":39077,"layoutVersion":31,"pageType":"modal","ruleId":37945,"referer":"/product/example"}]}`
+      }
+    ]);
+
+    const candidate = candidates.find((item) => item.externalLocationId === id);
+    expect(candidate).toMatchObject({
+      externalLocationId: id,
+      name: `Ozon pickup ${id}`
+    });
+  });
+
+  it("does not use Ozon button text as a pickup point name", () => {
+    const deleteCandidates = extractOzonPickupCandidatesFromSources([
       {
         source: "dom.ozon-delivery-row",
         urlHint: "https://www.ozon.ru/product/example",
@@ -174,9 +223,26 @@ describe("Ozon pickup capture", () => {
       }
     ]);
 
-    expect(candidates[0]).toMatchObject({
+    expect(deleteCandidates[0]).toMatchObject({
       externalLocationId: "ru-delete-button-123",
       name: "Ozon pickup ru-delete-button-123"
+    });
+
+    const editCandidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "api.composer-addressbook-json",
+        urlHint: "https://www.ozon.ru/product/example",
+        value: {
+          deliveryAddressOid: "ru-edit-button-123",
+          title: "Редактировать",
+          address: "Редактировать"
+        }
+      }
+    ]);
+
+    expect(editCandidates[0]).toMatchObject({
+      externalLocationId: "ru-edit-button-123",
+      name: "Ozon pickup ru-edit-button-123"
     });
   });
 
@@ -263,9 +329,11 @@ describe("Ozon pickup capture", () => {
       )
     ).toBe(true);
     expect(shouldUseOzonPickupName("Удалить", `Ozon pickup ${id}`, id)).toBe(true);
+    expect(shouldUseOzonPickupName("Редактировать", `Ozon pickup ${id}`, id)).toBe(true);
     expect(shouldUseOzonPickupName("Пункт Ozon •", "Астана, пр-кт Улы Дала, 31", id)).toBe(true);
     expect(shouldUseOzonPickupName("Пункт Ozon •", `Ozon pickup ${id}`, id)).toBe(true);
     expect(shouldUseOzonPickupName(`Ozon pickup ${id}`, "Пункт Ozon •", id)).toBe(false);
+    expect(safeOzonPickupName("Редактировать", id)).toBe(`Ozon pickup ${id}`);
   });
 
   it("does not replace a usable pickup name with service metadata or button text", () => {
@@ -289,6 +357,13 @@ describe("Ozon pickup capture", () => {
       shouldReplaceOzonPickupCandidate(existing, {
         ...existing,
         name: "Удалить",
+        score: 100
+      })
+    ).toBe(false);
+    expect(
+      shouldReplaceOzonPickupCandidate(existing, {
+        ...existing,
+        name: "Редактировать",
         score: 100
       })
     ).toBe(false);

@@ -4,7 +4,7 @@ import {
   extractOzonDeliveryText,
   extractOzonPrice,
   responseContainsLocation
-} from "../src/marketplaces/ozon-private-api";
+} from "../../../src/marketplaces/ozon/private-api";
 
 import { afterEach, vi } from "vitest";
 
@@ -65,6 +65,66 @@ describe("Ozon private API parsing", () => {
     };
 
     expect(extractOzonPrice(json, "RUB")).toBeNull();
+  });
+
+  it("does not treat captured delivery-badge size metadata as a product price", () => {
+    const capturedWebDeliveryWidget = {
+      state: {
+        title: "Доставка и возврат",
+        sections: [
+          {
+            type: "addressSelect",
+            descriptionRs: [
+              {
+                type: "text",
+                content: "ул. Вахитова, 174б",
+                font: "tsCompact400Small",
+                color: "textPrimary"
+              },
+              {
+                type: "newLine"
+              },
+              {
+                type: "text",
+                content: "Со склада продавца, Fujian Sheng",
+                font: "tsBody300XSmall",
+                color: "textSecondary"
+              }
+            ],
+            link: "/modal/addressbook?src_main=/product/4128227034/"
+          },
+          {
+            type: "separator"
+          },
+          {
+            descriptionRs: [
+              {
+                type: "text",
+                content: "Пункты выдачи Ozon",
+                font: "tsCompact400Small",
+                color: "textPrimary"
+              },
+              {
+                type: "newLine"
+              },
+              {
+                type: "text",
+                content: "С 19 июля",
+                font: "tsBody300XSmall",
+                color: "textSecondary"
+              }
+            ],
+            priceBadge: {
+              text: "Без доплат",
+              size: "SIZE_400",
+              styleType: "NEUTRAL_PRIMARY"
+            }
+          }
+        ]
+      }
+    };
+
+    expect(extractOzonPrice(capturedWebDeliveryWidget, "RUB")).toBeNull();
   });
 
   it("extracts a compact delivery summary when Ozon exposes one", () => {
@@ -158,7 +218,52 @@ describe("Ozon private API parsing", () => {
     });
   });
 
-  it("tries to activate the saved pickup point before reading product price", async () => {
+  it("does not call session-mutating address selection endpoints by default", async () => {
+    const calls: Array<{ url: string; body?: string }> = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, body: typeof init?.body === "string" ? init.body : undefined });
+        return new Response(
+          JSON.stringify({
+            delivery: {
+              selectedAddressOid: "ru-123",
+              deliveryTime: "Today"
+            },
+            widgetStates: {
+              webPrice: JSON.stringify({
+                price: "1 200 ₽"
+              })
+            }
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        );
+      })
+    );
+
+    await expect(
+      fetchOzonPrivatePrice({
+        productId: "2229282395",
+        productUrl: "https://ozon.kz/product/fake-product-2229282395/",
+        pickupExternalLocationId: "ru-123",
+        currencyHint: "RUB"
+      })
+    ).resolves.toEqual({
+      amount: 1200,
+      currency: "RUB",
+      rawText: "1 200 ₽",
+      deliveryText: "Today"
+    });
+    expect(calls.some((call) => /deliveryAddressOid|select_address|select_location|\/modal\/addressbook/i.test(`${call.url} ${call.body || ""}`))).toBe(false);
+  });
+
+  it("can activate the saved pickup point before reading product price when explicitly allowed", async () => {
     const calls: Array<{ url: string; body?: string }> = [];
     let activated = false;
 
@@ -211,7 +316,8 @@ describe("Ozon private API parsing", () => {
         productId: "2229282395",
         productUrl: "https://ozon.kz/product/fake-product-2229282395/",
         pickupExternalLocationId: "ru-123",
-        currencyHint: "RUB"
+        currencyHint: "RUB",
+        allowSessionMutatingLocationActivation: true
       })
     ).resolves.toEqual({
       amount: 1200,
@@ -280,7 +386,8 @@ describe("Ozon private API parsing", () => {
         productId: "2229282395",
         productUrl: "https://ozon.kz/product/fake-product-2229282395/",
         pickupExternalLocationId: "ru-123",
-        currencyHint: "RUB"
+        currencyHint: "RUB",
+        allowSessionMutatingLocationActivation: true
       })
     ).resolves.toEqual({
       amount: 1200,
@@ -341,7 +448,8 @@ describe("Ozon private API parsing", () => {
         productId: "2229282395",
         productUrl: "https://ozon.kz/product/fake-product-2229282395/",
         pickupExternalLocationId: "ru-123",
-        currencyHint: "RUB"
+        currencyHint: "RUB",
+        allowSessionMutatingLocationActivation: true
       })
     ).rejects.toThrow("response did not confirm requested pickup point");
   });
@@ -390,7 +498,8 @@ describe("Ozon private API parsing", () => {
         productId: "2229282395",
         productUrl: "https://ozon.kz/product/fake-product-2229282395/",
         pickupExternalLocationId: "ru-123",
-        currencyHint: "RUB"
+        currencyHint: "RUB",
+        allowSessionMutatingLocationActivation: true
       })
     ).resolves.toEqual({
       amount: 1200,
@@ -451,7 +560,8 @@ describe("Ozon private API parsing", () => {
         productId: "2229282395",
         productUrl: "https://ozon.kz/product/fake-product-2229282395/",
         pickupExternalLocationId: "ru-123",
-        currencyHint: "RUB"
+        currencyHint: "RUB",
+        allowSessionMutatingLocationActivation: true
       })
     ).rejects.toThrow("response did not confirm requested pickup point");
   });
@@ -503,22 +613,28 @@ describe("Ozon private API parsing", () => {
         productId: "2229282395",
         productUrl: "https://ozon.kz/product/fake-product-2229282395/",
         pickupExternalLocationId: "ru-123",
-        currencyHint: "RUB"
+        currencyHint: "RUB",
+        allowSessionMutatingLocationActivation: true
       })
     ).rejects.toThrow("confirmed a different pickup point");
   });
 
-  it("builds Ozon pickup activation requests with the product path as referer", () => {
-    const candidates = buildLocationActivationCandidates("/product/fake-product-2229282395/", "ru-123");
+  it("builds product-scoped Ozon pickup activation requests before legacy fallbacks", () => {
+    const productPath = "/product/fake-product-2229282395/?at=token&sh=share";
+    const candidates = buildLocationActivationCandidates(productPath, "ru-123");
+    const productContextModalPath =
+      "/modal/addressbook?select_address=ru-123&src_main=%2Fproduct%2Ffake-product-2229282395%2F%3Fat%3Dtoken%26sh%3Dshare&page_changed=true";
+    const firstUrl = new URL(candidates[0].url, "https://www.ozon.ru");
 
     expect(candidates[0]).toMatchObject({
-      label: "entrypoint-select-address-modal",
-      method: "GET",
-      url: "/api/entrypoint-api.bx/page/json/v2?url=%2Fmodal%2Faddressbook%3Fselect_address%3Dru-123"
+      label: "entrypoint-select-address-product-context",
+      method: "GET"
     });
+    expect(firstUrl.searchParams.get("url")).toBe(productContextModalPath);
     expect(JSON.parse(candidates[2].body || "{}")).toEqual({
-      url: "/modal/addressbook?select_address=ru-123",
-      referer: "/product/fake-product-2229282395/"
+      url: productContextModalPath,
+      referer: productPath
     });
+    expect(candidates.some((candidate) => candidate.label === "entrypoint-select-address-legacy")).toBe(true);
   });
 });

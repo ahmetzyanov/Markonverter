@@ -325,7 +325,7 @@ function upsertManualQuote(settings, manualQuote) {
   });
 }
 
-// src/background.ts
+// src/entrypoints/background.ts
 var SETTINGS_KEY = "markonverter.settings";
 var staleRateRefresh = null;
 chrome.runtime.onInstalled.addListener(() => {

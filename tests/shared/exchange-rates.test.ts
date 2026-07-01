@@ -3,8 +3,8 @@ import {
   currencyRateProviderFallbackOrder,
   fetchCurrencyRates,
   isCurrencyRateCacheFresh
-} from "../src/shared/exchange-rates";
-import { DEFAULT_SETTINGS } from "../src/shared/types";
+} from "../../src/shared/exchange-rates";
+import { DEFAULT_SETTINGS } from "../../src/shared/types";
 
 describe("exchange rate providers", () => {
   it("reads KZT to RUB directly from CBR VunitRate", async () => {

@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "qa:ozon": "npm run build && node scripts/qa-fake-ozon.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.314",
     "esbuild": "^0.25.5",
+    "playwright": "^1.61.1",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }

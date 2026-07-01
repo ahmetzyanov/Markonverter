@@ -1,4 +1,4 @@
-import { MarketplaceAdapter } from "./types";
+import { MarketplaceAdapter } from "../types";
 
 export const wildberriesPlaceholder: MarketplaceAdapter = {
   id: "wildberries",

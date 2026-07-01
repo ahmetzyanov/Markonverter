@@ -1,5 +1,5 @@
-import { MarketplaceAdapter, MarketplaceAdapterContext } from "./types";
-import { ExtensionSettings, PickupPoint, PriceQuote, ProductIdentity } from "../shared/types";
+import { MarketplaceAdapter, MarketplaceAdapterContext } from "../types";
+import { ExtensionSettings, PickupPoint, PriceQuote, ProductIdentity } from "../../shared/types";
 
 const OZON_PRODUCT_RE = /\/product\/(?:[^/?#]+-)?(\d+)(?:[/?#]|$)/;
 

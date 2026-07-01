@@ -6,6 +6,7 @@ export interface MarketplaceAdapterContext {
     productUrl: string;
     pickupExternalLocationId: string;
     currencyHint: "RUB" | "KZT";
+    allowSessionMutatingLocationActivation?: boolean;
   }) => Promise<PriceQuote>;
 }
 

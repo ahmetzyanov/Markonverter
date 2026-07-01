@@ -1,4 +1,4 @@
-import { createMarketplaceAdapter, MARKETPLACES } from "../src/marketplaces/registry";
+import { createMarketplaceAdapter, MARKETPLACES } from "../../src/marketplaces/registry";
 
 describe("marketplace registry", () => {
   it("contains supported Ozon and future Wildberries placeholder", () => {

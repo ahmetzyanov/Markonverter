@@ -12,8 +12,11 @@ survive across agent sessions.
 ## Current Project Shape
 
 - Chrome/Chromium Manifest V3 extension.
-- Source code: `src/`
-- Tests: `tests/`
+- Extension entrypoints: `src/entrypoints/`
+- Content-page behavior: `src/content/`
+- Marketplace adapters and integrations: `src/marketplaces/`
+- Shared domain helpers: `src/shared/`
+- Tests mirror source areas under `tests/`
 - Loadable extension build: `dist/`
 - Design system: `DESIGN.md`
 

@@ -1,0 +1,1 @@
+export { wildberriesPlaceholder } from "./adapter";

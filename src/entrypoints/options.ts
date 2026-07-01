@@ -1,4 +1,4 @@
-import { RuntimeRequest, RuntimeResponse } from "./shared/messages";
+import { RuntimeRequest, RuntimeResponse } from "../shared/messages";
 import {
   CurrencyRateProvider,
   ExtensionSettings,
@@ -6,8 +6,8 @@ import {
   PickupPoint,
   SUPPORTED_CURRENCIES,
   SUPPORTED_CURRENCY_RATE_PROVIDERS
-} from "./shared/types";
-import { normalizeSettings, validatePickupPoint } from "./shared/validation";
+} from "../shared/types";
+import { normalizeSettings, validatePickupPoint } from "../shared/validation";
 
 const RATE_PROVIDER_LABELS: Record<CurrencyRateProvider, string> = {
   manual: "Manual",

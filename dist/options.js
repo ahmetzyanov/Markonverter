@@ -137,7 +137,7 @@
     };
   }
 
-  // src/options.ts
+  // src/entrypoints/options.ts
   var RATE_PROVIDER_LABELS = {
     manual: "Manual",
     cbr: "CBR",

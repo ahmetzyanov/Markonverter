@@ -1,6 +1,6 @@
 "use strict";
 (() => {
-  // src/marketplaces/ozon-pickup-capture.ts
+  // src/marketplaces/ozon/pickup-capture.ts
   var STRONG_ID_KEYS = /* @__PURE__ */ new Set([
     "deliveryAddressOid",
     "deliveryAddressId",
@@ -22,17 +22,22 @@
   var SERVICE_LABEL_RE = /(?:^|[\s,{])\\?["']?(?:url|href|action|layoutId|layoutVersion|pageType|ruleId|referer|referrer|widgetStates?|analytics|tracking|component|state|params?|query)\\?["']?\s*[:=]/i;
   var TECHNICAL_LABEL_RE = /^(?:api|network|content)\.[a-z0-9._/?=&%-]+$/i;
   var TECHNICAL_ENDPOINT_LABEL_RE = /\b(?:composer|entrypoint)(?:-[a-z0-9]+)*-(?:addressbook|delivery|geo)\b/i;
-  var UI_ACTION_LABEL_RE = /^(?:удалить|delete|remove|add|save|saved|edit|options|hide|open|refresh pvz|show in panel)$/i;
+  var UI_ACTION_LABEL_RE = /^(?:удалить|редактировать|изменить|delete|remove|add|save|saved|edit|options|hide|open|refresh pvz|show in panel)$/i;
   var BARE_OZON_POINT_LABEL_RE = /^пункт\s+ozon(?:\s*[•·|,;:.-]+)?$/i;
   var KZ_RE = /(kazakhstan|казахстан|kz\b|алматы|астана|караганда|шымкент|атырау|актобе|павлодар|усть-каменогорск)/i;
   var RU_RE = /(russia|россия|ru\b|москва|санкт-петербург|екатеринбург|казань|новосибирск|краснодар)/i;
   function extractOzonPickupCandidatesFromSources(sources) {
     const candidates = [];
     for (const source of sources) {
-      const sourceText = `${source.source} ${source.urlHint || ""} ${source.textHint || ""}`;
-      collectFromUnknown(parseMaybeJson(source.value), source.source, sourceText, candidates);
+      const labelText = `${source.source} ${source.urlHint || ""}`;
+      const context = {
+        relevanceText: `${labelText} ${source.textHint || ""}`,
+        labelText,
+        sameDomLabelText: `${labelText} ${source.textHint || ""}`
+      };
+      collectFromUnknown(parseMaybeJson(source.value), source.source, context, candidates);
       if (typeof source.value === "string") {
-        collectFromText(source.value, source.source, sourceText, candidates);
+        collectFromText(source.value, source.source, context, candidates);
       }
     }
     return dedupeCandidates(candidates).sort((a, b) => b.score - a.score);
@@ -77,22 +82,22 @@
     }
     return candidate.score === existing.score && candidateLabelScore >= existingLabelScore && candidate.name.length > existing.name.length;
   }
-  function collectFromUnknown(value, source, sourceText, candidates, path = [], depth = 0) {
+  function collectFromUnknown(value, source, context, candidates, path = [], depth = 0) {
     if (depth > 8 || value == null) {
       return;
     }
     if (typeof value === "string") {
       const parsed = parseMaybeJson(value);
       if (parsed !== value) {
-        collectFromUnknown(parsed, source, sourceText, candidates, path, depth + 1);
+        collectFromUnknown(parsed, source, context, candidates, path, depth + 1);
       } else {
-        collectFromText(value, source, sourceText, candidates);
+        collectFromText(value, source, context, candidates);
       }
       return;
     }
     if (Array.isArray(value)) {
       value.slice(0, 150).forEach((item, index) => {
-        collectFromUnknown(item, source, sourceText, candidates, [...path, String(index)], depth + 1);
+        collectFromUnknown(item, source, context, candidates, [...path, String(index)], depth + 1);
       });
       return;
     }
@@ -100,18 +105,18 @@
       return;
     }
     const object = value;
-    collectFromObject(object, source, sourceText, path, candidates);
+    collectFromObject(object, source, context, path, candidates);
     for (const [key, child] of Object.entries(object).slice(0, 250)) {
-      collectFromUnknown(child, source, sourceText, candidates, [...path, key], depth + 1);
+      collectFromUnknown(child, source, context, candidates, [...path, key], depth + 1);
     }
   }
-  function collectFromObject(object, source, sourceText, path, candidates) {
+  function collectFromObject(object, source, context, path, candidates) {
     const keys = Object.keys(object);
     const pathText = [...path, ...keys].join(".");
-    const relevantObject = RELEVANCE_RE.test(pathText) || RELEVANCE_RE.test(sourceText);
+    const relevantObject = RELEVANCE_RE.test(pathText) || RELEVANCE_RE.test(context.relevanceText);
     const objectText = objectStrings(object).join(" ");
-    const name = extractName(object, sourceText);
-    const country = inferCountry(`${sourceText} ${objectText}`);
+    const name = extractName(object, context.labelText);
+    const country = inferCountry(`${context.relevanceText} ${objectText}`);
     const currency = country === "KZ" ? "KZT" : "RUB";
     for (const [key, rawValue] of Object.entries(object)) {
       const id = normalizeId(rawValue);
@@ -122,7 +127,7 @@
       if (keyScore === 0 || keyScore < 35 && !relevantObject) {
         continue;
       }
-      const bestName = name || extractNameNearId(sourceText, id, sourceText.indexOf(id));
+      const bestName = name || extractNameNearId(context.labelText, id, context.labelText.indexOf(id));
       candidates.push({
         externalLocationId: id,
         name: bestName || `Ozon pickup ${id}`,
@@ -134,8 +139,8 @@
       });
     }
   }
-  function collectFromText(text, source, sourceText, candidates) {
-    if (!RELEVANCE_RE.test(`${source} ${sourceText} ${text.slice(0, 2e3)}`)) {
+  function collectFromText(text, source, context, candidates) {
+    if (!RELEVANCE_RE.test(`${source} ${context.relevanceText} ${text.slice(0, 2e3)}`)) {
       return;
     }
     const patterns = [
@@ -150,8 +155,8 @@
         if (!id) {
           continue;
         }
-        const country = inferCountry(`${sourceText} ${text.slice(Math.max(0, match.index - 200), match.index + 300)}`);
-        const name = extractNameNearId(text, id, match.index) || extractNameNearId(sourceText, id, sourceText.indexOf(id));
+        const country = inferCountry(`${context.relevanceText} ${text.slice(Math.max(0, match.index - 200), match.index + 300)}`);
+        const name = extractNameNearId(text, id, match.index) || extractNameNearId(context.labelText, id, context.labelText.indexOf(id)) || extractSameDomSourceLabel(source, context.sameDomLabelText, id);
         candidates.push({
           externalLocationId: id,
           name: name || `Ozon pickup ${id}`,
@@ -163,6 +168,9 @@
         });
       }
     }
+  }
+  function extractSameDomSourceLabel(source, sourceText, externalLocationId) {
+    return /^(?:content\.current-delivery|dom\.ozon-delivery-row)$/i.test(source) ? extractUsefulLabel(sourceText, externalLocationId) : "";
   }
   function scoreIdKey(key) {
     if (STRONG_ID_KEYS.has(key)) {
@@ -197,18 +205,20 @@
     ];
     for (const key of exactKeys) {
       const value = stringValue(object[key]);
-      if (value && isUsefulLabel(value)) {
-        return compact(value);
+      const label = value ? extractUsefulLabel(value, "") : "";
+      if (label) {
+        return label;
       }
     }
     for (const [key, rawValue] of Object.entries(object)) {
       const value = stringValue(rawValue);
-      if (value && /(address|name|title|city|street|пвз|пункт)/i.test(key) && isUsefulLabel(value)) {
-        return compact(value);
+      const label = value ? extractUsefulLabel(value, "") : "";
+      if (label && /(address|name|title|city|street|пвз|пункт)/i.test(key)) {
+        return label;
       }
     }
     const sourceLabel = sourceText.match(/(?:пункт выдачи|пвз|pickup point|адрес)[:\s-]+([^|]{8,120})/i)?.[1];
-    return sourceLabel && isUsefulLabel(compact(sourceLabel)) ? compact(sourceLabel) : "";
+    return sourceLabel ? extractUsefulLabel(sourceLabel, "") : "";
   }
   function extractNameNearId(text, id, matchIndex) {
     if (!text || matchIndex < 0) {
@@ -366,8 +376,15 @@
     }
     return best;
   }
+  function extractUsefulLabel(value, externalLocationId) {
+    return pickBestLabel([value, ...extractOzonPointLabels(value)], externalLocationId);
+  }
   function cleanLabel(value, externalLocationId) {
-    const withoutMarkup = stripMarkup(decodeTextSnippet(value)).replace(new RegExp(externalLocationId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " ").replace(/(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)\s*[:=]?\s*/gi, " ").replace(/(?:fullAddress|formattedAddress|addressText|shortAddress|displayName|address|subtitle|description|caption|title|name|city|street|text)\\?["']?\s*[:=]\s*\\?["']?/gi, " ").replace(/https?:\/\/\S+/gi, " ").replace(/\/modal\/addressbook\S*/gi, " ").replace(/\\[nrt]/gi, " ");
+    let withoutMarkup = stripMarkup(decodeTextSnippet(value));
+    if (externalLocationId) {
+      withoutMarkup = withoutMarkup.replace(new RegExp(externalLocationId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " ");
+    }
+    withoutMarkup = withoutMarkup.replace(/(?:deliveryAddressOid|deliveryAddressId|deliveryAddressUid|addressOid|addressId|addressUid|select_address|selectAddress|locationUid|pickupPointId|pickPointId|pvzId|pointId)\s*[:=]?\s*/gi, " ").replace(/(?:fullAddress|formattedAddress|addressText|shortAddress|displayName|address|subtitle|description|caption|title|name|city|street|text)\\?["']?\s*[:=]\s*\\?["']?/gi, " ").replace(/https?:\/\/\S+/gi, " ").replace(/\/modal\/addressbook\S*/gi, " ").replace(/^\s*(?:content\.current-delivery|dom\.ozon-delivery-row)\s+/i, " ").replace(/^\s*(?:доставка\s+и\s+возврат|доставка|способ\s+получения|адрес\s+доставки)\s+/i, " ").replace(/(?:пункты\s+выдачи\s+ozon|срок\s+хранения\s+заказа|со\s+склада\s+продавца|с\s+\d{1,2}\s+[а-я]+|сегодня|завтра|редактировать|изменить).*$/i, " ").replace(/\\[nrt]/gi, " ");
     return compact(withoutMarkup).replace(/^[\s"'=:,;{}()[\]<>.-]+/, "").replace(/[\s"'=:,;{}()[\]<>.-]+$/, "");
   }
   function decodeTextSnippet(value) {
@@ -419,6 +436,9 @@
       return "";
     }
     const trimmed = value.trim().replace(/^["']|["']$/g, "");
+    if (/^(?:null|undefined|none|true|false)$/i.test(trimmed)) {
+      return "";
+    }
     return /^[a-z0-9_-]{4,80}$/i.test(trimmed) ? trimmed : "";
   }
   function stringValue(value) {
@@ -477,9 +497,11 @@
     return [...byId.values()];
   }
 
-  // src/ozon-page-probe.ts
+  // src/entrypoints/ozon-page-probe.ts
   var COLLECT_EVENT = "markonverter:collect-ozon-pickup";
   var CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
+  var NETWORK_FIXTURE_EVENT = "markonverter:ozon-network-fixture";
+  var MAX_NETWORK_FIXTURE_TEXT_LENGTH = 2e6;
   install();
   function install() {
     document.addEventListener(COLLECT_EVENT, () => emitCandidates(collectSources("manual")));
@@ -559,8 +581,8 @@
     const originalFetch = window.fetch;
     window.fetch = async (...args) => {
       const response = await originalFetch(...args);
-      const url = fetchUrl(args[0]);
-      inspectResponse(url, response.clone());
+      const request = fetchRequest(args[0], args[1]);
+      inspectResponse({ ...request, source: "fetch" }, response.clone());
       return response;
     };
   }
@@ -568,39 +590,83 @@
     const originalOpen = XMLHttpRequest.prototype.open;
     const originalSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function open(method, url, ...rest) {
-      this.markonverterUrl = String(url);
+      const xhr = this;
+      xhr.markonverterMethod = method;
+      xhr.markonverterUrl = String(url);
       const forwardOpen = originalOpen;
       return forwardOpen.call(this, method, url, ...rest);
     };
     XMLHttpRequest.prototype.send = function send(...args) {
+      const xhr = this;
+      xhr.markonverterRequestBody = requestBodyText(args[0]);
       this.addEventListener("loadend", () => {
-        const xhr = this;
         if (!isRelevantUrl(xhr.markonverterUrl || "")) {
           return;
         }
-        inspectPayload(xhr.markonverterUrl || "xhr", xhr.responseText);
+        inspectPayload(
+          {
+            source: "xhr",
+            method: xhr.markonverterMethod || "GET",
+            url: xhr.markonverterUrl || "xhr",
+            status: xhr.status,
+            contentType: xhr.getResponseHeader("content-type") || "",
+            requestBody: xhr.markonverterRequestBody
+          },
+          xhr.responseText
+        );
       });
       return originalSend.call(this, ...args);
     };
   }
-  function inspectResponse(url, response) {
-    if (!isRelevantUrl(url)) {
+  function inspectResponse(request, response) {
+    if (!isRelevantUrl(request.url)) {
       return;
     }
-    response.text().then((text) => inspectPayload(url, text)).catch(() => void 0);
+    response.text().then(
+      (text) => inspectPayload(
+        {
+          ...request,
+          status: response.status,
+          contentType: response.headers.get("content-type") || ""
+        },
+        text
+      )
+    ).catch(() => void 0);
   }
-  function inspectPayload(url, text) {
-    if (!text || text.length > 4e6) {
+  function inspectPayload(meta, text) {
+    if (!text) {
       return;
     }
+    const capturedText = text.slice(0, MAX_NETWORK_FIXTURE_TEXT_LENGTH);
     emitCandidates([
       {
-        source: `network.${url}`,
-        value: text,
+        source: `network.${meta.url}`,
+        value: capturedText,
         urlHint: location.href,
         textHint: collectDeliveryText()
       }
     ]);
+    emitNetworkFixture(meta, capturedText, text.length);
+  }
+  function emitNetworkFixture(meta, responseText, responseLength) {
+    if (!isRelevantUrl(meta.url)) {
+      return;
+    }
+    document.dispatchEvent(
+      new CustomEvent(NETWORK_FIXTURE_EVENT, {
+        detail: JSON.stringify({
+          source: meta.source,
+          method: meta.method,
+          url: absoluteUrl(meta.url),
+          status: meta.status,
+          contentType: meta.contentType,
+          pageUrl: location.href,
+          requestBody: meta.requestBody,
+          responseText,
+          responseLength
+        })
+      })
+    );
   }
   function fetchUrl(input) {
     if (typeof input === "string") {
@@ -610,6 +676,40 @@
       return input.href;
     }
     return input.url;
+  }
+  function fetchRequest(input, init) {
+    const method = init?.method || (input instanceof Request ? input.method : "GET");
+    return {
+      source: "fetch",
+      method,
+      url: fetchUrl(input),
+      requestBody: requestBodyText(init?.body)
+    };
+  }
+  function requestBodyText(body) {
+    if (typeof body === "string") {
+      return body;
+    }
+    if (body instanceof URLSearchParams) {
+      return body.toString();
+    }
+    if (body instanceof Blob) {
+      return `[Blob ${body.type || "application/octet-stream"} ${body.size} bytes]`;
+    }
+    if (body instanceof FormData) {
+      return "[FormData]";
+    }
+    if (body instanceof ArrayBuffer) {
+      return `[ArrayBuffer ${body.byteLength} bytes]`;
+    }
+    return void 0;
+  }
+  function absoluteUrl(url) {
+    try {
+      return new URL(url, location.href).toString();
+    } catch {
+      return url;
+    }
   }
   function isRelevantUrl(url) {
     return /(composer-api|entrypoint-api|delivery|address|location|geo|pvz|pickup)/i.test(url);

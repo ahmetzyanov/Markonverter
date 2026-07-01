@@ -1,18 +1,29 @@
-import { buildComparisonRows, makeErrorResult, makeSuccessResult } from "./shared/comparison";
-import { formatCurrency } from "./shared/currency";
-import { RuntimeRequest, RuntimeResponse } from "./shared/messages";
-import { ComparisonResult, Currency, ExtensionSettings, ManualQuote, PickupPoint, PriceQuote, ProductIdentity } from "./shared/types";
-import { manualQuoteKey } from "./shared/settings";
-import { createMarketplaceAdapter } from "./marketplaces/registry";
-import { fetchOzonPrivatePrice } from "./marketplaces/ozon-private-api";
+import { buildComparisonRows, makeErrorResult, makeSuccessResult } from "../shared/comparison";
+import { formatCurrency } from "../shared/currency";
+import { RuntimeRequest, RuntimeResponse } from "../shared/messages";
+import { ComparisonResult, Currency, ExtensionSettings, ManualQuote, PickupPoint, PriceQuote, ProductIdentity } from "../shared/types";
+import { manualQuoteKey } from "../shared/settings";
+import {
+  appendOzonFixtureRecords,
+  emptyOzonFixtureStore,
+  normalizeOzonFixtureStore,
+  OzonFixtureStore,
+  OzonNetworkFixtureInput,
+  OZON_FIXTURE_STORE_KEY
+} from "../shared/ozon-fixtures";
+import { createMarketplaceAdapter } from "../marketplaces/registry";
+import { fetchOzonPrivatePrice } from "../marketplaces/ozon/private-api";
+import { panelCss } from "./panel/styles";
+import { extractVisibleOzonPrice } from "./page/visible-price";
 import {
   extractOzonPickupCandidatesFromSources,
   isGenericOzonPickupName,
   OzonCaptureSource,
   OzonPickupCandidate,
+  safeOzonPickupName,
   shouldReplaceOzonPickupCandidate,
   shouldUseOzonPickupName
-} from "./marketplaces/ozon-pickup-capture";
+} from "../marketplaces/ozon/pickup-capture";
 
 const PANEL_ID = "markonverter-panel-root";
 const MENU_ASSIST_ID = "markonverter-ozon-delivery-assist";
@@ -20,7 +31,10 @@ const MENU_ASSIST_STYLE_ID = "markonverter-ozon-delivery-assist-style";
 const PAGE_ACTION_SELECTOR = "[data-markonverter-page-action]";
 const COLLECT_PICKUP_EVENT = "markonverter:collect-ozon-pickup";
 const PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
+const NETWORK_FIXTURE_EVENT = "markonverter:ozon-network-fixture";
 const PANEL_STATE_KEY = "markonverter.panelState";
+const AUTOMATIC_OZON_PRICE_LOOKUP_DISABLED =
+  "Automatic Ozon price lookup is disabled because it can change the selected Ozon pickup point. Select this point in Ozon, wait for the visible product price, then use Capture current.";
 
 let activeUrl = "";
 let activeRun = 0;
@@ -31,6 +45,10 @@ let pickupApiDiscoveryKey = "";
 let pickupApiDiscoveryPromise: Promise<void> | null = null;
 let lastPanelModel: PanelModel | null = null;
 let captureStatus: { tone: "normal" | "error"; message: string } | null = null;
+let fixtureStatus: { tone: "normal" | "error"; message: string } | null = null;
+let ozonFixtureCount = 0;
+let fixtureFlushTimer: number | null = null;
+let pendingFixtureInputs: OzonNetworkFixtureInput[] = [];
 let isPanelCollapsed = false;
 let panelRecoveryTimer: number | null = null;
 let assistSyncTimer: number | null = null;
@@ -38,16 +56,17 @@ let savedPickupNameSyncTimer: number | null = null;
 let suppressAssistObserverUntil = 0;
 const targetedPickupDiscoveryIds = new Set<string>();
 const pageActionHandlers = new WeakMap<HTMLElement, (event: Event) => void>();
+const autoCaptureInFlight = new Set<string>();
 let pageActionEventGuardInstalled = false;
 
-void boot();
-
-async function boot(): Promise<void> {
+export async function boot(): Promise<void> {
   document.addEventListener(PICKUP_CANDIDATES_EVENT, handlePickupCandidatesEvent);
+  document.addEventListener(NETWORK_FIXTURE_EVENT, handleNetworkFixtureEvent);
   if (document.readyState === "loading") {
     await new Promise<void>((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
   }
   await loadPanelState();
+  await refreshOzonFixtureSummary();
   installOzonDeliveryMenuAssist();
   installPanelRecovery();
   await runIfProductPage();
@@ -128,9 +147,13 @@ async function runIfProductPage(): Promise<void> {
     return;
   }
 
-  const settings = settingsResponse.settings;
+  let settings = settingsResponse.settings;
   latestSettings = settings;
-  discoverOzonPickupCandidatesFromApi(product, getSavedPickupExternalLocationIds(settings));
+  discoverOzonPickupCandidatesFromApi(product);
+  mergePickupCandidates(extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources()));
+  settings = await repairUnsafeSavedPickupNames(settings);
+  settings = await autoCaptureCurrentVisibleQuote(product, settings);
+  latestSettings = settings;
   const allPickupPoints = settings.pickupPoints.filter((point) => point.marketplace === "ozon");
   if (allPickupPoints.length === 0) {
     renderPanel(panel, { state: "empty", product, settings });
@@ -149,27 +172,22 @@ async function runIfProductPage(): Promise<void> {
     if (runId !== activeRun) {
       return;
     }
-    try {
-      const price = await adapter.fetchPrice(product, pickupPoint, settings);
-      results.push(makeSuccessResult(pickupPoint.id, { ...price, source: "api" }, settings.defaultCurrency, settings));
-    } catch (error) {
-      const manualQuote = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
-      if (manualQuote) {
-        results.push(
-          makeSuccessResult(
-            pickupPoint.id,
-            {
-              ...manualQuote.quote,
-              source: "manual",
-              capturedAt: manualQuote.capturedAt
-            },
-            settings.defaultCurrency,
-            settings
-          )
-        );
-      } else {
-        results.push(makeErrorResult(pickupPoint.id, adapter.formatError(error)));
-      }
+    const manualQuote = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
+    if (manualQuote) {
+      results.push(
+        makeSuccessResult(
+          pickupPoint.id,
+          {
+            ...manualQuote.quote,
+            source: "manual",
+            capturedAt: manualQuote.capturedAt
+          },
+          settings.defaultCurrency,
+          settings
+        )
+      );
+    } else {
+      results.push(makeErrorResult(pickupPoint.id, AUTOMATIC_OZON_PRICE_LOOKUP_DISABLED));
     }
   }
 
@@ -199,6 +217,7 @@ async function requestOzonPrice(request: {
   productUrl: string;
   pickupExternalLocationId: string;
   currencyHint: "RUB" | "KZT";
+  allowSessionMutatingLocationActivation?: boolean;
 }): Promise<PriceQuote> {
   return fetchOzonPrivatePrice(request);
 }
@@ -222,6 +241,60 @@ function handlePickupCandidatesEvent(event: Event): void {
     }
   } catch {
     // Ignore malformed events from the page world.
+  }
+}
+
+function handleNetworkFixtureEvent(event: Event): void {
+  const detail = (event as CustomEvent<string>).detail;
+  if (!detail) {
+    return;
+  }
+  try {
+    const input = JSON.parse(detail) as OzonNetworkFixtureInput;
+    if (!isNetworkFixtureInput(input)) {
+      return;
+    }
+    pendingFixtureInputs.push(input);
+    scheduleFixtureFlush();
+  } catch {
+    // Ignore malformed events from the page world.
+  }
+}
+
+function isNetworkFixtureInput(value: unknown): value is OzonNetworkFixtureInput {
+  const candidate = value as Partial<OzonNetworkFixtureInput> | undefined;
+  return (
+    Boolean(candidate) &&
+    typeof candidate?.source === "string" &&
+    typeof candidate.method === "string" &&
+    typeof candidate.url === "string" &&
+    typeof candidate.pageUrl === "string" &&
+    typeof candidate.responseText === "string"
+  );
+}
+
+function scheduleFixtureFlush(): void {
+  if (fixtureFlushTimer !== null) {
+    return;
+  }
+  fixtureFlushTimer = window.setTimeout(() => {
+    fixtureFlushTimer = null;
+    void flushPendingFixtures();
+  }, 500);
+}
+
+async function flushPendingFixtures(): Promise<void> {
+  if (pendingFixtureInputs.length === 0) {
+    return;
+  }
+  const inputs = pendingFixtureInputs.splice(0, pendingFixtureInputs.length);
+  try {
+    const store = appendOzonFixtureRecords(await readOzonFixtureStore(), inputs);
+    await chrome.storage.local.set({ [OZON_FIXTURE_STORE_KEY]: store });
+    ozonFixtureCount = store.records.length;
+    renderLastPanel();
+  } catch {
+    pendingFixtureInputs.unshift(...inputs);
   }
 }
 
@@ -270,6 +343,7 @@ function collectFallbackCaptureSources(): OzonCaptureSource[] {
   if (document.cookie) {
     sources.push({ source: "content.cookie", value: document.cookie, urlHint });
   }
+  sources.push(...collectCurrentDeliveryPickupSources(urlHint));
   const deliveryText = collectDeliveryText();
   if (deliveryText) {
     sources.push({ source: "content.dom", value: deliveryText, textHint: deliveryText, urlHint });
@@ -277,14 +351,13 @@ function collectFallbackCaptureSources(): OzonCaptureSource[] {
   return sources;
 }
 
-function discoverOzonPickupCandidatesFromApi(product: ProductIdentity, externalLocationIds: string[] = []): void {
-  const locationIds = normalizeExternalLocationIds(externalLocationIds).slice(0, 8);
-  const key = `${location.origin}:${product.productId}:${location.pathname}:${locationIds.join(",")}`;
+function discoverOzonPickupCandidatesFromApi(product: ProductIdentity): void {
+  const key = `${location.origin}:${product.productId}:${location.pathname}`;
   if (pickupApiDiscoveryKey === key && pickupApiDiscoveryPromise) {
     return;
   }
   pickupApiDiscoveryKey = key;
-  const discoveryPromise = fetchOzonPickupCandidatesFromApi(product, locationIds)
+  const discoveryPromise = fetchOzonPickupCandidatesFromApi(product)
     .then((candidates) => {
       if (candidates.length > 0 && mergePickupCandidates(candidates)) {
         renderLastPanel();
@@ -300,10 +373,10 @@ function discoverOzonPickupCandidatesFromApi(product: ProductIdentity, externalL
   pickupApiDiscoveryPromise = discoveryPromise;
 }
 
-async function fetchOzonPickupCandidatesFromApi(product: ProductIdentity, externalLocationIds: string[] = []): Promise<OzonPickupCandidate[]> {
+async function fetchOzonPickupCandidatesFromApi(product: ProductIdentity): Promise<OzonPickupCandidate[]> {
   const sources: OzonCaptureSource[] = [];
   const textHint = collectDeliveryText();
-  const endpoints = buildOzonPickupDiscoveryEndpoints(product, externalLocationIds);
+  const endpoints = buildOzonPickupDiscoveryEndpoints(product);
 
   await Promise.all(
     endpoints.map(async (endpoint) => {
@@ -336,7 +409,7 @@ async function fetchOzonPickupCandidatesFromApi(product: ProductIdentity, extern
   return extractOzonPickupCandidatesFromSources(sources);
 }
 
-function buildOzonPickupDiscoveryEndpoints(product: ProductIdentity, externalLocationIds: string[] = []): Array<{
+function buildOzonPickupDiscoveryEndpoints(product: ProductIdentity): Array<{
   label: string;
   url: string;
   method: "GET" | "POST";
@@ -350,12 +423,8 @@ function buildOzonPickupDiscoveryEndpoints(product: ProductIdentity, externalLoc
   };
   const productUrl = new URL(product.url);
   const productPath = `${productUrl.pathname}${productUrl.search}`;
-  const selectedAddressPaths = normalizeExternalLocationIds(externalLocationIds).map(
-    (externalLocationId) => `/modal/addressbook?select_address=${encodeURIComponent(externalLocationId)}`
-  );
   const modalPaths = [
     "/modal/addressbook",
-    ...selectedAddressPaths,
     "/modal/delivery",
     "/modal/geo"
   ];
@@ -398,22 +467,7 @@ function buildOzonPickupDiscoveryEndpoints(product: ProductIdentity, externalLoc
   return endpoints;
 }
 
-function normalizeExternalLocationIds(externalLocationIds: string[]): string[] {
-  return [...new Set(externalLocationIds.map((id) => id.trim()).filter(Boolean))].sort();
-}
-
-function getSavedPickupExternalLocationIds(settings: ExtensionSettings | null): string[] {
-  return (settings?.pickupPoints || [])
-    .filter((point) => point.marketplace === "ozon")
-    .map((point) => point.externalLocationId)
-    .filter((externalLocationId) => externalLocationId.trim() !== "");
-}
-
 function scheduleGenericPickupNameDiscovery(): void {
-  const product = getCurrentProduct();
-  if (!product) {
-    return;
-  }
   const genericCandidateIds = latestPickupCandidates
     .filter(
       (candidate) =>
@@ -426,7 +480,10 @@ function scheduleGenericPickupNameDiscovery(): void {
     return;
   }
   genericCandidateIds.forEach((externalLocationId) => targetedPickupDiscoveryIds.add(externalLocationId));
-  discoverOzonPickupCandidatesFromApi(product, genericCandidateIds);
+  const product = getCurrentProduct();
+  if (product) {
+    discoverOzonPickupCandidatesFromApi(product);
+  }
 }
 
 function collectStorage(name: string, storage: Storage, sources: OzonCaptureSource[], urlHint: string): void {
@@ -461,92 +518,37 @@ function collectDeliveryText(): string {
   return chunks.slice(0, 30).join(" | ").slice(0, 8000);
 }
 
-function extractVisibleOzonPrice(currencyHint: Currency): PriceQuote | null {
-  const selectors = ['[data-widget="webPrice"]', '[data-widget*="webPrice" i]', '[data-widget*="price" i]'];
-  const seen = new Set<HTMLElement>();
-  const candidates: Array<PriceQuote & { score: number }> = [];
-
-  for (const selector of selectors) {
-    document.querySelectorAll<HTMLElement>(selector).forEach((element) => {
-      if (seen.has(element) || !isVisibleEnough(element)) {
-        return;
-      }
-      seen.add(element);
-      const text = compactText(element.innerText || element.textContent || "");
-      if (!text) {
-        return;
-      }
-      candidates.push(...parseVisiblePriceCandidates(text, currencyHint));
-    });
-  }
-
-  candidates.sort((a, b) => b.score - a.score);
-  const best = candidates[0];
-  if (!best) {
-    return null;
-  }
-  const deliveryText = extractVisibleDeliverySummary();
-  return {
-    amount: best.amount,
-    currency: best.currency,
-    rawText: best.rawText,
-    ...(deliveryText ? { deliveryText } : {})
-  };
-}
-
-function parseVisiblePriceCandidates(text: string, currencyHint: Currency): Array<PriceQuote & { score: number }> {
-  const candidates: Array<PriceQuote & { score: number }> = [];
-  const pricePattern = /(\d[\d\s\u00a0]{1,14}(?:[,.]\d{1,2})?)\s*(₽|руб\.?|рублей|RUB|₸|тг|тенге|KZT)?/gi;
-  let match: RegExpExecArray | null;
-  let index = 0;
-  while ((match = pricePattern.exec(text))) {
-    const rawAmount = match[1];
-    const amount = Number.parseFloat(rawAmount.replace(/[\s\u00a0]/g, "").replace(",", "."));
-    if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000_000) {
-      continue;
+function collectCurrentDeliveryPickupSources(urlHint: string): OzonCaptureSource[] {
+  const sources: OzonCaptureSource[] = [];
+  document.querySelectorAll<HTMLElement>('[data-widget*="delivery" i], [data-widget*="address" i], [href*="/modal/addressbook" i]').forEach((element) => {
+    if (element.id === PANEL_ID || element.closest(`#${PANEL_ID}`) || element.closest(`#${MENU_ASSIST_ID}`)) {
+      return;
     }
-    const currency = parseCurrencyMarker(match[2] || text, currencyHint);
-    const rawText = match[0].trim();
-    candidates.push({
-      amount,
-      currency,
-      rawText,
-      score: 100 + (match[2] ? 30 : 0) + (amount >= 100 ? 10 : 0) - index
-    });
-    index += 1;
-  }
-  return candidates;
-}
-
-function parseCurrencyMarker(value: string, fallback: Currency): Currency {
-  if (/₽|руб|RUB/i.test(value)) {
-    return "RUB";
-  }
-  if (/₸|тг|тенге|KZT/i.test(value)) {
-    return "KZT";
-  }
-  return fallback;
-}
-
-function extractVisibleDeliverySummary(): string | null {
-  const selectors = ['[data-widget*="delivery" i]', '[data-widget*="address" i]'];
-  for (const selector of selectors) {
-    for (const element of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
-      if (!isVisibleEnough(element)) {
-        continue;
-      }
-      const text = compactText(element.innerText || element.textContent || "");
-      if (text && text.length <= 160 && /(сегодня|завтра|достав|получ|today|tomorrow|delivery|\d)/i.test(text)) {
-        return text;
-      }
+    if (element.closest('[role="dialog"], [aria-modal="true"], [data-widget*="dialog" i], [data-widget*="modal" i]')) {
+      return;
     }
-  }
-  return null;
-}
+    if (!isVisible(element)) {
+      return;
+    }
 
-function isVisibleEnough(element: HTMLElement): boolean {
-  const rect = element.getBoundingClientRect();
-  return rect.width > 20 && rect.height > 8 && rect.bottom > 0 && rect.right > 0;
+    const text = cleanOzonDeliverySummaryText(element);
+    if (!text || !/(достав|получ|пункт|пвз|адрес|город|pickup|delivery|address|\d)/i.test(text)) {
+      return;
+    }
+
+    const label = visibleDeliveryPickupLabel(text);
+    sources.push({
+      source: "content.current-delivery",
+      value: {
+        name: label || text,
+        address: label || text,
+        ...collectOzonRowEvidence(element)
+      },
+      textHint: text,
+      urlHint
+    });
+  });
+  return sources;
 }
 
 function compactText(value: string): string {
@@ -567,7 +569,7 @@ async function saveSelectedPickupPoint(product: ProductIdentity): Promise<Runtim
     return { ok: false, error: captureStatus.message };
   }
   if (isPickupCandidateSaved(candidate, latestSettings)) {
-    captureStatus = { tone: "normal", message: `Already saved: ${candidate.name}` };
+    captureStatus = { tone: "normal", message: `Already saved: ${ozonCandidateDisplayName(candidate)}` };
     renderLastPanel();
     return { ok: true };
   }
@@ -583,18 +585,20 @@ async function saveSelectedPickupPoint(product: ProductIdentity): Promise<Runtim
     (point) => point.marketplace === "ozon" && point.externalLocationId === candidate.externalLocationId
   );
   const quoteCaptured = savedPoint ? await saveCurrentVisibleQuoteForPoint(savedPoint, product, { requireConfirmation: false }) : false;
+  const candidateName = ozonCandidateDisplayName(candidate);
   captureStatus = {
     tone: "normal",
-    message: quoteCaptured ? `Saved and captured current price: ${candidate.name}` : `Saved: ${candidate.name}`
+    message: quoteCaptured ? `Saved and captured current price: ${candidateName}` : `Saved: ${candidateName}`
   };
   await runIfProductPage();
   return response;
 }
 
 async function savePickupCandidate(candidate: OzonPickupCandidate, product: ProductIdentity): Promise<RuntimeResponse> {
+  const name = ozonCandidateDisplayName(candidate);
   const pickupPoint: PickupPoint = {
     id: crypto.randomUUID(),
-    name: candidate.name,
+    name,
     marketplace: "ozon",
     country: candidate.country,
     currency: candidate.currency,
@@ -614,7 +618,7 @@ async function savePickupCandidate(candidate: OzonPickupCandidate, product: Prod
 async function captureCurrentPriceForPickupPoint(pickupPoint: PickupPoint, product: ProductIdentity): Promise<void> {
   const saved = await saveCurrentVisibleQuoteForPoint(pickupPoint, product, { requireConfirmation: true });
   if (saved) {
-    captureStatus = { tone: "normal", message: `Captured current page price for ${pickupPoint.name}` };
+    captureStatus = { tone: "normal", message: `Captured current page price for ${ozonPickupDisplayName(pickupPoint)}` };
     await runIfProductPage();
   } else {
     renderLastPanel();
@@ -628,9 +632,10 @@ async function saveCurrentVisibleQuoteForPoint(
 ): Promise<boolean> {
   if (options.requireConfirmation) {
     const currentCandidate = await getBestPickupCandidate();
+    const pickupPointName = ozonPickupDisplayName(pickupPoint);
     if (currentCandidate && currentCandidate.externalLocationId !== pickupPoint.externalLocationId) {
       const shouldContinue = window.confirm(
-        `The currently detected Ozon point looks like "${currentCandidate.name}", not "${pickupPoint.name}". Capture the visible page price for "${pickupPoint.name}" anyway?`
+        `The currently detected Ozon point looks like "${ozonCandidateDisplayName(currentCandidate)}", not "${pickupPointName}". Capture the visible page price for "${pickupPointName}" anyway?`
       );
       if (!shouldContinue) {
         captureStatus = { tone: "normal", message: "Price capture cancelled" };
@@ -638,7 +643,7 @@ async function saveCurrentVisibleQuoteForPoint(
       }
     } else if (!currentCandidate) {
       const shouldContinue = window.confirm(
-        `I could not verify the selected Ozon point. Capture the visible page price for "${pickupPoint.name}" anyway?`
+        `I could not verify the selected Ozon point. Capture the visible page price for "${pickupPointName}" anyway?`
       );
       if (!shouldContinue) {
         captureStatus = { tone: "normal", message: "Price capture cancelled" };
@@ -653,6 +658,267 @@ async function saveCurrentVisibleQuoteForPoint(
     return false;
   }
 
+  const updatedSettings = await saveManualQuoteForPoint(pickupPoint, product, quote);
+  return Boolean(updatedSettings);
+}
+
+async function autoCaptureCurrentVisibleQuote(product: ProductIdentity, settings: ExtensionSettings): Promise<ExtensionSettings> {
+  const visibleDeliveryText = collectCurrentDeliverySummaryText();
+  if (!visibleDeliveryText) {
+    return settings;
+  }
+
+  requestPagePickupCandidates();
+  mergePickupCandidates(extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources()));
+  const pickupPoint = findSavedPickupPointForVisibleDelivery(settings, visibleDeliveryText);
+  if (!pickupPoint) {
+    return settings;
+  }
+
+  const quote = extractVisibleOzonPrice(pickupPoint.currency);
+  if (!quote) {
+    return settings;
+  }
+
+  const existing = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
+  if (existing && quoteMatchesManualQuote(existing, quote)) {
+    return settings;
+  }
+
+  const lockKey = `${product.productId}:${pickupPoint.id}:${quote.amount}:${quote.currency}:${quote.rawText || ""}`;
+  if (autoCaptureInFlight.has(lockKey)) {
+    return settings;
+  }
+
+  autoCaptureInFlight.add(lockKey);
+  try {
+    const updatedSettings = await saveManualQuoteForPoint(pickupPoint, product, quote);
+    if (!updatedSettings) {
+      return settings;
+    }
+    captureStatus = { tone: "normal", message: `Auto captured current price for ${ozonPickupDisplayName(pickupPoint)}` };
+    return updatedSettings;
+  } finally {
+    autoCaptureInFlight.delete(lockKey);
+  }
+}
+
+async function repairUnsafeSavedPickupNames(settings: ExtensionSettings): Promise<ExtensionSettings> {
+  let nextSettings = settings;
+
+  for (const pickupPoint of settings.pickupPoints) {
+    if (pickupPoint.marketplace !== "ozon" || pickupPoint.externalLocationId.trim() === "") {
+      continue;
+    }
+
+    const repairedName = bestAvailableOzonPickupName(pickupPoint, settings);
+    if (repairedName === pickupPoint.name) {
+      continue;
+    }
+
+    const response = await runtimeRequest({
+      type: "UPSERT_PICKUP_POINT",
+      pickupPoint: {
+        ...pickupPoint,
+        name: repairedName
+      }
+    });
+    if (response.ok && "settings" in response) {
+      nextSettings = response.settings;
+      latestSettings = nextSettings;
+    }
+  }
+
+  return nextSettings;
+}
+
+function bestAvailableOzonPickupName(pickupPoint: PickupPoint, settings: ExtensionSettings): string {
+  const candidate = findSafeOzonNameCandidate(pickupPoint);
+  const candidateName = candidate ? safeOzonPickupName(candidate.name, pickupPoint.externalLocationId) : "";
+  if (candidateName && !isGenericOzonPickupName(candidateName, pickupPoint.externalLocationId)) {
+    return candidateName;
+  }
+
+  const visibleName = visibleDeliveryPickupLabel(collectCurrentDeliverySummaryText());
+  if (visibleName && canUseVisibleDeliveryNameForSavedPoint(settings, pickupPoint)) {
+    return visibleName;
+  }
+
+  return safeOzonPickupName(candidateName || pickupPoint.name, pickupPoint.externalLocationId);
+}
+
+function findSafeOzonNameCandidate(pickupPoint: PickupPoint): OzonPickupCandidate | null {
+  const candidate = latestPickupCandidates.find(
+    (item) =>
+      item.externalLocationId === pickupPoint.externalLocationId &&
+      shouldUseOzonPickupName(pickupPoint.name, item.name, pickupPoint.externalLocationId)
+  );
+  if (!candidate || isCandidateNameSharedAcrossExternalIds(candidate)) {
+    return null;
+  }
+  return candidate;
+}
+
+function isCandidateNameSharedAcrossExternalIds(candidate: OzonPickupCandidate): boolean {
+  const name = normalizedCandidateDisplayName(candidate);
+  if (!name || isGenericOzonPickupName(name, candidate.externalLocationId)) {
+    return false;
+  }
+  const matchingExternalIds = new Set(
+    latestPickupCandidates
+      .filter((item) => normalizedCandidateDisplayName(item) === name)
+      .map((item) => item.externalLocationId)
+  );
+  return matchingExternalIds.size > 1;
+}
+
+function normalizedCandidateDisplayName(candidate: OzonPickupCandidate): string {
+  return compactText(safeOzonPickupName(candidate.name, candidate.externalLocationId)).toLowerCase();
+}
+
+function quoteMatchesManualQuote(manualQuote: ManualQuote, quote: PriceQuote): boolean {
+  return (
+    manualQuote.quote.amount === quote.amount &&
+    manualQuote.quote.currency === quote.currency &&
+    (manualQuote.quote.rawText || "") === (quote.rawText || "")
+  );
+}
+
+function findSavedPickupPointForVisibleDelivery(settings: ExtensionSettings, visibleDeliveryText: string): PickupPoint | null {
+  const savedPoints = settings.pickupPoints.filter((point) => point.marketplace === "ozon" && point.externalLocationId.trim() !== "");
+  const byExternalId = new Map(savedPoints.map((point) => [point.externalLocationId, point]));
+
+  const candidateMatches = latestPickupCandidates
+    .map((candidate) => {
+      const point = byExternalId.get(candidate.externalLocationId);
+      return point
+        ? {
+            point,
+            score: scoreVisiblePickupMatch(`${candidate.name} ${ozonPickupDisplayName(point)} ${point.comment || ""}`, visibleDeliveryText, {
+              allowSingleStrongToken: true
+            })
+          }
+        : null;
+    })
+    .filter((match): match is { point: PickupPoint; score: number } => match !== null && match.score >= 10);
+
+  const directMatches = savedPoints
+    .map((point) => ({
+      point,
+      score: scoreVisiblePickupMatch(`${ozonPickupDisplayName(point)} ${point.comment || ""}`, visibleDeliveryText)
+    }))
+    .filter((match) => match.score >= 18);
+
+  const byPointId = new Map<string, { point: PickupPoint; score: number }>();
+  for (const match of [...candidateMatches, ...directMatches]) {
+    const existing = byPointId.get(match.point.id);
+    if (!existing || match.score > existing.score) {
+      byPointId.set(match.point.id, match);
+    }
+  }
+
+  const matches = [...byPointId.values()].sort((a, b) => b.score - a.score);
+  const [best, second] = matches;
+  if (!best) {
+    return null;
+  }
+  if (second && second.score >= best.score - 6) {
+    return null;
+  }
+  return best.point;
+}
+
+function scoreVisiblePickupMatch(
+  pickupText: string,
+  visibleDeliveryText: string,
+  options: { allowSingleStrongToken?: boolean } = {}
+): number {
+  const pickupTokens = pickupMatchTokens(pickupText);
+  const visibleTokens = pickupMatchTokens(visibleDeliveryText);
+  let score = 0;
+  let matchedTokens = 0;
+  let hasNumericMatch = false;
+  let hasStrongTextMatch = false;
+
+  for (const token of pickupTokens) {
+    if (!visibleTokens.has(token)) {
+      continue;
+    }
+    matchedTokens += 1;
+    if (/\d/.test(token)) {
+      hasNumericMatch = true;
+    }
+    if (token.length >= 5 && /\p{L}/u.test(token)) {
+      hasStrongTextMatch = true;
+    }
+    score += token.length >= 5 ? 10 : 5;
+  }
+
+  if (matchedTokens < 2 && !hasNumericMatch && !(options.allowSingleStrongToken && hasStrongTextMatch)) {
+    return 0;
+  }
+  return score;
+}
+
+function collectCurrentDeliverySummaryText(): string {
+  const chunks: string[] = [];
+  document.querySelectorAll<HTMLElement>('[data-widget*="delivery" i], [data-widget*="address" i], [href*="/modal/addressbook" i]').forEach((element) => {
+    if (element.id === PANEL_ID || element.closest(`#${PANEL_ID}`) || element.closest(`#${MENU_ASSIST_ID}`)) {
+      return;
+    }
+    if (element.closest('[role="dialog"], [aria-modal="true"], [data-widget*="dialog" i], [data-widget*="modal" i]')) {
+      return;
+    }
+    if (!isVisible(element)) {
+      return;
+    }
+    const text = cleanOzonDeliverySummaryText(element);
+    if (text && text.length <= 1200 && /(достав|получ|пункт|пвз|адрес|город|pickup|delivery|address|\d)/i.test(text)) {
+      chunks.push(text);
+    }
+  });
+  return compactText(chunks.join(" | ")).slice(0, 2500);
+}
+
+function cleanOzonDeliverySummaryText(element: HTMLElement): string {
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll("button, [role='button']").forEach((node) => node.remove());
+  return stripOzonActionText(compactText(clone.innerText || clone.textContent || ""));
+}
+
+function visibleDeliveryPickupLabel(text: string): string {
+  const cleaned = stripOzonActionText(text)
+    .replace(/^(?:доставка\s+и\s+возврат|доставка|способ\s+получения|адрес\s+доставки)\s+/i, " ")
+    .replace(/(?:пункты\s+выдачи\s+ozon|срок\s+хранения\s+заказа|со\s+склада\s+продавца|с\s+\d{1,2}\s+[а-я]+|сегодня|завтра).*$/i, " ");
+  const ozonPoint = compactText(cleaned.match(/Пункт\s+Ozon\s*№\s*[\d-]+[^|<>{}\[\]\n\r]{0,140}/i)?.[0] || "");
+  const label = compactText(ozonPoint || cleaned).replace(/^[,;|•·\s-]+/, "").replace(/[,;|•·\s-]+$/, "");
+  if (!label || label.length < 8 || label.length > 180) {
+    return "";
+  }
+  return /(?:пункт\s+ozon\s*№|пвз|pickup|выдач)/i.test(label) || isAddressLikePickupRowText(label) ? label : "";
+}
+
+function canUseVisibleDeliveryNameForSavedPoint(settings: ExtensionSettings, pickupPoint: PickupPoint): boolean {
+  if (!isGenericOzonPickupName(pickupPoint.name, pickupPoint.externalLocationId)) {
+    return false;
+  }
+  const genericSavedPoints = settings.pickupPoints.filter(
+    (point) => point.marketplace === "ozon" && point.externalLocationId.trim() !== "" && isGenericOzonPickupName(point.name, point.externalLocationId)
+  );
+  return genericSavedPoints.length === 1 && genericSavedPoints[0]?.id === pickupPoint.id;
+}
+
+function stripOzonActionText(text: string): string {
+  return compactText(
+    text.replace(/(?:^|[\s,;|•·-])(?:Редактировать|Изменить|Удалить|Edit|Delete|Remove)(?=$|[\s,;|•·-])/giu, " ")
+  );
+}
+
+async function saveManualQuoteForPoint(
+  pickupPoint: PickupPoint,
+  product: ProductIdentity,
+  quote: PriceQuote
+): Promise<ExtensionSettings | null> {
   const capturedAt = new Date().toISOString();
   const manualQuote: ManualQuote = {
     productId: product.productId,
@@ -668,18 +934,19 @@ async function saveCurrentVisibleQuoteForPoint(
   const response = await runtimeRequest({ type: "SAVE_MANUAL_QUOTE", manualQuote });
   if (!response.ok || !("settings" in response)) {
     captureStatus = { tone: "error", message: response.ok ? "Captured price was not saved" : response.error };
-    return false;
+    return null;
   }
   latestSettings = response.settings;
-  return true;
+  return response.settings;
 }
 
 async function deleteSavedPickupPoint(pickupPoint: PickupPoint, product: ProductIdentity): Promise<void> {
-  if (!window.confirm(`Delete "${pickupPoint.name}" from saved pickup points?`)) {
+  const pickupPointName = ozonPickupDisplayName(pickupPoint);
+  if (!window.confirm(`Delete "${pickupPointName}" from saved pickup points?`)) {
     return;
   }
 
-  captureStatus = { tone: "normal", message: `Deleted: ${pickupPoint.name}` };
+  captureStatus = { tone: "normal", message: `Deleted: ${pickupPointName}` };
   const response = await runtimeRequest({ type: "DELETE_PICKUP_POINT", pickupPointId: pickupPoint.id });
   if (!response.ok || !("settings" in response)) {
     captureStatus = { tone: "error", message: response.ok ? "Pickup point was not deleted" : response.error };
@@ -852,25 +1119,50 @@ function ensureOzonDeliveryMenuAssist(): void {
 
 function findOzonDeliveryContainer(): HTMLElement | null {
   const candidates = Array.from(
-    document.querySelectorAll<HTMLElement>('[role="dialog"], [data-widget*="delivery" i], [data-widget*="address" i], [data-widget*="geo" i]')
+    document.querySelectorAll<HTMLElement>(
+      '[role="dialog"], [aria-modal="true"], [data-widget*="dialog" i], [data-widget*="modal" i], [data-widget*="addressbook" i]'
+    )
   );
   return (
-    candidates.find((element) => {
-      if (element.id === PANEL_ID || element.closest(`#${PANEL_ID}`) || element.id === MENU_ASSIST_ID) {
-        return false;
-      }
-      if (!isVisible(element)) {
-        return false;
-      }
-      const text = (element.innerText || element.textContent || "").slice(0, 3000);
-      return /(пункт|пвз|получ|достав|адрес|город|pickup|delivery|address)/i.test(text);
-    }) || null
+    candidates.find((element) => isLikelyOzonDeliverySelectorContainer(element)) || null
   );
 }
 
 function isVisible(element: HTMLElement): boolean {
   const rect = element.getBoundingClientRect();
   return rect.width > 120 && rect.height > 40 && rect.bottom > 0 && rect.right > 0;
+}
+
+function isLikelyOzonDeliverySelectorContainer(element: HTMLElement): boolean {
+  if (element.id === PANEL_ID || element.closest(`#${PANEL_ID}`) || element.id === MENU_ASSIST_ID) {
+    return false;
+  }
+  if (!isVisible(element)) {
+    return false;
+  }
+
+  const text = (element.innerText || element.textContent || "").slice(0, 3000);
+  if (!/(пункт|пвз|получ|достав|адрес|город|pickup|delivery|address)/i.test(text)) {
+    return false;
+  }
+
+  const role = (element.getAttribute("role") || "").toLowerCase();
+  const modalEvidence = [
+    role,
+    element.getAttribute("aria-modal") || "",
+    element.getAttribute("data-widget") || "",
+    element.id,
+    typeof element.className === "string" ? element.className : ""
+  ].join(" ");
+  const looksModal = role === "dialog" || /(true|modal|dialog|popup|drawer|overlay|addressbook|deliverydialog)/i.test(modalEvidence);
+  if (!looksModal) {
+    return false;
+  }
+
+  const hasSelectorCopy = /(выберите|выбор|адрес\s+доставки|пункт\s+выдач|пункты\s+выдачи|способ\s+получения|куда\s+доставить|pickup point|delivery selector|select address)/i.test(
+    text
+  );
+  return hasSelectorCopy || countPickupRowMarkers(text) >= 2;
 }
 
 interface OzonPickupRowCandidate {
@@ -945,11 +1237,7 @@ async function syncSavedPickupNamesFromCandidates(): Promise<void> {
     if (pickupPoint.marketplace !== "ozon" || pickupPoint.externalLocationId.trim() === "") {
       continue;
     }
-    const candidate = latestPickupCandidates.find(
-      (item) =>
-        item.externalLocationId === pickupPoint.externalLocationId &&
-        shouldUseOzonPickupName(pickupPoint.name, item.name, pickupPoint.externalLocationId)
-    );
+    const candidate = findSafeOzonNameCandidate(pickupPoint);
     if (!candidate) {
       continue;
     }
@@ -958,7 +1246,7 @@ async function syncSavedPickupNamesFromCandidates(): Promise<void> {
       type: "UPSERT_PICKUP_POINT",
       pickupPoint: {
         ...pickupPoint,
-        name: candidate.name
+        name: ozonCandidateDisplayName(candidate)
       }
     });
     if (!response.ok || !("settings" in response)) {
@@ -1213,7 +1501,9 @@ function pickupMatchTokens(text: string): Set<string> {
     .filter(
       (token) =>
         (token.length >= 4 || (token.length >= 2 && /\d/.test(token))) &&
-        !/^(пункт|ozon|срок|хранения|заказа|дней|адрес|delivery|pickup)$/.test(token)
+        !/^(пункт|ozon|срок|хранения|заказа|дней|адрес|редактировать|изменить|удалить|delivery|pickup|edit|delete|remove)$/.test(
+          token
+        )
     );
   const numericAddressTokens = lowerText.match(/\d+[\p{L}]?/gu) || [];
   return new Set([...normalized, ...numericAddressTokens].slice(0, 50));
@@ -1226,7 +1516,12 @@ function getOzonRowText(element: HTMLElement): string {
 }
 
 function pickupRowName(text: string): string {
-  const cleaned = compactText(text.replace(/(?:^|[\s,;|•-])(?:Add|Saved|Refresh PVZ|Show in panel|Удалить|Delete|Remove)(?=$|[\s,;|•-])/giu, " "));
+  const cleaned = compactText(
+    text.replace(
+      /(?:^|[\s,;|•-])(?:Add|Saved|Refresh PVZ|Show in panel|Удалить|Редактировать|Изменить|Edit|Delete|Remove)(?=$|[\s,;|•-])/giu,
+      " "
+    )
+  );
   return cleaned.length > 170 ? `${cleaned.slice(0, 167)}...` : cleaned;
 }
 
@@ -1296,7 +1591,7 @@ function buildOzonRowAction(
   action.dataset.markonverterExternalLocationId = candidate.externalLocationId;
   action.className = `markonverter-ozon-pvz-action${isSaved ? " is-saved" : ""}`;
   action.textContent = isSaved ? "Saved" : "Add";
-  action.title = isSaved ? "Already saved in Markonverter" : `Add ${candidate.name} to Markonverter`;
+  action.title = isSaved ? "Already saved in Markonverter" : `Add ${ozonCandidateDisplayName(candidate)} to Markonverter`;
   action.setAttribute("role", "button");
   action.tabIndex = isSaved ? -1 : 0;
   action.setAttribute("aria-disabled", String(isSaved));
@@ -1618,6 +1913,7 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
     appendCaptureStatus(root);
   }
 
+  appendOzonFixtureTools(root);
   shadow.append(root);
 }
 
@@ -1660,6 +1956,84 @@ function appendCaptureStatus(root: HTMLElement): void {
   }
 }
 
+function appendOzonFixtureTools(root: HTMLElement): void {
+  const wrapper = document.createElement("div");
+  wrapper.className = "fixtureTools";
+
+  const text = document.createElement("div");
+  text.className = "fixtureToolsText";
+  const statusLine = fixtureStatus ? `<span class="${fixtureStatus.tone === "error" ? "fixtureError" : ""}">${escapeHtml(fixtureStatus.message)}</span>` : "";
+  text.innerHTML = `<span class="eyebrow">Ozon fixtures</span><strong>${ozonFixtureCount} captured</strong>${statusLine}`;
+
+  const actions = document.createElement("div");
+  actions.className = "fixtureToolsActions";
+
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.className = "detailsButton";
+  copyButton.textContent = "Copy";
+  copyButton.title = "Copy recorded Ozon API fixtures";
+  copyButton.addEventListener("click", () => {
+    void copyOzonFixtures();
+  });
+
+  const clearButton = document.createElement("button");
+  clearButton.type = "button";
+  clearButton.className = "deleteButton";
+  clearButton.textContent = "Clear";
+  clearButton.title = "Clear recorded Ozon API fixtures";
+  clearButton.addEventListener("click", () => {
+    void clearOzonFixtures();
+  });
+
+  actions.append(copyButton, clearButton);
+  wrapper.append(text, actions);
+  root.append(wrapper);
+}
+
+async function refreshOzonFixtureSummary(): Promise<void> {
+  try {
+    ozonFixtureCount = (await readOzonFixtureStore()).records.length;
+  } catch {
+    ozonFixtureCount = 0;
+  }
+}
+
+async function readOzonFixtureStore(): Promise<OzonFixtureStore> {
+  const stored = await chrome.storage.local.get(OZON_FIXTURE_STORE_KEY);
+  return normalizeOzonFixtureStore(stored[OZON_FIXTURE_STORE_KEY]);
+}
+
+async function copyOzonFixtures(): Promise<void> {
+  await flushPendingFixtures();
+  const store = await readOzonFixtureStore();
+  ozonFixtureCount = store.records.length;
+  if (store.records.length === 0) {
+    fixtureStatus = { tone: "error", message: "No fixtures yet" };
+    renderLastPanel();
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(store, null, 2));
+    fixtureStatus = { tone: "normal", message: `Copied ${store.records.length}` };
+  } catch {
+    fixtureStatus = { tone: "error", message: "Clipboard blocked" };
+  }
+  renderLastPanel();
+}
+
+async function clearOzonFixtures(): Promise<void> {
+  if (ozonFixtureCount > 0 && !window.confirm("Clear recorded Ozon fixtures from this browser?")) {
+    return;
+  }
+  pendingFixtureInputs = [];
+  await chrome.storage.local.set({ [OZON_FIXTURE_STORE_KEY]: emptyOzonFixtureStore() });
+  ozonFixtureCount = 0;
+  fixtureStatus = { tone: "normal", message: "Cleared" };
+  renderLastPanel();
+}
+
 function getSavedOzonExternalIds(settings: ExtensionSettings | null): Set<string> {
   return new Set(
     (settings?.pickupPoints || [])
@@ -1674,6 +2048,17 @@ function isPickupCandidateSaved(candidate: OzonPickupCandidate, settings: Extens
 
 function getFirstUnsavedPickupCandidate(settings: ExtensionSettings): OzonPickupCandidate | null {
   return latestPickupCandidates.find((candidate) => !isPickupCandidateSaved(candidate, settings)) || null;
+}
+
+function ozonCandidateDisplayName(candidate: OzonPickupCandidate): string {
+  return safeOzonPickupName(candidate.name, candidate.externalLocationId);
+}
+
+function ozonPickupDisplayName(pickupPoint: PickupPoint): string {
+  if (pickupPoint.marketplace !== "ozon") {
+    return pickupPoint.name;
+  }
+  return safeOzonPickupName(pickupPoint.name, pickupPoint.externalLocationId);
 }
 
 function appendPickupRows(
@@ -1742,7 +2127,7 @@ function renderPickupRows(rows: PanelComparisonRow[], settings: ExtensionSetting
 
     const metaText = document.createElement("div");
     metaText.className = "metaText";
-    metaText.innerHTML = `<strong>${escapeHtml(row.pickupPoint.name)}</strong><span class="locationMeta">${escapeHtml(
+    metaText.innerHTML = `<strong>${escapeHtml(ozonPickupDisplayName(row.pickupPoint))}</strong><span class="locationMeta">${escapeHtml(
       row.pickupPoint.country
     )} / ${escapeHtml(row.pickupPoint.currency)}</span>`;
     metaHead.append(checkbox, metaText);
@@ -1860,7 +2245,9 @@ function detectedPickupCandidateList(settings: ExtensionSettings, product: Produ
 
     const text = document.createElement("span");
     text.className = "detectedCandidateText";
-    text.innerHTML = `<strong>${escapeHtml(candidate.name)}</strong><span>${escapeHtml(candidate.country)} / ${escapeHtml(candidate.currency)}</span>`;
+    text.innerHTML = `<strong>${escapeHtml(ozonCandidateDisplayName(candidate))}</strong><span>${escapeHtml(candidate.country)} / ${escapeHtml(
+      candidate.currency
+    )}</span>`;
 
     const saveButton = document.createElement("button");
     saveButton.type = "button";
@@ -1878,7 +2265,8 @@ function detectedPickupCandidateList(settings: ExtensionSettings, product: Produ
 }
 
 async function saveDetectedPickupCandidate(candidate: OzonPickupCandidate, product: ProductIdentity): Promise<void> {
-  captureStatus = { tone: "normal", message: `Saving: ${candidate.name}` };
+  const candidateName = ozonCandidateDisplayName(candidate);
+  captureStatus = { tone: "normal", message: `Saving: ${candidateName}` };
   renderLastPanel();
 
   const response = await savePickupCandidate(candidate, product);
@@ -1888,7 +2276,7 @@ async function saveDetectedPickupCandidate(candidate: OzonPickupCandidate, produ
     return;
   }
 
-  captureStatus = { tone: "normal", message: `Saved: ${candidate.name}` };
+  captureStatus = { tone: "normal", message: `Saved: ${candidateName}` };
   await syncCurrentOzonDeliveryMenuAssist();
   await runIfProductPage();
   await syncCurrentOzonDeliveryMenuAssist();
@@ -1914,6 +2302,9 @@ function openOptionsPage(): void {
 }
 
 function readableResultError(error: string): string {
+  if (error === AUTOMATIC_OZON_PRICE_LOOKUP_DISABLED) {
+    return "Select this point in Ozon, wait for the price, then use Capture current.";
+  }
   if (error.includes("response did not confirm requested pickup point")) {
     return "Ozon did not confirm this pickup point, so the current address may have been reused.";
   }
@@ -1941,7 +2332,7 @@ async function copyFailureDiagnostics(pickupPoint: PickupPoint, error: string, p
     product,
     pickupPoint: {
       id: pickupPoint.id,
-      name: pickupPoint.name,
+      name: ozonPickupDisplayName(pickupPoint),
       country: pickupPoint.country,
       currency: pickupPoint.currency,
       externalLocationId: pickupPoint.externalLocationId,
@@ -1950,7 +2341,7 @@ async function copyFailureDiagnostics(pickupPoint: PickupPoint, error: string, p
     error,
     detectedPickupCandidates: latestPickupCandidates.slice(0, 5).map((candidate) => ({
       externalLocationId: candidate.externalLocationId,
-      name: candidate.name,
+      name: ozonCandidateDisplayName(candidate),
       country: candidate.country,
       currency: candidate.currency,
       source: candidate.source,
@@ -1978,407 +2369,4 @@ function escapeHtml(value: string): string {
   const div = document.createElement("div");
   div.textContent = value;
   return div.innerHTML;
-}
-
-function panelCss(): string {
-  return `
-    :host {
-      color-scheme: dark;
-      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      letter-spacing: 0;
-      --mk-bg: #0c0c0c;
-      --mk-surface: #141414;
-      --mk-surface-2: #1b1b1c;
-      --mk-surface-3: #202022;
-      --mk-border: #2a2a2c;
-      --mk-border-strong: #3f3f46;
-      --mk-text: #fafafa;
-      --mk-muted: #a1a1aa;
-      --mk-quiet: #71717a;
-      --mk-accent: #f59e0b;
-      --mk-accent-strong: #fbbf24;
-      --mk-success: #22c55e;
-      --mk-danger: #ef4444;
-      --mk-info: #3b82f6;
-    }
-    * {
-      box-sizing: border-box;
-    }
-    .panel {
-      width: min(398px, calc(100vw - 24px));
-      margin: 12px 0;
-      border: 1px solid var(--mk-border);
-      border-radius: 12px;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.01)), var(--mk-surface);
-      box-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
-      overflow: hidden;
-      font-size: 13px;
-      line-height: 1.35;
-      z-index: 2147483647;
-      color: var(--mk-text);
-    }
-    .panel.collapsed {
-      width: min(246px, calc(100vw - 24px));
-      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
-    }
-    .floating {
-      position: fixed;
-      top: 84px;
-      right: 16px;
-    }
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 14px;
-      border-bottom: 1px solid var(--mk-border);
-      background:
-        radial-gradient(circle at top left, rgba(245, 158, 11, 0.12), transparent 240px),
-        #111111;
-    }
-    .collapsed .header {
-      min-height: 42px;
-      padding: 8px 10px 8px 12px;
-      border-bottom: 0;
-      cursor: pointer;
-      background: #111111;
-    }
-    .headerTitle {
-      min-width: 0;
-    }
-    .collapsedTitle strong {
-      font-size: 13px;
-      line-height: 1.1;
-    }
-    .eyebrow {
-      display: block;
-      margin: 0 0 5px;
-      color: var(--mk-accent-strong);
-      font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      text-transform: uppercase;
-    }
-    .header strong,
-    .meta strong,
-    .value strong {
-      display: block;
-      color: var(--mk-text);
-      font-size: 13px;
-      font-weight: 760;
-    }
-    .header span,
-    .meta span,
-    .value span {
-      display: block;
-      margin-top: 2px;
-      color: var(--mk-muted);
-      font-size: 12px;
-      overflow-wrap: anywhere;
-    }
-    .headerTitle > span:last-child {
-      max-width: 210px;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      overflow: hidden;
-    }
-    .header .eyebrow,
-    .pointManagerTop .eyebrow,
-    .detectedCandidatesTop .eyebrow {
-      margin: 0 0 5px;
-      color: var(--mk-accent-strong);
-      font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      text-transform: uppercase;
-    }
-    .headerActions {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex: 0 0 auto;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-    .collapsed .headerActions {
-      flex-wrap: nowrap;
-    }
-    .saveHeaderButton,
-    .secondaryButton,
-    .iconButton {
-      min-height: 32px;
-      padding: 0 10px;
-      border: 1px solid var(--mk-accent);
-      border-radius: 8px;
-      background: var(--mk-accent);
-      color: #111111;
-      cursor: pointer;
-      font: inherit;
-      font-size: 12px;
-      font-weight: 750;
-      white-space: nowrap;
-      transition:
-        transform 100ms ease,
-        border-color 150ms ease,
-        background 150ms ease;
-    }
-    button:hover:not(:disabled) {
-      border-color: var(--mk-accent-strong);
-    }
-    button:active:not(:disabled) {
-      transform: translateY(1px);
-    }
-    .secondaryButton {
-      border-color: var(--mk-border-strong);
-      background: var(--mk-surface-2);
-      color: var(--mk-text);
-    }
-    .iconButton {
-      border: 1px solid var(--mk-border-strong);
-      background: var(--mk-surface-2);
-      color: var(--mk-muted);
-      cursor: pointer;
-    }
-    .collapsed .collapseButton {
-      min-height: 28px;
-      padding: 0 9px;
-    }
-    .message {
-      margin: 0;
-      padding: 12px 14px;
-      color: var(--mk-muted);
-      overflow-wrap: anywhere;
-    }
-    .message.error {
-      color: #fca5a5;
-    }
-    .capture {
-      display: grid;
-      gap: 7px;
-      padding: 12px 14px;
-      border-top: 1px solid var(--mk-border);
-      background: rgba(255, 255, 255, 0.02);
-    }
-    .capture > span {
-      color: var(--mk-muted);
-      font-size: 12px;
-    }
-    .capture .message {
-      padding: 0;
-      font-size: 12px;
-    }
-    .captureButton {
-      min-height: 34px;
-      border: 1px solid var(--mk-accent);
-      border-radius: 8px;
-      background: var(--mk-accent);
-      color: #111111;
-      font: inherit;
-      font-weight: 750;
-      cursor: pointer;
-    }
-    .pointManager,
-    .detectedCandidates {
-      display: grid;
-      gap: 8px;
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--mk-border);
-      background: #101011;
-    }
-    .pointManagerTop,
-    .pointChoice,
-    .detectedCandidatesTop,
-    .detectedCandidate {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-    }
-    .pointManagerTop,
-    .detectedCandidatesTop {
-      justify-content: space-between;
-    }
-    .detectedHeader {
-      margin-top: 8px;
-      padding-top: 12px;
-      border-top: 1px solid var(--mk-border);
-    }
-    .pointManagerTop strong,
-    .detectedCandidatesTop strong,
-    .pointChoiceText strong,
-    .detectedCandidateText strong {
-      color: var(--mk-text);
-      font-size: 12px;
-      font-weight: 730;
-    }
-    .pointManagerTop span,
-    .pointChoiceText span,
-    .detectedCandidatesTop span,
-    .detectedCandidateText span {
-      display: block;
-      color: var(--mk-muted);
-      font-size: 11px;
-    }
-    .pointManagerControls {
-      display: flex;
-      gap: 6px;
-    }
-    .pointManagerControls button,
-    .deleteButton,
-    .saveSmallButton,
-    .detailsButton {
-      min-height: 28px;
-      padding: 0 8px;
-      border: 1px solid var(--mk-border-strong);
-      border-radius: 8px;
-      background: var(--mk-surface-2);
-      color: var(--mk-text);
-      font: inherit;
-      font-size: 12px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .pointChoice {
-      min-height: 32px;
-    }
-    .pointChoice input,
-    .compareToggle {
-      width: 16px;
-      height: 16px;
-      margin: 0;
-      flex: 0 0 auto;
-      accent-color: var(--mk-accent);
-    }
-    .pointChoiceText,
-    .detectedCandidateText,
-    .metaText {
-      flex: 1 1 auto;
-      min-width: 0;
-      overflow-wrap: anywhere;
-    }
-    .meta {
-      min-width: 0;
-    }
-    .metaHead {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      min-width: 0;
-    }
-    .rowActions {
-      margin-top: 7px;
-    }
-    .rowActions .deleteButton {
-      min-height: 24px;
-      padding: 0 7px;
-      font-size: 11px;
-    }
-    .deleteButton {
-      border-color: rgba(239, 68, 68, 0.4);
-      color: #fca5a5;
-    }
-    .saveSmallButton {
-      border-color: rgba(245, 158, 11, 0.72);
-      color: var(--mk-accent-strong);
-    }
-    .detailsButton {
-      border-color: var(--mk-border-strong);
-      color: var(--mk-muted);
-    }
-    .saveSmallButton:disabled {
-      border-color: var(--mk-border);
-      color: var(--mk-quiet);
-      cursor: default;
-    }
-    .pointManagerHint {
-      margin: 0;
-      color: var(--mk-muted);
-      font-size: 12px;
-    }
-    .rows {
-      display: grid;
-    }
-    .row {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(96px, 44%);
-      gap: 12px;
-      align-items: start;
-      padding: 12px 14px;
-      border-top: 1px solid var(--mk-border);
-      background: transparent;
-    }
-    .row:first-child {
-      border-top: 0;
-    }
-    .row.cheapest {
-      background: linear-gradient(90deg, rgba(34, 197, 94, 0.14), rgba(34, 197, 94, 0.03));
-      box-shadow: inset 3px 0 0 var(--mk-success);
-    }
-    .row.failed {
-      background: linear-gradient(90deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.03));
-    }
-    .row.unselected {
-      opacity: 0.72;
-    }
-    .value {
-      min-width: 0;
-      text-align: right;
-      max-width: 100%;
-      overflow-wrap: anywhere;
-    }
-    .value strong {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 14px;
-      letter-spacing: 0;
-      overflow-wrap: anywhere;
-    }
-    .value .original,
-    .locationMeta {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    }
-    .row.failed .value {
-      max-width: 190px;
-    }
-    .failureActions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 6px;
-      margin-top: 8px;
-      flex-wrap: wrap;
-    }
-    @media (max-width: 430px) {
-      .panel {
-        width: calc(100vw - 18px);
-      }
-      .header {
-        align-items: flex-start;
-        flex-direction: column;
-      }
-      .headerTitle > span:last-child {
-        max-width: 100%;
-      }
-      .headerActions {
-        width: 100%;
-        justify-content: flex-start;
-      }
-      .pointManagerTop,
-      .detectedCandidatesTop {
-        align-items: flex-start;
-        flex-wrap: wrap;
-      }
-      .pointManagerControls {
-        flex-wrap: wrap;
-      }
-      .pointChoice,
-      .detectedCandidate {
-        align-items: flex-start;
-      }
-      .row {
-        grid-template-columns: 1fr;
-      }
-      .value {
-        max-width: none;
-        text-align: left;
-      }
-      .failureActions {
-        justify-content: flex-start;
-      }
-    }
-  `;
 }

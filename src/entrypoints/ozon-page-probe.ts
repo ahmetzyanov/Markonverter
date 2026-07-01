@@ -1,7 +1,9 @@
-import { extractOzonPickupCandidatesFromSources, OzonCaptureSource } from "./marketplaces/ozon-pickup-capture";
+import { extractOzonPickupCandidatesFromSources, OzonCaptureSource } from "../marketplaces/ozon/pickup-capture";
 
 const COLLECT_EVENT = "markonverter:collect-ozon-pickup";
 const CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
+const NETWORK_FIXTURE_EVENT = "markonverter:ozon-network-fixture";
+const MAX_NETWORK_FIXTURE_TEXT_LENGTH = 2_000_000;
 
 install();
 
@@ -94,8 +96,8 @@ function patchFetch(): void {
   const originalFetch = window.fetch;
   window.fetch = async (...args) => {
     const response = await originalFetch(...args);
-    const url = fetchUrl(args[0]);
-    inspectResponse(url, response.clone());
+    const request = fetchRequest(args[0], args[1]);
+    inspectResponse({ ...request, source: "fetch" }, response.clone());
     return response;
   };
 }
@@ -105,45 +107,99 @@ function patchXhr(): void {
   const originalSend = XMLHttpRequest.prototype.send;
 
   XMLHttpRequest.prototype.open = function open(method: string, url: string | URL, ...rest: unknown[]) {
-    (this as XMLHttpRequest & { markonverterUrl?: string }).markonverterUrl = String(url);
+    const xhr = this as XMLHttpRequest & { markonverterMethod?: string; markonverterUrl?: string; markonverterRequestBody?: string };
+    xhr.markonverterMethod = method;
+    xhr.markonverterUrl = String(url);
     const forwardOpen = originalOpen as unknown as (this: XMLHttpRequest, ...args: unknown[]) => void;
     return forwardOpen.call(this, method, url, ...rest);
   };
 
   XMLHttpRequest.prototype.send = function send(...args: unknown[]) {
+    const xhr = this as XMLHttpRequest & { markonverterMethod?: string; markonverterUrl?: string; markonverterRequestBody?: string };
+    xhr.markonverterRequestBody = requestBodyText(args[0]);
     this.addEventListener("loadend", () => {
-      const xhr = this as XMLHttpRequest & { markonverterUrl?: string };
       if (!isRelevantUrl(xhr.markonverterUrl || "")) {
         return;
       }
-      inspectPayload(xhr.markonverterUrl || "xhr", xhr.responseText);
+      inspectPayload(
+        {
+          source: "xhr",
+          method: xhr.markonverterMethod || "GET",
+          url: xhr.markonverterUrl || "xhr",
+          status: xhr.status,
+          contentType: xhr.getResponseHeader("content-type") || "",
+          requestBody: xhr.markonverterRequestBody
+        },
+        xhr.responseText
+      );
     });
     return originalSend.call(this, ...(args as [Document | XMLHttpRequestBodyInit | null | undefined]));
   };
 }
 
-function inspectResponse(url: string, response: Response): void {
-  if (!isRelevantUrl(url)) {
+function inspectResponse(request: NetworkFixtureMeta, response: Response): void {
+  if (!isRelevantUrl(request.url)) {
     return;
   }
   response
     .text()
-    .then((text) => inspectPayload(url, text))
+    .then((text) =>
+      inspectPayload(
+        {
+          ...request,
+          status: response.status,
+          contentType: response.headers.get("content-type") || ""
+        },
+        text
+      )
+    )
     .catch(() => undefined);
 }
 
-function inspectPayload(url: string, text: string): void {
-  if (!text || text.length > 4_000_000) {
+interface NetworkFixtureMeta {
+  source: "fetch" | "xhr";
+  method: string;
+  url: string;
+  status?: number;
+  contentType?: string;
+  requestBody?: string;
+}
+
+function inspectPayload(meta: NetworkFixtureMeta, text: string): void {
+  if (!text) {
     return;
   }
+  const capturedText = text.slice(0, MAX_NETWORK_FIXTURE_TEXT_LENGTH);
   emitCandidates([
     {
-      source: `network.${url}`,
-      value: text,
+      source: `network.${meta.url}`,
+      value: capturedText,
       urlHint: location.href,
       textHint: collectDeliveryText()
     }
   ]);
+  emitNetworkFixture(meta, capturedText, text.length);
+}
+
+function emitNetworkFixture(meta: NetworkFixtureMeta, responseText: string, responseLength: number): void {
+  if (!isRelevantUrl(meta.url)) {
+    return;
+  }
+  document.dispatchEvent(
+    new CustomEvent(NETWORK_FIXTURE_EVENT, {
+      detail: JSON.stringify({
+        source: meta.source,
+        method: meta.method,
+        url: absoluteUrl(meta.url),
+        status: meta.status,
+        contentType: meta.contentType,
+        pageUrl: location.href,
+        requestBody: meta.requestBody,
+        responseText,
+        responseLength
+      })
+    })
+  );
 }
 
 function fetchUrl(input: RequestInfo | URL): string {
@@ -154,6 +210,43 @@ function fetchUrl(input: RequestInfo | URL): string {
     return input.href;
   }
   return input.url;
+}
+
+function fetchRequest(input: RequestInfo | URL, init?: RequestInit): NetworkFixtureMeta {
+  const method = init?.method || (input instanceof Request ? input.method : "GET");
+  return {
+    source: "fetch",
+    method,
+    url: fetchUrl(input),
+    requestBody: requestBodyText(init?.body)
+  };
+}
+
+function requestBodyText(body: unknown): string | undefined {
+  if (typeof body === "string") {
+    return body;
+  }
+  if (body instanceof URLSearchParams) {
+    return body.toString();
+  }
+  if (body instanceof Blob) {
+    return `[Blob ${body.type || "application/octet-stream"} ${body.size} bytes]`;
+  }
+  if (body instanceof FormData) {
+    return "[FormData]";
+  }
+  if (body instanceof ArrayBuffer) {
+    return `[ArrayBuffer ${body.byteLength} bytes]`;
+  }
+  return undefined;
+}
+
+function absoluteUrl(url: string): string {
+  try {
+    return new URL(url, location.href).toString();
+  } catch {
+    return url;
+  }
 }
 
 function isRelevantUrl(url: string): boolean {

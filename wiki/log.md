@@ -41,3 +41,50 @@ updates, and non-trivial implementation changes.
   names; these temporary labels now wait for a real address or fall back to
   `Ozon pickup <id>`, without borrowing a sibling address from the same modal
   JSON payload.
+- Refactored the source layout around stable responsibilities: MV3 entrypoints
+  moved to `src/entrypoints/`, content-script behavior moved under
+  `src/content/`, Ozon marketplace internals moved under
+  `src/marketplaces/ozon/`, and tests now mirror shared and marketplace areas.
+- Added a minimalist Markonverter extension icon source under `src/assets/` and
+  wired Chrome manifest icon sizes into the loadable extension build.
+
+## 2026-07-01
+
+- Updated Ozon saved-pickup activation to try the product-scoped
+  `select_address` modal form with `src_main=<product path>` and
+  `page_changed=true` before older fallbacks, matching real product-page
+  addressbook traffic more closely while preserving strict location
+  confirmation.
+- Added a fake-Ozon browser QA harness (`npm run qa:ozon`) so agents can verify
+  the unpacked MV3 extension end to end without trying to bypass Ozon antibot
+  responses. The harness intercepts product/API traffic locally and keeps live
+  Ozon reachability as a separate status.
+- Added a panel-level Ozon fixture recorder that stores bounded real
+  same-session Ozon network payloads from the page probe in `chrome.storage`
+  and exposes `Copy` / `Clear` controls for turning trusted manual Ozon sessions
+  into replay fixtures.
+- Inspected a trusted manual Ozon fixture export from a real product page and
+  used its delivery-widget shape to block `priceBadge.size` metadata such as
+  `SIZE_400` from being parsed as a product price. That export did not include
+  `select_address`, `deliveryAddressOid`, or PVZ ids, so full multi-PVZ replay
+  still requires recording the delivery/addressbook modal interaction.
+- Disabled automatic Ozon addressbook/PVZ activation in the product-page UI.
+  Real fixture evidence showed the old auto-price path could switch the user's
+  selected Ozon PVZ and reload the product page, while reliable multi-PVZ auto
+  pricing never materialized. Manual `Capture current` remains the safe price
+  path.
+- Added safe current-point auto-capture: when the visible Ozon delivery summary
+  clearly matches exactly one saved Markonverter pickup point, the extension
+  saves the visible product price as that point's product-specific manual quote
+  without sending Ozon any address-selection request.
+- Blocked Ozon's `Редактировать` action text from becoming a saved pickup-point
+  name, added automatic repair for already-saved Ozon points with unsafe action
+  labels, and covered the recovery path in the fake-Ozon browser harness.
+- Improved Ozon pickup-name resolution for generic `Ozon pickup <uuid>` labels:
+  current delivery widgets now contribute structured address/id evidence, and a
+  single saved generic point may be renamed from the visible delivery address
+  without sending Ozon a PVZ-selection request.
+- Fixed a PVZ name-corruption path where network/API candidate extraction could
+  use page-level current delivery `textHint` as the name for an echoed
+  `select_address` id. Saved-name repair now also refuses to apply one
+  non-generic candidate label to multiple different Ozon ids.

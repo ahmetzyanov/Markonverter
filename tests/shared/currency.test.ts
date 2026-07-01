@@ -1,5 +1,5 @@
-import { convertAmount, roundMoney } from "../src/shared/currency";
-import { DEFAULT_SETTINGS } from "../src/shared/types";
+import { convertAmount, roundMoney } from "../../src/shared/currency";
+import { DEFAULT_SETTINGS } from "../../src/shared/types";
 
 describe("currency conversion", () => {
   it("converts KZT to RUB", () => {

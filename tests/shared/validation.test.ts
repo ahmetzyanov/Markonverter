@@ -1,4 +1,4 @@
-import { normalizeSettings, validatePickupPoint } from "../src/shared/validation";
+import { normalizeSettings, validatePickupPoint } from "../../src/shared/validation";
 
 describe("pickup point validation", () => {
   it("requires Ozon external location id", () => {

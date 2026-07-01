@@ -1,5 +1,5 @@
-import { deletePickupPoint, manualQuoteKey, setComparisonPickupPointIds, upsertManualQuote, upsertPickupPoint } from "../src/shared/settings";
-import { DEFAULT_SETTINGS } from "../src/shared/types";
+import { deletePickupPoint, manualQuoteKey, setComparisonPickupPointIds, upsertManualQuote, upsertPickupPoint } from "../../src/shared/settings";
+import { DEFAULT_SETTINGS } from "../../src/shared/types";
 
 describe("settings helpers", () => {
   it("updates an existing pickup point with the same marketplace location id", () => {
