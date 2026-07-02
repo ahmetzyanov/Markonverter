@@ -21,6 +21,9 @@ a browser extension panel.
 - `scripts/qa-fake-ozon.mjs`: Playwright browser harness that loads `dist/` as
   an unpacked MV3 extension and serves fake Ozon product/API responses for
   end-to-end regression checks.
+- `scripts/qa-live-ozon.mjs`: explicit live-Ozon smoke probe that loads `dist/`
+  against a real product URL and can import a user-provided Ozon cookie or
+  Playwright storage-state export.
 - `dist/`: generated extension bundle loaded into Chrome/Chromium.
 
 ## Design Anchor
@@ -71,18 +74,22 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
   their own pointer, click, and keyboard events before Ozon row handlers see
   them. Saved badges still intercept clicks so a click on the badge does not
   select a pickup point or reload the Ozon page.
-- Product-page price rows must not automatically select saved Ozon pickup
-  points through `select_address`, `select_location`, or addressbook modal
-  endpoints. That old auto-price path can change the user's real selected PVZ
-  and reload the Ozon product page. Manual `Capture current` is the supported
-  price path for saved points without a product-specific manual quote.
+- Product-page price rows must not activate saved Ozon pickup points through
+  session-mutating addressbook endpoints. Saved rows should display only
+  product-specific captured quotes or remain unavailable with current-page
+  capture guidance. Do not reintroduce automatic saved-PVZ price lookup without
+  fresh live fixtures and an explicit user decision.
 - The injected product-page panel is nested under Ozon's price widget and must
   fit inside that price-card container. Prefer container-width CSS over widening
   Ozon's own layout.
-- Safe automation is allowed only in the opposite direction: when Ozon already
-  shows a selected delivery point and visible product price, Markonverter may
-  auto-save that visible price for the single saved point whose name/id evidence
-  clearly matches the visible delivery summary.
+- When Ozon already shows a selected delivery point and visible product price,
+  or the delivery selector exposes a selected/current PVZ row, Markonverter may
+  auto-save that visible price for the single saved point whose id/name evidence
+  clearly matches. This is the supported price capture path.
+- Live Ozon product pages may expose the opened pickup point through a compact
+  `addressBookBarWeb` widget whose visible text is only a street/house label.
+  Current-point capture must accept that smaller widget while keeping stricter
+  visibility checks for modal/list row detection.
 - Generic saved labels such as `Ozon pickup <uuid>` may be upgraded from the
   visible current delivery block only when there is a single saved generic Ozon
   point, or when the same current DOM/API object exposes both the id and address
@@ -104,8 +111,9 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
   ignore it for this pairing. If Ozon appends extra non-PVZ address ids, match
   by visible Ozon point number where possible and only fall back to prefix order
   for the remaining clearly numbered PVZ labels.
-- Keep any session-mutating Ozon address activation behind an explicit internal
-  opt-in; do not call it from the product-page UI by default.
+- Keep session-mutating Ozon address activation out of the product-page price
+  row flow. Request echoes, URL params, hrefs, debug fields, and tracking data
+  are not confirmation for current-price capture.
 - Some Ozon product responses confirm an internal selected-address id instead of
   the saved `select_address` id. Accept those aliases only if the activation
   response also confirms the saved id; never trust aliases that appear only in
@@ -114,6 +122,19 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
   antibot, or no-connection pages. The fake-Ozon harness is allowed to prove
   extension behavior against controlled HTML and JSON, but its result is not
   proof that live Ozon private APIs are reachable.
+- Live Ozon reachability checks should use `npm run qa:ozon:live -- --url ...`.
+  If a fresh automated profile is blocked, rerun only with an explicit trusted
+  cookie or storage-state export from the user; do not scrape normal browser
+  profiles silently and do not present a 403/no-connection page as an extension
+  failure.
+- Use `OZON_QA_CAPTURE_CHECK=1 npm run qa:ozon:live` when debugging current-PVZ
+  price capture against real Ozon. It saves the current detected PVZ in the test
+  browser profile, clears only the captured quote, reloads the product page, and
+  asserts that the opened PVZ price is captured again automatically.
+- This checkout may have local-only live QA secrets in `.env.ozon.local`, which
+  points `OZON_QA_COOKIES` at `.secrets/ozon-cookies.txt`. These files are
+  gitignored and must not be committed, printed, or copied into docs. When
+  present, run `set -a; source .env.ozon.local; set +a; npm run qa:ozon:live`.
 - Real Ozon replay fixtures should come from a trusted manual browser session:
   the page probe records relevant Ozon network responses, the content script
   stores a bounded buffer under `markonverter.ozonFixtures`, and the product

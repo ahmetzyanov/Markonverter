@@ -2164,7 +2164,7 @@
   var PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
   var NETWORK_FIXTURE_EVENT = "markonverter:ozon-network-fixture";
   var PANEL_STATE_KEY = "markonverter.panelState";
-  var AUTOMATIC_OZON_PRICE_LOOKUP_DISABLED = "Automatic Ozon price lookup is disabled because it can change the selected Ozon pickup point. Select this point in Ozon, wait for the visible product price, then use Capture current.";
+  var CURRENT_OZON_PRICE_NOT_CAPTURED = "Open or select this pickup point in Ozon, wait for the visible product price, then use Capture current if Markonverter does not capture it automatically.";
   var activeUrl = "";
   var activeRun = 0;
   var latestPickupCandidates = [];
@@ -2180,6 +2180,7 @@
   var pendingFixtureInputs = [];
   var isPanelCollapsed = false;
   var panelRecoveryTimer = null;
+  var currentQuoteCaptureTimer = null;
   var assistSyncTimer = null;
   var savedPickupNameSyncTimer = null;
   var pendingPanelConfirmationCancel = null;
@@ -2214,6 +2215,7 @@
     });
   }
   function schedulePanelRecovery() {
+    scheduleCurrentVisibleQuoteCapture();
     if (panelRecoveryTimer !== null) {
       return;
     }
@@ -2296,23 +2298,7 @@
       if (runId !== activeRun) {
         return;
       }
-      const manualQuote = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
-      if (manualQuote) {
-        results.push(
-          makeSuccessResult(
-            pickupPoint.id,
-            {
-              ...manualQuote.quote,
-              source: "manual",
-              capturedAt: manualQuote.capturedAt
-            },
-            settings.defaultCurrency,
-            settings
-          )
-        );
-      } else {
-        results.push(makeErrorResult(pickupPoint.id, AUTOMATIC_OZON_PRICE_LOOKUP_DISABLED));
-      }
+      results.push(compareOzonPickupPoint(product, pickupPoint, settings));
     }
     if (runId !== activeRun) {
       return;
@@ -2332,6 +2318,25 @@
     const selectedIds = new Set(settings.comparisonPickupPointIds);
     return allPickupPoints.filter((point) => selectedIds.has(point.id));
   }
+  function compareOzonPickupPoint(product, pickupPoint, settings) {
+    const manualQuote = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
+    if (manualQuote) {
+      return makeManualQuoteResult(pickupPoint.id, manualQuote, settings);
+    }
+    return makeErrorResult(pickupPoint.id, CURRENT_OZON_PRICE_NOT_CAPTURED);
+  }
+  function makeManualQuoteResult(pickupPointId, manualQuote, settings) {
+    return makeSuccessResult(
+      pickupPointId,
+      {
+        ...manualQuote.quote,
+        source: "manual",
+        capturedAt: manualQuote.capturedAt
+      },
+      settings.defaultCurrency,
+      settings
+    );
+  }
   async function requestOzonPrice(request) {
     return fetchOzonPrivatePrice(request);
   }
@@ -2350,6 +2355,7 @@
       if (mergePickupCandidates(candidates)) {
         renderLastPanel();
         scheduleOzonDeliveryAssistSync();
+        scheduleCurrentVisibleQuoteCapture();
       }
     } catch {
     }
@@ -2654,7 +2660,7 @@
       if (element.closest('[role="dialog"], [aria-modal="true"], [data-widget*="dialog" i], [data-widget*="modal" i]')) {
         return;
       }
-      if (!isVisible(element)) {
+      if (!isVisibleDeliverySummaryElement(element)) {
         return;
       }
       const text = cleanOzonDeliverySummaryText(element);
@@ -2781,8 +2787,9 @@
       return settings;
     }
     requestPagePickupCandidates();
-    mergePickupCandidates(extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources()));
-    const pickupPoint = findSavedPickupPointForVisibleDelivery(settings, visibleDeliveryText);
+    const currentCandidates = currentVisibleOzonPickupCandidates();
+    mergePickupCandidates([...currentCandidates, ...extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources())]);
+    const pickupPoint = findSavedPickupPointForVisibleDelivery(settings, visibleDeliveryText, currentCandidates);
     if (!pickupPoint) {
       return settings;
     }
@@ -2809,6 +2816,31 @@
     } finally {
       autoCaptureInFlight.delete(lockKey);
     }
+  }
+  function scheduleCurrentVisibleQuoteCapture() {
+    if (currentQuoteCaptureTimer !== null) {
+      return;
+    }
+    currentQuoteCaptureTimer = window.setTimeout(() => {
+      currentQuoteCaptureTimer = null;
+      void captureCurrentVisibleQuoteFromLatestSettings();
+    }, 600);
+  }
+  async function captureCurrentVisibleQuoteFromLatestSettings() {
+    const product = getCurrentProduct();
+    if (!product || isPanelCollapsed) {
+      return;
+    }
+    const settings = await getLatestSettings();
+    if (!settings) {
+      return;
+    }
+    const updatedSettings = await autoCaptureCurrentVisibleQuote(product, settings);
+    if (updatedSettings === settings) {
+      return;
+    }
+    latestSettings = updatedSettings;
+    await runIfProductPage();
   }
   async function repairUnsafeSavedPickupNames(settings) {
     let nextSettings = settings;
@@ -2871,9 +2903,15 @@
   function quoteMatchesManualQuote(manualQuote, quote) {
     return manualQuote.quote.amount === quote.amount && manualQuote.quote.currency === quote.currency && (manualQuote.quote.rawText || "") === (quote.rawText || "");
   }
-  function findSavedPickupPointForVisibleDelivery(settings, visibleDeliveryText) {
+  function findSavedPickupPointForVisibleDelivery(settings, visibleDeliveryText, currentCandidates = []) {
     const savedPoints = settings.pickupPoints.filter((point) => point.marketplace === "ozon" && point.externalLocationId.trim() !== "");
     const byExternalId = new Map(savedPoints.map((point) => [point.externalLocationId, point]));
+    const explicitCurrentMatches = currentCandidates.map((candidate) => byExternalId.get(candidate.externalLocationId)).filter((point) => Boolean(point));
+    const explicitCurrentIds = new Set(explicitCurrentMatches.map((point) => point.id));
+    if (explicitCurrentIds.size === 1) {
+      const [pointId] = explicitCurrentIds;
+      return explicitCurrentMatches.find((point) => point.id === pointId) || null;
+    }
     const candidateMatches = latestPickupCandidates.map((candidate) => {
       const point = byExternalId.get(candidate.externalLocationId);
       return point ? {
@@ -2886,7 +2924,7 @@
     const directMatches = savedPoints.map((point) => ({
       point,
       score: scoreVisiblePickupMatch(`${ozonPickupDisplayName(point)} ${point.comment || ""}`, visibleDeliveryText)
-    })).filter((match) => match.score >= 18);
+    })).filter((match) => match.score >= 14);
     const byPointId = /* @__PURE__ */ new Map();
     for (const match of [...candidateMatches, ...directMatches]) {
       const existing = byPointId.get(match.point.id);
@@ -2938,7 +2976,7 @@
       if (element.closest('[role="dialog"], [aria-modal="true"], [data-widget*="dialog" i], [data-widget*="modal" i]')) {
         return;
       }
-      if (!isVisible(element)) {
+      if (!isVisibleDeliverySummaryElement(element)) {
         return;
       }
       const text = cleanOzonDeliverySummaryText(element);
@@ -2947,6 +2985,29 @@
       }
     });
     return compactText3(chunks.join(" | ")).slice(0, 2500);
+  }
+  function currentVisibleOzonPickupCandidates() {
+    return uniqueOzonPickupCandidates([
+      ...extractOzonPickupCandidatesFromSources(collectCurrentDeliveryPickupSources(location.href)),
+      ...collectSelectedOzonDeliveryRowCandidates()
+    ]);
+  }
+  function collectSelectedOzonDeliveryRowCandidates() {
+    const container = findOzonDeliveryContainer();
+    if (!container) {
+      return [];
+    }
+    return collectOzonDeliveryRowCandidates(container).filter((row) => row.candidate && isSelectedOzonDeliveryRow(row.row)).map((row) => row.candidate);
+  }
+  function uniqueOzonPickupCandidates(candidates) {
+    const byId = /* @__PURE__ */ new Map();
+    for (const candidate of candidates) {
+      const existing = byId.get(candidate.externalLocationId);
+      if (!existing || shouldReplaceOzonPickupCandidate(existing, candidate)) {
+        byId.set(candidate.externalLocationId, candidate);
+      }
+    }
+    return [...byId.values()];
   }
   function cleanOzonDeliverySummaryText(element) {
     const clone = element.cloneNode(true);
@@ -3265,6 +3326,10 @@
     const rect = element.getBoundingClientRect();
     return rect.width > 120 && rect.height > 40 && rect.bottom > 0 && rect.right > 0;
   }
+  function isVisibleDeliverySummaryElement(element) {
+    const rect = element.getBoundingClientRect();
+    return rect.width > 20 && rect.height > 8 && rect.bottom > 0 && rect.right > 0;
+  }
   function isLikelyOzonDeliverySelectorContainer(element) {
     if (element.id === PANEL_ID || element.closest(`#${PANEL_ID}`) || element.id === MENU_ASSIST_ID) {
       return false;
@@ -3300,11 +3365,19 @@
     if (rowCandidates.length > 0 && mergePickupCandidates(rowCandidates)) {
       renderLastPanel();
     }
-    const settings = await getLatestSettings();
+    let settings = await getLatestSettings();
     const savedExternalIds = getSavedOzonExternalIds(settings);
     suppressOzonAssistObserver();
     decorateOzonDeliveryRows(target, rows, savedExternalIds, product);
     renderOzonDeliveryAssist(assist, rows, savedExternalIds);
+    if (settings) {
+      const updatedSettings = await autoCaptureCurrentVisibleQuote(product, settings);
+      if (updatedSettings !== settings) {
+        settings = updatedSettings;
+        latestSettings = settings;
+        await runIfProductPage();
+      }
+    }
   }
   function suppressOzonAssistObserver() {
     suppressAssistObserverUntil = Date.now() + 300;
@@ -3565,6 +3638,20 @@
   }
   function extractOzonVisiblePointNumber(text) {
     return compactText3(text.match(/(?:№|N[°o.]?)\s*([\d-]{3,})/i)?.[1] || "");
+  }
+  function isSelectedOzonDeliveryRow(row) {
+    const evidence = [
+      row.getAttribute("aria-selected") || "",
+      row.getAttribute("aria-checked") || "",
+      row.getAttribute("data-selected") || "",
+      row.getAttribute("data-checked") || "",
+      row.getAttribute("data-active") || "",
+      row.getAttribute("data-state") || "",
+      row.getAttribute("data-testid") || "",
+      typeof row.className === "string" ? row.className : "",
+      getOzonRowText(row)
+    ].join(" ").toLowerCase();
+    return /(^|[\s_-])(?:true|selected|checked|active|current|chosen|выбрано|текущий)(?=$|[\s_-])/i.test(evidence);
   }
   function rowMatchKey(text) {
     return extractOzonVisiblePointNumber(text) || pickupMatchTokens(text).values().next().value || compactText3(text).slice(0, 80);
@@ -4284,10 +4371,24 @@
       renderLastPanel();
       return;
     }
-    captureStatus = { tone: "normal", message: `Saved: ${candidateName}` };
+    const savedPoint = response.settings.pickupPoints.find(
+      (point) => point.marketplace === "ozon" && point.externalLocationId === candidate.externalLocationId
+    );
+    const quoteCaptured = savedPoint && isCurrentVisibleOzonPickupCandidate(candidate) ? await saveCurrentVisibleQuoteForPoint(savedPoint, product, { requireConfirmation: false }) : false;
+    captureStatus = {
+      tone: "normal",
+      message: quoteCaptured ? `Saved and captured current price: ${candidateName}` : `Saved: ${candidateName}`
+    };
     await syncCurrentOzonDeliveryMenuAssist();
     await runIfProductPage();
     await syncCurrentOzonDeliveryMenuAssist();
+  }
+  function isCurrentVisibleOzonPickupCandidate(candidate) {
+    if (currentVisibleOzonPickupCandidates().some((item) => item.externalLocationId === candidate.externalLocationId)) {
+      return true;
+    }
+    const visibleDeliveryText = collectCurrentDeliverySummaryText();
+    return visibleDeliveryText ? scoreVisiblePickupMatch(candidate.name, visibleDeliveryText, { allowSingleStrongToken: true }) >= 10 : false;
   }
   function messageNode(text, tone = "normal") {
     const node = document.createElement("p");
@@ -4305,8 +4406,8 @@
     });
   }
   function readableResultError(error) {
-    if (error === AUTOMATIC_OZON_PRICE_LOOKUP_DISABLED) {
-      return "Select this point in Ozon, wait for the price, then use Capture current.";
+    if (error === CURRENT_OZON_PRICE_NOT_CAPTURED) {
+      return "Open or select this pickup point in Ozon, wait for the price, then use Capture current.";
     }
     if (error.includes("response did not confirm requested pickup point")) {
       return "Ozon did not confirm this pickup point, so the current address may have been reused.";

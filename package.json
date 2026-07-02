@@ -6,6 +6,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "qa:ozon": "npm run build && node scripts/qa-fake-ozon.mjs",
+    "qa:ozon:live": "npm run build && node scripts/qa-live-ozon.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

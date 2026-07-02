@@ -19,6 +19,15 @@ product prices across saved pickup points. Source code lives in `src/`, tests in
 - Treat `dist/` as build output. Update it only when the task requires a
   loadable extension build or when source changes must be reflected there.
 
+## Ozon Live QA
+
+- Deterministic browser regression coverage is `npm run qa:ozon`.
+- Real Ozon reachability is checked separately with `npm run qa:ozon:live`.
+- This checkout may have local-only live QA env/cookies in `.env.ozon.local`
+  and `.secrets/ozon-cookies.txt`. These files are gitignored secrets: use the
+  paths only, do not print their contents, and do not commit them.
+- To run the saved live check: `set -a; source .env.ozon.local; set +a; npm run qa:ozon:live`.
+
 ## Routing Contract
 
 The main agent owns requirements, architecture, integration, and final judgment.

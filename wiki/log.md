@@ -117,3 +117,23 @@ updates, and non-trivial implementation changes.
   read-only `/modal/addressbook?set_sm=1&page_changed=true` discovery endpoint
   and parse `commonAddressBook` rows that expose `addressBookId` plus nested
   `elements[].text` address labels.
+
+## 2026-07-02
+
+- Dropped automatic saved-PVZ price lookup again after it changed the selected
+  Ozon pickup point on page reload. Price capture is focused on the currently
+  visible/opened Ozon PVZ: saved rows show product-specific captured quotes or
+  remain unavailable with current-page capture guidance.
+- Added a separate live-Ozon smoke probe (`npm run qa:ozon:live`) for checking
+  a real product page with the unpacked extension. It accepts explicit cookie or
+  Playwright storage-state exports from a trusted browser session and reports
+  Ozon 403/no-connection blocks separately from fake-harness regressions.
+- Stored the working Ozon live-QA session in local ignored files:
+  `.env.ozon.local` points to `.secrets/ozon-cookies.txt`. Future agents should
+  use the paths only and avoid printing or committing cookie contents.
+- Fixed current/opened PVZ price capture on live Ozon reloads. The real product
+  page exposed the opened point through a small `addressBookBarWeb` widget with
+  only `ул. Вахитова, 174б`, which the previous visibility filter ignored.
+  Current-delivery capture now accepts compact address widgets, the fake harness
+  covers the street/house-only case, and live QA has
+  `OZON_QA_CAPTURE_CHECK=1` for the save-clear-reload capture path.

@@ -42,7 +42,9 @@ const routeState = {
 const routeStats = {
   apiHits: 0,
   productHits: 0,
+  locationSelectionRequests: 0,
   lastApiUrls: [],
+  lastLocationSelectionUrls: [],
   lastGoto: null
 };
 
@@ -80,6 +82,7 @@ try {
   await verifyDetectedPickupSave(page, worker);
   await verifyCurrentAddressReuseRegression(page, worker);
   await verifyCorruptedEditNameRecovery(page, worker);
+  await verifyStreetOnlyCurrentSummaryCapture(page, worker);
   await verifySelectorIdsOnlyNameResolution(page, worker);
   await verifyGenericUuidNameResolution(page, worker);
   await verifyManualTwoPointSuccess(page, worker);
@@ -95,6 +98,11 @@ async function installFakeOzonRoutes(browserContext) {
     routeStats.apiHits += 1;
     routeStats.lastApiUrls.push(route.request().url());
     routeStats.lastApiUrls = routeStats.lastApiUrls.slice(-5);
+    if (requestedLocationFromRequest(route.request())) {
+      routeStats.locationSelectionRequests += 1;
+      routeStats.lastLocationSelectionUrls.push(route.request().url());
+      routeStats.lastLocationSelectionUrls = routeStats.lastLocationSelectionUrls.slice(-5);
+    }
     const response = fakeOzonApiResponse(route.request());
     await route.fulfill({
       status: 200,
@@ -143,7 +151,7 @@ async function verifyDetectedPickupSave(page, worker) {
   await waitForPageText(page, /PVZ visible/, "delivery selector helper");
 
   await clickPanelButton(page, "Save");
-  await waitForPanelText(page, /Saved: |Checking 1 pickup points|Auto captured current price/, "detected pickup save status");
+  await waitForPanelText(page, /Saved: |Saved and captured current price|Checking 1 pickup points|Auto captured current price/, "detected pickup save status");
   await page.locator('[data-markonverter-pvz-action].is-saved').waitFor({ timeout: timeoutMs });
 
   const settings = await readSettings(worker);
@@ -153,6 +161,7 @@ async function verifyDetectedPickupSave(page, worker) {
 async function verifyCurrentAddressReuseRegression(page, worker) {
   routeState.scenario = "reuse";
   await seedStorage(worker, settingsWithPickupPoints([fakePoints.ru, fakePoints.kz]));
+  const locationSelectionRequestsBefore = routeStats.locationSelectionRequests;
   await openFakeProduct(page, "reuse");
 
   await waitForPanelText(page, /Moscow pickup/, "Moscow row");
@@ -160,7 +169,11 @@ async function verifyCurrentAddressReuseRegression(page, worker) {
   await waitForPanelText(page, /17[\s\u00a0]*000,00[\s\u00a0]*₽/, "current KZ point auto-captured from visible page");
   await waitForPanelText(page, /Auto captured current price|Captured /, "auto capture status");
   await waitForPanelText(page, /Unavailable/, "unavailable row before manual capture");
-  await waitForPanelText(page, /Select this point in Ozon.*Capture current/i, "manual capture guidance");
+  await waitForPanelText(page, /Open or select this pickup point in Ozon.*Capture current/i, "current PVZ capture guidance");
+  assert(
+    routeStats.locationSelectionRequests === locationSelectionRequestsBefore,
+    `saved-row comparison sent Ozon location-selection requests: ${JSON.stringify(routeStats.lastLocationSelectionUrls)}`
+  );
 
   let settings = await readSettings(worker);
   assert(settings.manualQuotes["2229282395:kz"], "current KZ point was auto-captured without pressing Capture current");
@@ -195,6 +208,20 @@ async function verifyCorruptedEditNameRecovery(page, worker) {
   const settings = await readSettings(worker);
   assert(settings.pickupPoints.every((point) => point.name !== "Редактировать"), "corrupted saved pickup names were not repaired");
   assert(settings.manualQuotes["2229282395:kz"], "current KZ point was auto-captured after edit-name repair");
+}
+
+async function verifyStreetOnlyCurrentSummaryCapture(page, worker) {
+  routeState.scenario = "street-only-current-summary";
+  await seedStorage(worker, settingsWithPickupPoints([{ ...fakePoints.kz, name: "Буинск, ул. Вахитова, 174Б" }]));
+  await openFakeProduct(page, "street-only-current-summary");
+
+  await waitForPanelText(page, /17[\s\u00a0]*000,00[\s\u00a0]*₽/, "street-only current summary auto-capture");
+
+  const settings = await readSettings(worker);
+  assert(
+    settings.manualQuotes["2229282395:kz"],
+    "street-only current delivery summary did not auto-capture the saved current pickup point"
+  );
 }
 
 async function verifySelectorIdsOnlyNameResolution(page, worker) {
@@ -243,10 +270,14 @@ async function verifyGenericUuidNameResolution(page, worker) {
   await openFakeProduct(page, "generic-name-resolution");
 
   await waitForPanelText(page, /Астана|Astana pickup/, "generic UUID pickup name resolved to an address label");
-  const text = await panelText(page);
-  assert(!text.includes(`Ozon pickup ${fakePoints.kz.externalLocationId}`), "generic Ozon pickup name remained visible");
-
-  const settings = await readSettings(worker);
+  const settings = await waitForSettingsCondition(
+    worker,
+    (current) =>
+      current.pickupPoints.some(
+        (point) => point.externalLocationId === fakePoints.kz.externalLocationId && !point.name.startsWith("Ozon pickup ")
+      ),
+    "generic saved pickup name repaired"
+  );
   assert(
     settings.pickupPoints.some((point) => point.externalLocationId === fakePoints.kz.externalLocationId && !point.name.startsWith("Ozon pickup ")),
     "generic saved pickup name was not repaired"
@@ -310,6 +341,25 @@ async function waitForPanelText(page, matcher, label) {
   }
   throw new Error(
     `Timed out waiting for ${label}. Fake route stats: ${JSON.stringify(routeStats, null, 2)}. Current panel text:\n${current}`
+  );
+}
+
+async function waitForSettingsCondition(worker, predicate, label) {
+  const deadline = Date.now() + timeoutMs;
+  let current = null;
+  while (Date.now() < deadline) {
+    current = await readSettings(worker);
+    if (predicate(current)) {
+      return current;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error(
+    `Timed out waiting for ${label}. Fake route stats: ${JSON.stringify(routeStats, null, 2)}. Current settings:\n${JSON.stringify(
+      current,
+      null,
+      2
+    )}`
   );
 }
 
@@ -491,6 +541,14 @@ function manualQuotesForFakePoints() {
 }
 
 function fakeOzonApiResponse(request) {
+  if (routeState.scenario === "street-only-current-summary") {
+    return {
+      widgetStates: {
+        webPrice: JSON.stringify({ price: fakePoints.kz.priceText })
+      }
+    };
+  }
+
   if (routeState.scenario === "selector-ids-only") {
     if (requestContainsAddressbookSetSm(request)) {
       return fakeAddressbookSetSmResponse();
@@ -657,11 +715,13 @@ function requestedLocationFromRequest(request) {
 
 function fakeProductHtml() {
   const selectorIdsOnly = routeState.scenario === "selector-ids-only";
+  const streetOnlyCurrentSummary = routeState.scenario === "street-only-current-summary";
+  const includeDeliveryDialog = !selectorIdsOnly && !streetOnlyCurrentSummary;
   const deliveryDialogHtml = `<div class="delivery-dialog" data-widget="deliveryDialog" role="dialog" aria-label="Delivery selector">
         <h2>Выберите пункт выдачи</h2>
         ${Object.values(fakePoints)
           .map(
-            (point) => `<div class="pvz-row" role="option" ${
+            (point) => `<div class="pvz-row" role="option" aria-selected="${point.externalLocationId === fakePoints.kz.externalLocationId}" ${
               selectorIdsOnly ? "" : `data-delivery-address-oid="${point.externalLocationId}"`
             } title="${visibleSelectorLabel(point)}">
           ${visibleSelectorLabel(point)} Срок хранения заказа - 14 дней
@@ -671,25 +731,27 @@ function fakeProductHtml() {
           .join("")}
         ${selectorIdsOnly ? '<div class="home-row" role="option">Дом Буинск, ул. Комарова, 87</div>' : ""}
       </div>`;
-  const state = {
-    delivery: {
-      selectedAddress: selectorIdsOnly
-        ? {
-            fullAddress: fakePoints.kz.name
-          }
-        : {
-            deliveryAddressOid: fakePoints.kz.externalLocationId,
-            fullAddress: fakePoints.kz.name
-          },
-      items: selectorIdsOnly
-        ? []
-        : Object.values(fakePoints).map((point) => ({
-            deliveryAddressOid: point.externalLocationId,
-            fullAddress: point.name,
-            title: point.name
-          }))
-    }
-  };
+  const state = streetOnlyCurrentSummary
+    ? { delivery: { selectedAddress: { fullAddress: "Пункт Ozon • ул. Вахитова, 174б" }, items: [] } }
+    : {
+        delivery: {
+          selectedAddress: selectorIdsOnly
+            ? {
+                fullAddress: fakePoints.kz.name
+              }
+            : {
+                deliveryAddressOid: fakePoints.kz.externalLocationId,
+                fullAddress: fakePoints.kz.name
+              },
+          items: selectorIdsOnly
+            ? []
+            : Object.values(fakePoints).map((point) => ({
+                deliveryAddressOid: point.externalLocationId,
+                fullAddress: point.name,
+                title: point.name
+              }))
+        }
+      };
 
   return `<!doctype html>
 <html>
@@ -703,6 +765,7 @@ function fakeProductHtml() {
       .price-card { box-sizing: border-box; width: 288px; max-width: 100%; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
       [data-widget="webPrice"] { width: 100%; min-height: 56px; margin: 0 0 16px; font-size: 32px; font-weight: 700; }
       [data-widget="webDelivery"] { width: 520px; min-height: 76px; margin: 16px 0; padding: 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
+      [data-widget="addressBookBarWeb"] { width: 180px; min-height: 20px; margin: 12px 0; font-size: 14px; }
       .delivery-dialog { width: 520px; min-height: 260px; padding: 16px; border: 1px solid #d1d5db; border-radius: 12px; background: #fff; }
       .pvz-row { display: block; position: relative; width: 460px; min-height: 68px; margin-top: 10px; padding: 12px 120px 12px 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fafafa; }
     </style>
@@ -722,13 +785,17 @@ function fakeProductHtml() {
       <div class="product-layout">
         <section>
           <h1>Fake Ozon Product</h1>
-          <div data-widget="webDelivery">
-            <strong>Доставка и возврат</strong>
-            <div>Пункт Ozon № 440-129 ${fakePoints.kz.name}, Астана, пр-кт Улы Дала, 31</div>
-            <div>Пункты выдачи Ozon · С 19 июля</div>
-            <button type="button" onclick="window.__openFakeDeliverySelector()">Редактировать</button>
-          </div>
-          ${selectorIdsOnly ? "" : deliveryDialogHtml}
+          ${
+            streetOnlyCurrentSummary
+              ? '<div data-widget="addressBookBarWeb">ул. Вахитова, 174б</div>'
+              : `<div data-widget="webDelivery">
+                  <strong>Доставка и возврат</strong>
+                  <div>Пункт Ozon № 440-129 ${fakePoints.kz.name}, Астана, пр-кт Улы Дала, 31</div>
+                  <div>Пункты выдачи Ozon · С 19 июля</div>
+                  <button type="button" onclick="window.__openFakeDeliverySelector()">Редактировать</button>
+                </div>`
+          }
+          ${includeDeliveryDialog ? deliveryDialogHtml : ""}
         </section>
         <aside class="price-card">
           <div data-widget="webPrice"><span>100 000 ₸</span></div>
