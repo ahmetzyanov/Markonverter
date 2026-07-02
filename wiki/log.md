@@ -141,3 +141,12 @@ updates, and non-trivial implementation changes.
   currency item block instead of spanning from the first currency entry to the
   target one. Saved implausible KZT-to-RUB rates such as `53.96` are now
   normalized back to the safe default until a fresh provider update succeeds.
+- Simplified saved-PVZ rows in the product panel: removed product-panel
+  comparison checkboxes, the `Add current` header button, misleading
+  country/currency metadata under saved names, and visible delivery/capture
+  metadata under prices. Compare selection now lives on the settings page;
+  saved-row deletion is a hidden hover/focus action with reserved layout space
+  so rows do not jump on hover.
+- Removed manual pickup-point creation from the settings page. Ozon points are
+  now added from the product-page delivery selector, while settings keep saved
+  point comparison, ordering, and deletion controls.

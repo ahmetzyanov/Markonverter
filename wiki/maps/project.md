@@ -28,7 +28,10 @@ a browser extension panel.
 
 ## Design Anchor
 
-Use `DESIGN.md` as the source of truth for UI and visual design decisions.
+The root `DESIGN.md` currently describes a different product. Until that file
+is corrected for Markonverter, use the existing extension UI as the design
+anchor: dark compact surfaces, amber actions, restrained blue/green status
+accents, and price-card-width layouts.
 
 ## Ozon Content UI
 
@@ -36,8 +39,14 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
   pickup-point id. Do not add per-row pending badges; use the assist status for
   loading state instead.
 - The product-page panel should avoid repeating the same pickup point across
-  separate saved, detected, and price lists. Saved points are managed from their
-  comparison rows, and the detected list is only for unsaved Ozon candidates.
+  separate saved, detected, and price lists. Saved points are comparison rows
+  in the product panel; compare-selection belongs in the extension settings
+  page. Destructive saved-row deletion may exist in the product panel only as a
+  hover/focus action with reserved layout space so row dimensions do not jump.
+  The detected list is only for unsaved Ozon candidates.
+- Settings must not expose manual pickup-point creation or raw Ozon id entry.
+  New Ozon pickup points should be captured from the product-page delivery
+  selector so labels and ids come from the same visible Ozon context.
 - When Ozon first exposes only a pickup-point id, content-script discovery should
   prefer later addressbook labels for the same id and silently update saved
   points only if their current name is an auto-generated id label.
@@ -141,8 +150,8 @@ Use `DESIGN.md` as the source of truth for UI and visual design decisions.
   panel's `Ozon fixtures` row can copy or clear that local buffer.
 - Product-panel confirmations should be inline UI, not native browser
   `confirm()` dialogs. Chrome can suppress repeated page dialogs after the user
-  opts out, causing later destructive actions such as saved-PVZ deletion or
-  fixture clearing to auto-cancel.
+  opts out, causing later destructive actions such as fixture clearing to
+  auto-cancel.
 - A product-page-only real fixture can be insufficient for price/PVZ replay.
   A captured `webDelivery` widget may include address text and delivery dates
   but no `select_address`, `deliveryAddressOid`, or PVZ id. Its `priceBadge`

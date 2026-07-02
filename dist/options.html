@@ -179,6 +179,14 @@
         border-color: rgba(239, 68, 68, 0.55);
         color: #fca5a5;
       }
+      button.compareState {
+        border-color: rgba(34, 197, 94, 0.45);
+        color: #86efac;
+      }
+      button.compareState.isSkipped {
+        border-color: var(--border-strong);
+        color: var(--muted);
+      }
       .grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -280,7 +288,7 @@
         <div>
           <p class="eyebrow">Ozon price console</p>
           <h1>Markonverter</h1>
-          <p class="lede">Compare saved pickup points, tune conversion rates, and keep manual Ozon location ids under control.</p>
+          <p class="lede">Compare saved pickup points, tune conversion rates, and manage Ozon locations captured from product pages.</p>
         </div>
         <span class="metric">RUB / KZT</span>
       </header>
@@ -325,63 +333,6 @@
             <button id="refreshCurrency" type="button">Update rates</button>
             <span id="currencyRateInfo" class="rateInfo"></span>
           </div>
-        </div>
-      </section>
-
-      <section>
-        <div class="sectionHead">
-          <div>
-            <p class="eyebrow">Manual editor</p>
-            <h2>Pickup point</h2>
-          </div>
-        </div>
-        <div class="sectionBody">
-          <p class="note">
-            Fast path: open an Ozon product, open the delivery selector, then use
-            <strong>Add</strong> on the exact pickup-point row. Use this form only to edit or add ids manually.
-          </p>
-          <form id="pointForm">
-            <input id="pointId" type="hidden" />
-            <div class="grid">
-              <label>
-                Name
-                <input id="pointName" required />
-              </label>
-              <label>
-                Marketplace
-                <select id="pointMarketplace">
-                  <option value="ozon">Ozon</option>
-                  <option value="wildberries" disabled>Wildberries</option>
-                </select>
-              </label>
-              <label>
-                Country
-                <select id="pointCountry">
-                  <option value="RU">Russia</option>
-                  <option value="KZ">Kazakhstan</option>
-                </select>
-              </label>
-              <label>
-                Currency
-                <select id="pointCurrency">
-                  <option value="RUB">RUB</option>
-                  <option value="KZT">KZT</option>
-                </select>
-              </label>
-              <label>
-                Ozon location id
-                <input id="pointExternalId" required />
-              </label>
-              <label class="wide">
-                Comment
-                <textarea id="pointComment" rows="2"></textarea>
-              </label>
-            </div>
-            <div class="actions">
-              <button id="savePoint" class="primary" type="submit">Save pickup point</button>
-              <button id="resetPoint" type="button">Clear</button>
-            </div>
-          </form>
         </div>
       </section>
 

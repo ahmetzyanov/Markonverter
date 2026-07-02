@@ -33,25 +33,6 @@
       manualQuotes: normalizeManualQuotes(candidate?.manualQuotes, pickupPoints)
     };
   }
-  function validatePickupPoint(pickupPoint) {
-    const errors = [];
-    if (!pickupPoint.name.trim()) {
-      errors.push("Name is required");
-    }
-    if (pickupPoint.marketplace !== "ozon" && pickupPoint.marketplace !== "wildberries") {
-      errors.push("Marketplace is unsupported");
-    }
-    if (pickupPoint.marketplace === "ozon" && !pickupPoint.externalLocationId.trim()) {
-      errors.push("Ozon location id is required");
-    }
-    if (!SUPPORTED_CURRENCIES.includes(pickupPoint.currency)) {
-      errors.push("Currency is unsupported");
-    }
-    if (!pickupPoint.country.trim()) {
-      errors.push("Country is required");
-    }
-    return errors;
-  }
   function sanitizeRate(value, fallback, max = Number.POSITIVE_INFINITY) {
     return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= max ? value : fallback;
   }
@@ -156,16 +137,6 @@
     saveCurrency: mustGet("saveCurrency"),
     refreshCurrency: mustGet("refreshCurrency"),
     currencyRateInfo: mustGet("currencyRateInfo"),
-    pointForm: mustGet("pointForm"),
-    pointId: mustGet("pointId"),
-    pointName: mustGet("pointName"),
-    pointMarketplace: mustGet("pointMarketplace"),
-    pointCountry: mustGet("pointCountry"),
-    pointCurrency: mustGet("pointCurrency"),
-    pointExternalId: mustGet("pointExternalId"),
-    pointComment: mustGet("pointComment"),
-    savePoint: mustGet("savePoint"),
-    resetPoint: mustGet("resetPoint"),
     pointList: mustGet("pointList"),
     status: mustGet("status")
   };
@@ -202,24 +173,6 @@
     elements.refreshCurrency.addEventListener("click", () => {
       void refreshCurrencyRates();
     });
-    elements.pointForm.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const point = readPointForm();
-      const errors = validatePickupPoint(point);
-      if (errors.length > 0) {
-        setStatus(errors.join(". "), true);
-        return;
-      }
-      const index = settings.pickupPoints.findIndex((existing) => existing.id === point.id);
-      if (index >= 0) {
-        settings.pickupPoints[index] = point;
-      } else {
-        settings.pickupPoints.push(point);
-      }
-      clearPointForm();
-      enqueueSaveSettings("Pickup point saved");
-    });
-    elements.resetPoint.addEventListener("click", clearPointForm);
   }
   function render() {
     elements.rateProvider.value = settings.currencyRateProvider;
@@ -272,7 +225,7 @@
     if (settings.pickupPoints.length === 0) {
       const empty = document.createElement("div");
       empty.className = "point";
-      empty.innerHTML = "<strong>No pickup points configured.</strong><span>Add points from an Ozon delivery selector or add one manually.</span>";
+      empty.innerHTML = "<strong>No pickup points configured.</strong><span>Add points from an Ozon delivery selector on a product page.</span>";
       elements.pointList.append(empty);
       return;
     }
@@ -283,45 +236,38 @@
       meta.innerHTML = `<strong>${escapeHtml(point.name)}</strong><span>${escapeHtml(point.marketplace)} / ${escapeHtml(point.country)} / ${escapeHtml(point.currency)} / ${escapeHtml(point.externalLocationId)}</span>`;
       const actions = document.createElement("div");
       actions.className = "actions";
+      const compared = isPointCompared(point);
+      const compare = button(
+        compared ? "Compared" : "Skipped",
+        compared ? "Exclude from product-page comparison" : "Include in product-page comparison",
+        () => togglePointComparison(point.id),
+        compared ? "compareState" : "compareState isSkipped"
+      );
       const up = button("Up", "Move up", () => movePoint(index, -1));
       const down = button("Down", "Move down", () => movePoint(index, 1));
-      const edit = button("Edit", "Edit", () => fillPointForm(point));
       const remove = button("Delete", "Delete", () => removePoint(point.id), "danger");
       up.disabled = index === 0;
       down.disabled = index === settings.pickupPoints.length - 1;
-      actions.append(up, down, edit, remove);
+      actions.append(compare, up, down, remove);
       row.append(meta, actions);
       elements.pointList.append(row);
     });
   }
-  function readPointForm() {
-    return {
-      id: elements.pointId.value || crypto.randomUUID(),
-      name: elements.pointName.value.trim(),
-      marketplace: elements.pointMarketplace.value,
-      country: elements.pointCountry.value,
-      currency: SUPPORTED_CURRENCIES.includes(elements.pointCurrency.value) ? elements.pointCurrency.value : "RUB",
-      externalLocationId: elements.pointExternalId.value.trim(),
-      comment: elements.pointComment.value.trim()
-    };
+  function isPointCompared(point) {
+    return point.marketplace !== "ozon" || settings.comparisonPickupPointIds === null || settings.comparisonPickupPointIds.includes(point.id);
   }
-  function fillPointForm(point) {
-    elements.pointId.value = point.id;
-    elements.pointName.value = point.name;
-    elements.pointMarketplace.value = point.marketplace;
-    elements.pointCountry.value = point.country;
-    elements.pointCurrency.value = point.currency;
-    elements.pointExternalId.value = point.externalLocationId;
-    elements.pointComment.value = point.comment || "";
-  }
-  function clearPointForm() {
-    elements.pointId.value = "";
-    elements.pointName.value = "";
-    elements.pointMarketplace.value = "ozon";
-    elements.pointCountry.value = "RU";
-    elements.pointCurrency.value = "RUB";
-    elements.pointExternalId.value = "";
-    elements.pointComment.value = "";
+  function togglePointComparison(pointId) {
+    const ozonIds = settings.pickupPoints.filter((point) => point.marketplace === "ozon").map((point) => point.id);
+    const selected = new Set(settings.comparisonPickupPointIds ?? ozonIds);
+    const isSelected = selected.has(pointId);
+    if (isSelected) {
+      selected.delete(pointId);
+    } else {
+      selected.add(pointId);
+    }
+    const nextIds = ozonIds.filter((id) => selected.has(id));
+    settings.comparisonPickupPointIds = nextIds.length === ozonIds.length ? null : nextIds;
+    enqueueSaveSettings(isSelected ? "Pickup point skipped" : "Pickup point compared");
   }
   function movePoint(index, direction) {
     const nextIndex = index + direction;
@@ -388,8 +334,6 @@
   function setSaving(isSaving) {
     elements.saveCurrency.disabled = isSaving;
     elements.refreshCurrency.disabled = isSaving || readRateProvider() === "manual";
-    elements.savePoint.disabled = isSaving;
-    elements.resetPoint.disabled = isSaving;
     elements.pointList.querySelectorAll("button").forEach((button2) => {
       button2.disabled = isSaving;
     });

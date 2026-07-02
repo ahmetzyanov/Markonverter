@@ -2,12 +2,10 @@ import { RuntimeRequest, RuntimeResponse } from "../shared/messages";
 import {
   CurrencyRateProvider,
   ExtensionSettings,
-  MarketplaceId,
   PickupPoint,
-  SUPPORTED_CURRENCIES,
   SUPPORTED_CURRENCY_RATE_PROVIDERS
 } from "../shared/types";
-import { normalizeSettings, validatePickupPoint } from "../shared/validation";
+import { normalizeSettings } from "../shared/validation";
 
 const RATE_PROVIDER_LABELS: Record<CurrencyRateProvider, string> = {
   manual: "Manual",
@@ -28,16 +26,6 @@ const elements = {
   saveCurrency: mustGet<HTMLButtonElement>("saveCurrency"),
   refreshCurrency: mustGet<HTMLButtonElement>("refreshCurrency"),
   currencyRateInfo: mustGet<HTMLSpanElement>("currencyRateInfo"),
-  pointForm: mustGet<HTMLFormElement>("pointForm"),
-  pointId: mustGet<HTMLInputElement>("pointId"),
-  pointName: mustGet<HTMLInputElement>("pointName"),
-  pointMarketplace: mustGet<HTMLSelectElement>("pointMarketplace"),
-  pointCountry: mustGet<HTMLSelectElement>("pointCountry"),
-  pointCurrency: mustGet<HTMLSelectElement>("pointCurrency"),
-  pointExternalId: mustGet<HTMLInputElement>("pointExternalId"),
-  pointComment: mustGet<HTMLTextAreaElement>("pointComment"),
-  savePoint: mustGet<HTMLButtonElement>("savePoint"),
-  resetPoint: mustGet<HTMLButtonElement>("resetPoint"),
   pointList: mustGet<HTMLDivElement>("pointList"),
   status: mustGet<HTMLDivElement>("status")
 };
@@ -85,26 +73,6 @@ function bindEvents(): void {
     void refreshCurrencyRates();
   });
 
-  elements.pointForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const point = readPointForm();
-    const errors = validatePickupPoint(point);
-    if (errors.length > 0) {
-      setStatus(errors.join(". "), true);
-      return;
-    }
-
-    const index = settings.pickupPoints.findIndex((existing) => existing.id === point.id);
-    if (index >= 0) {
-      settings.pickupPoints[index] = point;
-    } else {
-      settings.pickupPoints.push(point);
-    }
-    clearPointForm();
-    enqueueSaveSettings("Pickup point saved");
-  });
-
-  elements.resetPoint.addEventListener("click", clearPointForm);
 }
 
 function render(): void {
@@ -165,7 +133,7 @@ function renderPointList(): void {
   if (settings.pickupPoints.length === 0) {
     const empty = document.createElement("div");
     empty.className = "point";
-    empty.innerHTML = "<strong>No pickup points configured.</strong><span>Add points from an Ozon delivery selector or add one manually.</span>";
+    empty.innerHTML = "<strong>No pickup points configured.</strong><span>Add points from an Ozon delivery selector on a product page.</span>";
     elements.pointList.append(empty);
     return;
   }
@@ -180,51 +148,42 @@ function renderPointList(): void {
     const actions = document.createElement("div");
     actions.className = "actions";
 
+    const compared = isPointCompared(point);
+    const compare = button(
+      compared ? "Compared" : "Skipped",
+      compared ? "Exclude from product-page comparison" : "Include in product-page comparison",
+      () => togglePointComparison(point.id),
+      compared ? "compareState" : "compareState isSkipped"
+    );
     const up = button("Up", "Move up", () => movePoint(index, -1));
     const down = button("Down", "Move down", () => movePoint(index, 1));
-    const edit = button("Edit", "Edit", () => fillPointForm(point));
     const remove = button("Delete", "Delete", () => removePoint(point.id), "danger");
     up.disabled = index === 0;
     down.disabled = index === settings.pickupPoints.length - 1;
-    actions.append(up, down, edit, remove);
+    actions.append(compare, up, down, remove);
 
     row.append(meta, actions);
     elements.pointList.append(row);
   });
 }
 
-function readPointForm(): PickupPoint {
-  return {
-    id: elements.pointId.value || crypto.randomUUID(),
-    name: elements.pointName.value.trim(),
-    marketplace: elements.pointMarketplace.value as MarketplaceId,
-    country: elements.pointCountry.value,
-    currency: SUPPORTED_CURRENCIES.includes(elements.pointCurrency.value as never)
-      ? (elements.pointCurrency.value as PickupPoint["currency"])
-      : "RUB",
-    externalLocationId: elements.pointExternalId.value.trim(),
-    comment: elements.pointComment.value.trim()
-  };
+function isPointCompared(point: PickupPoint): boolean {
+  return point.marketplace !== "ozon" || settings.comparisonPickupPointIds === null || settings.comparisonPickupPointIds.includes(point.id);
 }
 
-function fillPointForm(point: PickupPoint): void {
-  elements.pointId.value = point.id;
-  elements.pointName.value = point.name;
-  elements.pointMarketplace.value = point.marketplace;
-  elements.pointCountry.value = point.country;
-  elements.pointCurrency.value = point.currency;
-  elements.pointExternalId.value = point.externalLocationId;
-  elements.pointComment.value = point.comment || "";
-}
+function togglePointComparison(pointId: string): void {
+  const ozonIds = settings.pickupPoints.filter((point) => point.marketplace === "ozon").map((point) => point.id);
+  const selected = new Set(settings.comparisonPickupPointIds ?? ozonIds);
+  const isSelected = selected.has(pointId);
+  if (isSelected) {
+    selected.delete(pointId);
+  } else {
+    selected.add(pointId);
+  }
 
-function clearPointForm(): void {
-  elements.pointId.value = "";
-  elements.pointName.value = "";
-  elements.pointMarketplace.value = "ozon";
-  elements.pointCountry.value = "RU";
-  elements.pointCurrency.value = "RUB";
-  elements.pointExternalId.value = "";
-  elements.pointComment.value = "";
+  const nextIds = ozonIds.filter((id) => selected.has(id));
+  settings.comparisonPickupPointIds = nextIds.length === ozonIds.length ? null : nextIds;
+  enqueueSaveSettings(isSelected ? "Pickup point skipped" : "Pickup point compared");
 }
 
 function movePoint(index: number, direction: -1 | 1): void {
@@ -304,8 +263,6 @@ function setStatus(message: string, error = false): void {
 function setSaving(isSaving: boolean): void {
   elements.saveCurrency.disabled = isSaving;
   elements.refreshCurrency.disabled = isSaving || readRateProvider() === "manual";
-  elements.savePoint.disabled = isSaving;
-  elements.resetPoint.disabled = isSaving;
   elements.pointList.querySelectorAll("button").forEach((button) => {
     button.disabled = isSaving;
   });
