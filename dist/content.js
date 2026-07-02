@@ -857,9 +857,14 @@
       line-height: 1.35;
       z-index: 2147483647;
       color: var(--mk-text);
+      transform-origin: top right;
+      transition:
+        max-width 220ms cubic-bezier(0.16, 1, 0.3, 1),
+        box-shadow 180ms ease,
+        border-color 180ms ease;
     }
     .panel.collapsed {
-      max-width: min(246px, calc(100vw - 24px));
+      max-width: min(268px, calc(100vw - 24px));
       box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
     }
     .floating {
@@ -879,18 +884,21 @@
         #111111;
     }
     .collapsed .header {
-      min-height: 42px;
-      padding: 8px 10px 8px 12px;
+      min-height: 44px;
+      padding: 8px 10px;
       border-bottom: 0;
       cursor: pointer;
-      background: #111111;
+      background:
+        radial-gradient(circle at top left, rgba(245, 158, 11, 0.13), transparent 150px),
+        #111111;
     }
     .headerTitle {
       min-width: 0;
     }
-    .collapsedTitle strong {
-      font-size: 13px;
-      line-height: 1.1;
+    .collapsedTitle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
     .eyebrow {
       display: block;
@@ -915,6 +923,44 @@
       color: var(--mk-muted);
       font-size: 12px;
       overflow-wrap: anywhere;
+    }
+    .header .collapsedBrandMark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      flex: 0 0 26px;
+      border: 1px solid rgba(245, 158, 11, 0.5);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(251, 191, 36, 0.14), rgba(59, 130, 246, 0.12)),
+        var(--mk-surface-2);
+      color: var(--mk-accent-strong);
+      font: 850 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+      overflow-wrap: normal;
+    }
+    .header .collapsedBrandText {
+      display: grid;
+      min-width: 0;
+      gap: 1px;
+      margin: 0;
+    }
+    .header .collapsedBrandText strong {
+      color: var(--mk-text);
+      font: 800 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0;
+      text-transform: lowercase;
+      white-space: nowrap;
+    }
+    .header .collapsedBrandText span {
+      margin: 0;
+      color: var(--mk-muted);
+      font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      overflow-wrap: normal;
     }
     .headerTitle > span:last-child {
       max-width: 210px;
@@ -941,7 +987,6 @@
     .collapsed .headerActions {
       flex-wrap: nowrap;
     }
-    .saveHeaderButton,
     .secondaryButton,
     .iconButton {
       min-height: 32px;
@@ -1109,14 +1154,6 @@
     .pointChoice {
       min-height: 32px;
     }
-    .pointChoice input,
-    .compareToggle {
-      width: 16px;
-      height: 16px;
-      margin: 0;
-      flex: 0 0 auto;
-      accent-color: var(--mk-accent);
-    }
     .pointChoiceText,
     .detectedCandidateText,
     .metaText {
@@ -1129,17 +1166,36 @@
     }
     .metaHead {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       gap: 8px;
       min-width: 0;
     }
-    .rowActions {
-      margin-top: 7px;
-    }
-    .rowActions .deleteButton {
+    .rowHoverActions {
+      display: flex;
+      justify-content: flex-end;
+      flex: 0 0 54px;
+      width: 54px;
       min-height: 24px;
+    }
+    .rowDeleteButton {
+      min-height: 24px;
+      width: 54px;
       padding: 0 7px;
       font-size: 11px;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition:
+        opacity 140ms ease,
+        visibility 140ms ease,
+        border-color 150ms ease,
+        background 150ms ease;
+    }
+    .row:hover .rowDeleteButton,
+    .row:focus-within .rowDeleteButton {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
     }
     .deleteButton {
       border-color: rgba(239, 68, 68, 0.4);
@@ -1273,8 +1329,7 @@
       letter-spacing: 0;
       overflow-wrap: anywhere;
     }
-    .value .original,
-    .locationMeta {
+    .value .original {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
     .row.failed .value {
@@ -2164,6 +2219,10 @@
   var PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
   var NETWORK_FIXTURE_EVENT = "markonverter:ozon-network-fixture";
   var PANEL_STATE_KEY = "markonverter.panelState";
+  var PANEL_COLLAPSED_HEIGHT = 44;
+  var PANEL_COLLAPSED_MAX_WIDTH = 268;
+  var PANEL_COLLAPSE_DURATION_MS = 220;
+  var PANEL_EXPAND_DURATION_MS = 240;
   var CURRENT_OZON_PRICE_NOT_CAPTURED = "Open or select this pickup point in Ozon, wait for the visible product price, then use Capture current if Markonverter does not capture it automatically.";
   var activeUrl = "";
   var activeRun = 0;
@@ -2185,6 +2244,7 @@
   var savedPickupNameSyncTimer = null;
   var pendingPanelConfirmationCancel = null;
   var suppressAssistObserverUntil = 0;
+  var panelTransitionVersion = 0;
   var targetedPickupDiscoveryIds = /* @__PURE__ */ new Set();
   var autoPickupSelectorOpenKeys = /* @__PURE__ */ new Set();
   var pageActionHandlers = /* @__PURE__ */ new WeakMap();
@@ -2684,41 +2744,6 @@
   function compactText3(value) {
     return value.replace(/\s+/g, " ").trim();
   }
-  async function saveSelectedPickupPoint(product) {
-    captureStatus = { tone: "normal", message: "Checking Ozon pickup point..." };
-    renderLastPanel();
-    const candidate = await getBestPickupCandidate();
-    if (!candidate) {
-      captureStatus = {
-        tone: "error",
-        message: "No Ozon pickup point is available to save yet."
-      };
-      renderLastPanel();
-      return { ok: false, error: captureStatus.message };
-    }
-    if (isPickupCandidateSaved(candidate, latestSettings)) {
-      captureStatus = { tone: "normal", message: `Already saved: ${ozonCandidateDisplayName(candidate)}` };
-      renderLastPanel();
-      return { ok: true };
-    }
-    const response = await savePickupCandidate(candidate, product);
-    if (!response.ok || !("settings" in response)) {
-      captureStatus = { tone: "error", message: response.ok ? "Pickup point was not saved" : response.error };
-      renderLastPanel();
-      return { ok: false, error: captureStatus.message };
-    }
-    const savedPoint = response.settings.pickupPoints.find(
-      (point) => point.marketplace === "ozon" && point.externalLocationId === candidate.externalLocationId
-    );
-    const quoteCaptured = savedPoint ? await saveCurrentVisibleQuoteForPoint(savedPoint, product, { requireConfirmation: false }) : false;
-    const candidateName = ozonCandidateDisplayName(candidate);
-    captureStatus = {
-      tone: "normal",
-      message: quoteCaptured ? `Saved and captured current price: ${candidateName}` : `Saved: ${candidateName}`
-    };
-    await runIfProductPage();
-    return response;
-  }
   async function savePickupCandidate(candidate, product) {
     const name = ozonCandidateDisplayName(candidate);
     const pickupPoint = {
@@ -3078,31 +3103,6 @@
     }
     latestSettings = response.settings;
     scheduleOzonDeliveryAssistSync();
-    await runIfProductPage();
-    if (getCurrentProduct()?.productId === product.productId) {
-      renderLastPanel();
-    }
-  }
-  async function toggleComparisonPoint(pickupPointId, isSelected, settings, product) {
-    const allIds = settings.pickupPoints.filter((point) => point.marketplace === "ozon").map((point) => point.id);
-    const selected = new Set(settings.comparisonPickupPointIds ?? allIds);
-    if (isSelected) {
-      selected.add(pickupPointId);
-    } else {
-      selected.delete(pickupPointId);
-    }
-    const nextIds = allIds.filter((id) => selected.has(id));
-    await updateComparisonSelection(nextIds.length === allIds.length ? null : nextIds, product);
-  }
-  async function updateComparisonSelection(pickupPointIds, product) {
-    captureStatus = { tone: "normal", message: pickupPointIds === null ? "Comparing all saved points" : "Comparison points updated" };
-    const response = await runtimeRequest({ type: "SET_COMPARISON_PICKUP_POINT_IDS", pickupPointIds });
-    if (!response.ok || !("settings" in response)) {
-      captureStatus = { tone: "error", message: response.ok ? "Comparison selection was not saved" : response.error };
-      renderLastPanel();
-      return;
-    }
-    latestSettings = response.settings;
     await runIfProductPage();
     if (getCurrentProduct()?.productId === product.productId) {
       renderLastPanel();
@@ -3929,7 +3929,7 @@
     }
     const header = document.createElement("div");
     header.className = "header";
-    header.innerHTML = isPanelCollapsed ? `<div class="headerTitle collapsedTitle"><strong>Markonverter</strong></div>` : `<div class="headerTitle"><span class="eyebrow">Markonverter</span><strong>Pickup prices</strong><span>${escapeHtml(model.product.title || "Ozon product")}</span></div>`;
+    header.innerHTML = isPanelCollapsed ? `<div class="headerTitle collapsedTitle"><span class="collapsedBrandMark" aria-hidden="true">M</span><span class="collapsedBrandText"><strong>markonverter</strong><span>prices</span></span></div>` : `<div class="headerTitle"><span class="eyebrow">Markonverter</span><strong>Pickup prices</strong><span>${escapeHtml(model.product.title || "Ozon product")}</span></div>`;
     if (isPanelCollapsed) {
       header.title = "Expand Markonverter panel";
       header.addEventListener("click", (event) => {
@@ -3941,20 +3941,6 @@
     }
     const headerActions = document.createElement("div");
     headerActions.className = "headerActions";
-    const panelSettings = "settings" in model ? model.settings : null;
-    const currentSaveCandidate = panelSettings ? getFirstUnsavedPickupCandidate(panelSettings) : null;
-    let saveButton = null;
-    if (currentSaveCandidate) {
-      const candidateToSave = currentSaveCandidate;
-      saveButton = document.createElement("button");
-      saveButton.type = "button";
-      saveButton.className = "saveHeaderButton";
-      saveButton.title = `Add ${candidateToSave.name} to Markonverter`;
-      saveButton.textContent = "Add current";
-      saveButton.addEventListener("click", () => {
-        void saveSelectedPickupPoint(model.product);
-      });
-    }
     const settingsButton = document.createElement("button");
     settingsButton.type = "button";
     settingsButton.className = "iconButton settingsButton";
@@ -3980,9 +3966,6 @@
     if (isPanelCollapsed) {
       headerActions.append(collapseButton);
     } else {
-      if (saveButton) {
-        headerActions.append(saveButton);
-      }
       headerActions.append(settingsButton, collapseButton);
     }
     header.append(headerActions);
@@ -4100,8 +4083,41 @@
     return { collapsed: candidate?.collapsed === true };
   }
   async function setPanelCollapsed(collapsed) {
+    if (collapsed === isPanelCollapsed) {
+      return;
+    }
+    const transitionVersion = ++panelTransitionVersion;
+    const currentPanel = currentPanelElement();
+    const fromRect = currentPanel?.getBoundingClientRect();
+    if (collapsed && currentPanel && fromRect) {
+      await animatePanelBox(
+        currentPanel,
+        { width: fromRect.width, height: fromRect.height },
+        {
+          width: Math.min(fromRect.width, PANEL_COLLAPSED_MAX_WIDTH, Math.max(0, window.innerWidth - 24)),
+          height: PANEL_COLLAPSED_HEIGHT
+        },
+        PANEL_COLLAPSE_DURATION_MS,
+        false
+      );
+      if (transitionVersion !== panelTransitionVersion) {
+        return;
+      }
+    }
     isPanelCollapsed = collapsed;
     renderLastPanel();
+    if (!collapsed && fromRect) {
+      const expandedPanel = currentPanelElement();
+      const toRect = expandedPanel?.getBoundingClientRect();
+      if (expandedPanel && toRect) {
+        await animatePanelBox(
+          expandedPanel,
+          { width: fromRect.width, height: fromRect.height },
+          { width: toRect.width, height: toRect.height },
+          PANEL_EXPAND_DURATION_MS
+        );
+      }
+    }
     try {
       await chrome.storage.local.set({ [PANEL_STATE_KEY]: { collapsed } });
     } catch {
@@ -4109,6 +4125,58 @@
     if (!collapsed) {
       await runIfProductPage();
     }
+  }
+  function currentPanelElement() {
+    const host = document.getElementById(PANEL_ID);
+    return host?.shadowRoot?.querySelector(".panel") || null;
+  }
+  async function animatePanelBox(panel, from, to, duration, cleanup = true) {
+    if (!Number.isFinite(from.width) || !Number.isFinite(from.height) || from.width <= 0 || from.height <= 0) {
+      return;
+    }
+    const previous = {
+      width: panel.style.width,
+      height: panel.style.height,
+      maxHeight: panel.style.maxHeight,
+      overflow: panel.style.overflow,
+      pointerEvents: panel.style.pointerEvents,
+      willChange: panel.style.willChange
+    };
+    panel.style.width = `${from.width}px`;
+    panel.style.height = `${from.height}px`;
+    panel.style.maxHeight = `${from.height}px`;
+    panel.style.overflow = "hidden";
+    panel.style.pointerEvents = "none";
+    panel.style.willChange = "width, height, max-height";
+    const animation = panel.animate(
+      [
+        {
+          width: `${from.width}px`,
+          height: `${from.height}px`,
+          maxHeight: `${from.height}px`
+        },
+        {
+          width: `${to.width}px`,
+          height: `${to.height}px`,
+          maxHeight: `${to.height}px`
+        }
+      ],
+      {
+        duration,
+        easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+        fill: "forwards"
+      }
+    );
+    await animation.finished.catch(() => void 0);
+    if (!cleanup) {
+      return;
+    }
+    panel.style.width = previous.width;
+    panel.style.height = previous.height;
+    panel.style.maxHeight = previous.maxHeight;
+    panel.style.overflow = previous.overflow;
+    panel.style.pointerEvents = previous.pointerEvents;
+    panel.style.willChange = previous.willChange;
   }
   function appendCaptureStatus(root) {
     if (captureStatus) {
@@ -4192,12 +4260,6 @@
       (settings?.pickupPoints || []).filter((point) => point.marketplace === "ozon" && point.externalLocationId.trim() !== "").map((point) => point.externalLocationId)
     );
   }
-  function isPickupCandidateSaved(candidate, settings) {
-    return getSavedOzonExternalIds(settings).has(candidate.externalLocationId);
-  }
-  function getFirstUnsavedPickupCandidate(settings) {
-    return latestPickupCandidates.find((candidate) => !isPickupCandidateSaved(candidate, settings)) || null;
-  }
   function ozonCandidateDisplayName(candidate) {
     return safeOzonPickupName(candidate.name, candidate.externalLocationId);
   }
@@ -4210,7 +4272,7 @@
   function appendPickupRows(root, settings, comparedPickupPoints, results, product) {
     const rows = buildPanelComparisonRows(settings, comparedPickupPoints, results);
     if (rows.length > 0) {
-      root.append(renderPickupRows(rows, settings, product));
+      root.append(renderPickupRows(rows, product));
     }
   }
   function buildPanelComparisonRows(settings, comparedPickupPoints, results) {
@@ -4232,7 +4294,7 @@
   function isComparisonPointSelected(pickupPoint, settings) {
     return settings.comparisonPickupPointIds ? settings.comparisonPickupPointIds.includes(pickupPoint.id) : true;
   }
-  function renderPickupRows(rows, settings, product) {
+  function renderPickupRows(rows, product) {
     const list = document.createElement("div");
     list.className = "rows";
     for (const row of rows) {
@@ -4242,47 +4304,39 @@
       meta.className = "meta";
       const metaHead = document.createElement("div");
       metaHead.className = "metaHead";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.className = "compareToggle";
-      checkbox.checked = row.isSelected;
-      checkbox.title = row.isSelected ? "Remove this pickup point from comparison" : "Compare this pickup point";
-      checkbox.addEventListener("change", () => {
-        void toggleComparisonPoint(row.pickupPoint.id, checkbox.checked, settings, product);
-      });
       const metaText = document.createElement("div");
       metaText.className = "metaText";
-      metaText.innerHTML = `<strong>${escapeHtml(ozonPickupDisplayName(row.pickupPoint))}</strong><span class="locationMeta">${escapeHtml(
-        row.pickupPoint.country
-      )} / ${escapeHtml(row.pickupPoint.currency)}</span>`;
-      metaHead.append(checkbox, metaText);
+      metaText.innerHTML = `<strong>${escapeHtml(ozonPickupDisplayName(row.pickupPoint))}</strong>`;
       const rowActions = document.createElement("div");
-      rowActions.className = "rowActions";
+      rowActions.className = "rowHoverActions";
       const deleteButton = document.createElement("button");
       deleteButton.type = "button";
-      deleteButton.className = "deleteButton";
+      deleteButton.className = "deleteButton rowDeleteButton";
       deleteButton.textContent = "Delete";
       deleteButton.title = "Delete saved pickup point";
       deleteButton.addEventListener("click", () => {
         void deleteSavedPickupPoint(row.pickupPoint, product);
       });
       rowActions.append(deleteButton);
-      meta.append(metaHead, rowActions);
+      metaHead.append(metaText, rowActions);
+      meta.append(metaHead);
       const value = document.createElement("div");
       value.className = "value";
       if (!row.result) {
         const idle = document.createElement("strong");
         idle.textContent = row.isSelected ? "Waiting" : "Not compared";
         const hint = document.createElement("span");
-        hint.textContent = row.isSelected ? "Waiting for Ozon response" : "Enable to fetch this point";
+        hint.textContent = row.isSelected ? "Waiting for Ozon response" : "Enable in Settings";
         value.append(idle, hint);
       } else if (row.result.status === "success") {
         const original = formatCurrency(row.result.originalPrice.amount, row.result.originalPrice.currency);
         const converted = formatCurrency(row.result.convertedAmount, row.result.convertedCurrency);
-        const delivery = row.result.originalPrice.deliveryText;
-        const manualLabel = row.result.originalPrice.source === "manual" ? `Captured ${formatCapturedAt(row.result.originalPrice.capturedAt)}` : "";
+        const capturedTitle = row.result.originalPrice.source === "manual" ? `Captured ${formatCapturedAt(row.result.originalPrice.capturedAt)}` : "";
         const delta = row.deltaFromCheapest && row.deltaFromCheapest > 0 ? `+${formatCurrency(row.deltaFromCheapest, row.result.convertedCurrency)}` : row.isCheapest ? "best" : "";
-        value.innerHTML = `<strong>${converted}</strong><span class="original">${escapeHtml(original)} ${escapeHtml(delta)}</span>${delivery ? `<span>${escapeHtml(delivery)}</span>` : ""}${manualLabel ? `<span>${escapeHtml(manualLabel)}</span>` : ""}`;
+        if (capturedTitle) {
+          value.title = capturedTitle;
+        }
+        value.innerHTML = `<strong>${converted}</strong><span class="original">${escapeHtml([original, delta].filter(Boolean).join(" "))}</span>`;
       } else {
         const error = row.result.error;
         value.title = error;

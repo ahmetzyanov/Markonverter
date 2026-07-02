@@ -41,9 +41,14 @@ export function panelCss(): string {
       line-height: 1.35;
       z-index: 2147483647;
       color: var(--mk-text);
+      transform-origin: top right;
+      transition:
+        max-width 220ms cubic-bezier(0.16, 1, 0.3, 1),
+        box-shadow 180ms ease,
+        border-color 180ms ease;
     }
     .panel.collapsed {
-      max-width: min(246px, calc(100vw - 24px));
+      max-width: min(268px, calc(100vw - 24px));
       box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
     }
     .floating {
@@ -63,18 +68,21 @@ export function panelCss(): string {
         #111111;
     }
     .collapsed .header {
-      min-height: 42px;
-      padding: 8px 10px 8px 12px;
+      min-height: 44px;
+      padding: 8px 10px;
       border-bottom: 0;
       cursor: pointer;
-      background: #111111;
+      background:
+        radial-gradient(circle at top left, rgba(245, 158, 11, 0.13), transparent 150px),
+        #111111;
     }
     .headerTitle {
       min-width: 0;
     }
-    .collapsedTitle strong {
-      font-size: 13px;
-      line-height: 1.1;
+    .collapsedTitle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
     .eyebrow {
       display: block;
@@ -99,6 +107,44 @@ export function panelCss(): string {
       color: var(--mk-muted);
       font-size: 12px;
       overflow-wrap: anywhere;
+    }
+    .header .collapsedBrandMark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      flex: 0 0 26px;
+      border: 1px solid rgba(245, 158, 11, 0.5);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(251, 191, 36, 0.14), rgba(59, 130, 246, 0.12)),
+        var(--mk-surface-2);
+      color: var(--mk-accent-strong);
+      font: 850 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+      overflow-wrap: normal;
+    }
+    .header .collapsedBrandText {
+      display: grid;
+      min-width: 0;
+      gap: 1px;
+      margin: 0;
+    }
+    .header .collapsedBrandText strong {
+      color: var(--mk-text);
+      font: 800 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0;
+      text-transform: lowercase;
+      white-space: nowrap;
+    }
+    .header .collapsedBrandText span {
+      margin: 0;
+      color: var(--mk-muted);
+      font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      overflow-wrap: normal;
     }
     .headerTitle > span:last-child {
       max-width: 210px;
@@ -125,7 +171,6 @@ export function panelCss(): string {
     .collapsed .headerActions {
       flex-wrap: nowrap;
     }
-    .saveHeaderButton,
     .secondaryButton,
     .iconButton {
       min-height: 32px;
@@ -293,14 +338,6 @@ export function panelCss(): string {
     .pointChoice {
       min-height: 32px;
     }
-    .pointChoice input,
-    .compareToggle {
-      width: 16px;
-      height: 16px;
-      margin: 0;
-      flex: 0 0 auto;
-      accent-color: var(--mk-accent);
-    }
     .pointChoiceText,
     .detectedCandidateText,
     .metaText {
@@ -313,17 +350,36 @@ export function panelCss(): string {
     }
     .metaHead {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       gap: 8px;
       min-width: 0;
     }
-    .rowActions {
-      margin-top: 7px;
-    }
-    .rowActions .deleteButton {
+    .rowHoverActions {
+      display: flex;
+      justify-content: flex-end;
+      flex: 0 0 54px;
+      width: 54px;
       min-height: 24px;
+    }
+    .rowDeleteButton {
+      min-height: 24px;
+      width: 54px;
       padding: 0 7px;
       font-size: 11px;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition:
+        opacity 140ms ease,
+        visibility 140ms ease,
+        border-color 150ms ease,
+        background 150ms ease;
+    }
+    .row:hover .rowDeleteButton,
+    .row:focus-within .rowDeleteButton {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
     }
     .deleteButton {
       border-color: rgba(239, 68, 68, 0.4);
@@ -457,8 +513,7 @@ export function panelCss(): string {
       letter-spacing: 0;
       overflow-wrap: anywhere;
     }
-    .value .original,
-    .locationMeta {
+    .value .original {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
     .row.failed .value {

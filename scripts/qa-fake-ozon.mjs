@@ -85,7 +85,7 @@ try {
   await verifyStreetOnlyCurrentSummaryCapture(page, worker);
   await verifySelectorIdsOnlyNameResolution(page, worker);
   await verifyGenericUuidNameResolution(page, worker);
-  await verifyManualTwoPointSuccess(page, worker);
+  await verifyManualTwoPointSuccess(page, worker, extensionId);
 
   console.log("BROWSER_QA_OK fake Ozon regression harness passed");
 } finally {
@@ -284,7 +284,7 @@ async function verifyGenericUuidNameResolution(page, worker) {
   );
 }
 
-async function verifyManualTwoPointSuccess(page, worker) {
+async function verifyManualTwoPointSuccess(page, worker, extensionId) {
   routeState.scenario = "success";
   await seedStorage(worker, settingsWithPickupPoints([fakePoints.ru, fakePoints.kz], manualQuotesForFakePoints()));
   await openFakeProduct(page, "success");
@@ -293,18 +293,13 @@ async function verifyManualTwoPointSuccess(page, worker) {
   await waitForPanelText(page, /Astana pickup/, "Astana manual row");
   await waitForPanelText(page, /9[\s\u00a0]*000,00[\s\u00a0]*₽/, "Moscow captured price");
   await waitForPanelText(page, /17[\s\u00a0]*000,00[\s\u00a0]*₽/, "Astana captured converted price");
-  await waitForPanelText(page, /Captured /, "manual capture label");
   const text = await panelText(page);
   assert(!text.includes("Unavailable"), "manual quote scenario should not show unavailable rows");
+  await assertPanelRowChrome(page);
+  await verifyPanelCollapseAnimation(page);
+  await deleteFirstPanelPickupPoint(page, worker);
 
-  await toggleFirstPanelCheckbox(page);
-  await waitForPanelText(page, /Not compared|Comparison points updated/, "inline comparison toggle");
-  await waitForPanelText(page, /Delete/, "row delete action");
-
-  await clickPanelButton(page, "Delete");
-  await waitForPanelText(page, /Delete pickup point\?/, "inline delete confirmation");
-  await clickPanelButton(page, "Delete point");
-  await waitForPanelText(page, /Deleted: Moscow pickup|Deleted: Astana pickup/, "row delete status");
+  await verifyOptionsComparisonManagement(page, worker, extensionId);
 
   const settings = await readSettings(worker);
   assert(settings.pickupPoints.length === 1, `expected one pickup point after delete, got ${settings.pickupPoints.length}`);
@@ -429,14 +424,153 @@ async function clickPageButton(page, label) {
   }, label);
 }
 
-async function toggleFirstPanelCheckbox(page) {
+async function assertPanelRowChrome(page) {
   await page.locator("#markonverter-panel-root").evaluate((host) => {
-    const checkbox = host.shadowRoot?.querySelector("input.compareToggle");
-    if (!checkbox) {
-      throw new Error("Panel comparison checkbox not found");
+    const shadow = host.shadowRoot;
+    if (!shadow) {
+      throw new Error("Panel shadow root not found");
     }
-    checkbox.click();
+    const checkboxCount = shadow.querySelectorAll("input.compareToggle").length;
+    const buttonLabels = Array.from(shadow.querySelectorAll("button")).map((button) => button.textContent?.trim() || "");
+    const rowText = Array.from(shadow.querySelectorAll(".row")).map((row) => row.textContent || "").join("\n");
+    if (checkboxCount > 0) {
+      throw new Error("Product panel still shows comparison checkboxes");
+    }
+    if (buttonLabels.includes("Add current")) {
+      throw new Error("Product panel still shows Add current");
+    }
+    if (/Moscow pickup\s+(?:RU|KZ)\s*\/\s*(?:RUB|KZT)/i.test(rowText) || /Astana pickup\s+(?:RU|KZ)\s*\/\s*(?:RUB|KZT)/i.test(rowText)) {
+      throw new Error(`Product panel still shows country/currency metadata under saved pickup names:\n${rowText}`);
+    }
+    if (/Captured |Today, 18:00-20:00|Tomorrow, 10:00-18:00/i.test(rowText)) {
+      throw new Error(`Product panel still shows captured metadata or delivery text under prices:\n${rowText}`);
+    }
   });
+}
+
+async function verifyPanelCollapseAnimation(page) {
+  const before = await panelBox(page);
+  await clickPanelIconButton(page, "Collapse Markonverter panel");
+  await page.waitForTimeout(110);
+  const mid = await panelBox(page);
+  assert(!mid.collapsed, `panel switched to collapsed markup before the collapse animation finished: ${JSON.stringify({ before, mid })}`);
+  assert(mid.height < before.height - 8, `panel height did not animate down during collapse: ${JSON.stringify({ before, mid })}`);
+
+  await waitForPanelCollapsed(page, true);
+  const collapsed = await panelBox(page);
+  assert(collapsed.height < before.height - 24, `panel did not end collapsed: ${JSON.stringify({ before, collapsed })}`);
+
+  await clickPanelIconButton(page, "Expand Markonverter panel");
+  await waitForPanelCollapsed(page, false);
+  await page.waitForTimeout(260);
+  const expanded = await panelBox(page);
+  assert(expanded.height > collapsed.height + 24, `panel did not expand back to full height: ${JSON.stringify({ collapsed, expanded })}`);
+}
+
+async function panelBox(page) {
+  return page.locator("#markonverter-panel-root").evaluate((host) => {
+    const panel = host.shadowRoot?.querySelector(".panel");
+    if (!panel) {
+      throw new Error("Panel not found");
+    }
+    const rect = panel.getBoundingClientRect();
+    return {
+      width: rect.width,
+      height: rect.height,
+      collapsed: panel.classList.contains("collapsed")
+    };
+  });
+}
+
+async function clickPanelIconButton(page, label) {
+  await page.locator("#markonverter-panel-root").evaluate((host, buttonLabel) => {
+    const buttons = Array.from(host.shadowRoot?.querySelectorAll("button") || []);
+    const button = buttons.find((item) => item.getAttribute("aria-label") === buttonLabel);
+    if (!button) {
+      throw new Error(`Panel icon button not found: ${buttonLabel}`);
+    }
+    button.click();
+  }, label);
+}
+
+async function waitForPanelCollapsed(page, expected) {
+  await page.waitForFunction(
+    ({ selector, expected }) => {
+      const host = document.querySelector(selector);
+      const panel = host?.shadowRoot?.querySelector(".panel");
+      return Boolean(panel) && panel.classList.contains("collapsed") === expected;
+    },
+    { selector: "#markonverter-panel-root", expected },
+    { timeout: timeoutMs }
+  );
+}
+
+async function deleteFirstPanelPickupPoint(page, worker) {
+  await page.mouse.move(1, 1);
+  await page.waitForTimeout(60);
+
+  const firstRow = page.locator("#markonverter-panel-root .row").first();
+  const deleteButton = page.locator("#markonverter-panel-root .rowDeleteButton").first();
+  const before = await rowHoverMetrics(firstRow, deleteButton);
+  assert(before.button.visibility === "hidden" && Number(before.button.opacity) === 0, `delete button should be hidden before hover: ${JSON.stringify(before)}`);
+
+  await firstRow.hover();
+  await page.waitForTimeout(180);
+  const after = await rowHoverMetrics(firstRow, deleteButton);
+  assert(after.button.visibility === "visible" && Number(after.button.opacity) > 0.9, `delete button should be visible on hover: ${JSON.stringify(after)}`);
+  assert(Math.abs(after.box.width - before.box.width) < 0.5, `row width changed on hover: ${JSON.stringify({ before, after })}`);
+  assert(Math.abs(after.box.height - before.box.height) < 0.5, `row height changed on hover: ${JSON.stringify({ before, after })}`);
+
+  await deleteButton.click();
+  await waitForPanelText(page, /Delete pickup point\?/, "hover delete confirmation");
+  await clickPanelButton(page, "Delete point");
+  await waitForSettingsCondition(
+    worker,
+    (settings) => settings.pickupPoints.length === 1 && settings.pickupPoints[0]?.id === "kz",
+    "hover delete saved pickup"
+  );
+}
+
+async function rowHoverMetrics(row, button) {
+  const box = await row.boundingBox();
+  if (!box) {
+    throw new Error("Panel row has no bounding box");
+  }
+  const buttonState = await button.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      opacity: style.opacity,
+      visibility: style.visibility
+    };
+  });
+  return { box, button: buttonState };
+}
+
+async function verifyOptionsComparisonManagement(page, worker, extensionId) {
+  await page.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
+  await page.locator("#pointList .point").first().waitFor({ timeout: timeoutMs });
+
+  await clickOptionsPointButton(page, "Astana pickup", "Compared");
+  await waitForSettingsCondition(
+    worker,
+    (settings) => Array.isArray(settings.comparisonPickupPointIds) && settings.comparisonPickupPointIds.length === 0,
+    "options comparison toggle"
+  );
+}
+
+async function clickOptionsPointButton(page, pointName, buttonLabel) {
+  await page.evaluate(({ pointName, buttonLabel }) => {
+    const rows = Array.from(document.querySelectorAll("#pointList .point"));
+    const row = rows.find((item) => item.textContent?.includes(pointName));
+    if (!row) {
+      throw new Error(`Options pickup row not found: ${pointName}`);
+    }
+    const button = Array.from(row.querySelectorAll("button")).find((item) => item.textContent?.trim() === buttonLabel);
+    if (!button) {
+      throw new Error(`Options button not found: ${buttonLabel}`);
+    }
+    button.click();
+  }, { pointName, buttonLabel });
 }
 
 function matchesText(text, matcher) {

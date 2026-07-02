@@ -232,7 +232,7 @@ Optional:
   --user-data-dir PATH    Dedicated test profile directory. Do not point this at a profile currently open in a browser.
   --screenshot PATH       Save a screenshot on blocked or panel-missing results.
   --blocked-ok            Exit 0 when Ozon returns an antibot/no-connection page.
-  --capture-check         In a test profile, verify Add current and reload auto-capture store a quote.
+  --capture-check         In a test profile, verify detected-point Save and reload auto-capture store a quote.
   --keep-open             Leave the browser open for manual inspection.
 `);
 }
@@ -452,13 +452,13 @@ async function verifyCurrentPickupCapture(page, worker, productUrl) {
   await page.goto(productUrl, { waitUntil: "domcontentloaded", timeout: timeoutMs });
   await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
   await page.locator("#markonverter-panel-root").waitFor({ state: "attached", timeout: timeoutMs });
-  await waitForPanelText(page, /Add current|New pickup points/i, "detected current pickup point");
+  await waitForPanelText(page, /New pickup points/i, "detected current pickup point");
 
-  await clickPanelButton(page, "Add current");
+  await clickPanelButton(page, "Save");
   const savedSettings = await waitForSettingsCondition(
     worker,
     (settings) => (settings.pickupPoints || []).length > 0 && Object.keys(settings.manualQuotes || {}).length > 0,
-    "Add current quote capture"
+    "detected pickup quote capture"
   );
 
   await chromeStorageSet(worker, {

@@ -34,6 +34,10 @@ const COLLECT_PICKUP_EVENT = "markonverter:collect-ozon-pickup";
 const PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
 const NETWORK_FIXTURE_EVENT = "markonverter:ozon-network-fixture";
 const PANEL_STATE_KEY = "markonverter.panelState";
+const PANEL_COLLAPSED_HEIGHT = 44;
+const PANEL_COLLAPSED_MAX_WIDTH = 268;
+const PANEL_COLLAPSE_DURATION_MS = 220;
+const PANEL_EXPAND_DURATION_MS = 240;
 const CURRENT_OZON_PRICE_NOT_CAPTURED =
   "Open or select this pickup point in Ozon, wait for the visible product price, then use Capture current if Markonverter does not capture it automatically.";
 
@@ -57,6 +61,7 @@ let assistSyncTimer: number | null = null;
 let savedPickupNameSyncTimer: number | null = null;
 let pendingPanelConfirmationCancel: (() => void) | null = null;
 let suppressAssistObserverUntil = 0;
+let panelTransitionVersion = 0;
 const targetedPickupDiscoveryIds = new Set<string>();
 const autoPickupSelectorOpenKeys = new Set<string>();
 const pageActionHandlers = new WeakMap<HTMLElement, (event: Event) => void>();
@@ -665,45 +670,6 @@ function compactText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-async function saveSelectedPickupPoint(product: ProductIdentity): Promise<RuntimeResponse> {
-  captureStatus = { tone: "normal", message: "Checking Ozon pickup point..." };
-  renderLastPanel();
-
-  const candidate = await getBestPickupCandidate();
-  if (!candidate) {
-    captureStatus = {
-      tone: "error",
-      message: "No Ozon pickup point is available to save yet."
-    };
-    renderLastPanel();
-    return { ok: false, error: captureStatus.message };
-  }
-  if (isPickupCandidateSaved(candidate, latestSettings)) {
-    captureStatus = { tone: "normal", message: `Already saved: ${ozonCandidateDisplayName(candidate)}` };
-    renderLastPanel();
-    return { ok: true };
-  }
-
-  const response = await savePickupCandidate(candidate, product);
-  if (!response.ok || !("settings" in response)) {
-    captureStatus = { tone: "error", message: response.ok ? "Pickup point was not saved" : response.error };
-    renderLastPanel();
-    return { ok: false, error: captureStatus.message };
-  }
-
-  const savedPoint = response.settings.pickupPoints.find(
-    (point) => point.marketplace === "ozon" && point.externalLocationId === candidate.externalLocationId
-  );
-  const quoteCaptured = savedPoint ? await saveCurrentVisibleQuoteForPoint(savedPoint, product, { requireConfirmation: false }) : false;
-  const candidateName = ozonCandidateDisplayName(candidate);
-  captureStatus = {
-    tone: "normal",
-    message: quoteCaptured ? `Saved and captured current price: ${candidateName}` : `Saved: ${candidateName}`
-  };
-  await runIfProductPage();
-  return response;
-}
-
 async function savePickupCandidate(candidate: OzonPickupCandidate, product: ProductIdentity): Promise<RuntimeResponse> {
   const name = ozonCandidateDisplayName(candidate);
   const pickupPoint: PickupPoint = {
@@ -1146,39 +1112,6 @@ async function deleteSavedPickupPoint(pickupPoint: PickupPoint, product: Product
   }
   latestSettings = response.settings;
   scheduleOzonDeliveryAssistSync();
-  await runIfProductPage();
-  if (getCurrentProduct()?.productId === product.productId) {
-    renderLastPanel();
-  }
-}
-
-async function toggleComparisonPoint(
-  pickupPointId: string,
-  isSelected: boolean,
-  settings: ExtensionSettings,
-  product: ProductIdentity
-): Promise<void> {
-  const allIds = settings.pickupPoints.filter((point) => point.marketplace === "ozon").map((point) => point.id);
-  const selected = new Set(settings.comparisonPickupPointIds ?? allIds);
-  if (isSelected) {
-    selected.add(pickupPointId);
-  } else {
-    selected.delete(pickupPointId);
-  }
-
-  const nextIds = allIds.filter((id) => selected.has(id));
-  await updateComparisonSelection(nextIds.length === allIds.length ? null : nextIds, product);
-}
-
-async function updateComparisonSelection(pickupPointIds: string[] | null, product: ProductIdentity): Promise<void> {
-  captureStatus = { tone: "normal", message: pickupPointIds === null ? "Comparing all saved points" : "Comparison points updated" };
-  const response = await runtimeRequest({ type: "SET_COMPARISON_PICKUP_POINT_IDS", pickupPointIds });
-  if (!response.ok || !("settings" in response)) {
-    captureStatus = { tone: "error", message: response.ok ? "Comparison selection was not saved" : response.error };
-    renderLastPanel();
-    return;
-  }
-  latestSettings = response.settings;
   await runIfProductPage();
   if (getCurrentProduct()?.productId === product.productId) {
     renderLastPanel();
@@ -2156,7 +2089,7 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   const header = document.createElement("div");
   header.className = "header";
   header.innerHTML = isPanelCollapsed
-    ? `<div class="headerTitle collapsedTitle"><strong>Markonverter</strong></div>`
+    ? `<div class="headerTitle collapsedTitle"><span class="collapsedBrandMark" aria-hidden="true">M</span><span class="collapsedBrandText"><strong>markonverter</strong><span>prices</span></span></div>`
     : `<div class="headerTitle"><span class="eyebrow">Markonverter</span><strong>Pickup prices</strong><span>${escapeHtml(model.product.title || "Ozon product")}</span></div>`;
   if (isPanelCollapsed) {
     header.title = "Expand Markonverter panel";
@@ -2170,21 +2103,6 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
 
   const headerActions = document.createElement("div");
   headerActions.className = "headerActions";
-
-  const panelSettings = "settings" in model ? model.settings : null;
-  const currentSaveCandidate = panelSettings ? getFirstUnsavedPickupCandidate(panelSettings) : null;
-  let saveButton: HTMLButtonElement | null = null;
-  if (currentSaveCandidate) {
-    const candidateToSave = currentSaveCandidate;
-    saveButton = document.createElement("button");
-    saveButton.type = "button";
-    saveButton.className = "saveHeaderButton";
-    saveButton.title = `Add ${candidateToSave.name} to Markonverter`;
-    saveButton.textContent = "Add current";
-    saveButton.addEventListener("click", () => {
-      void saveSelectedPickupPoint(model.product);
-    });
-  }
 
   const settingsButton = document.createElement("button");
   settingsButton.type = "button";
@@ -2213,9 +2131,6 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   if (isPanelCollapsed) {
     headerActions.append(collapseButton);
   } else {
-    if (saveButton) {
-      headerActions.append(saveButton);
-    }
     headerActions.append(settingsButton, collapseButton);
   }
   header.append(headerActions);
@@ -2357,8 +2272,46 @@ function normalizePanelState(value: unknown): { collapsed: boolean } {
 }
 
 async function setPanelCollapsed(collapsed: boolean): Promise<void> {
+  if (collapsed === isPanelCollapsed) {
+    return;
+  }
+
+  const transitionVersion = ++panelTransitionVersion;
+  const currentPanel = currentPanelElement();
+  const fromRect = currentPanel?.getBoundingClientRect();
+
+  if (collapsed && currentPanel && fromRect) {
+    await animatePanelBox(
+      currentPanel,
+      { width: fromRect.width, height: fromRect.height },
+      {
+        width: Math.min(fromRect.width, PANEL_COLLAPSED_MAX_WIDTH, Math.max(0, window.innerWidth - 24)),
+        height: PANEL_COLLAPSED_HEIGHT
+      },
+      PANEL_COLLAPSE_DURATION_MS,
+      false
+    );
+    if (transitionVersion !== panelTransitionVersion) {
+      return;
+    }
+  }
+
   isPanelCollapsed = collapsed;
   renderLastPanel();
+
+  if (!collapsed && fromRect) {
+    const expandedPanel = currentPanelElement();
+    const toRect = expandedPanel?.getBoundingClientRect();
+    if (expandedPanel && toRect) {
+      await animatePanelBox(
+        expandedPanel,
+        { width: fromRect.width, height: fromRect.height },
+        { width: toRect.width, height: toRect.height },
+        PANEL_EXPAND_DURATION_MS
+      );
+    }
+  }
+
   try {
     await chrome.storage.local.set({ [PANEL_STATE_KEY]: { collapsed } });
   } catch {
@@ -2367,6 +2320,70 @@ async function setPanelCollapsed(collapsed: boolean): Promise<void> {
   if (!collapsed) {
     await runIfProductPage();
   }
+}
+
+function currentPanelElement(): HTMLElement | null {
+  const host = document.getElementById(PANEL_ID);
+  return host?.shadowRoot?.querySelector<HTMLElement>(".panel") || null;
+}
+
+async function animatePanelBox(
+  panel: HTMLElement,
+  from: { width: number; height: number },
+  to: { width: number; height: number },
+  duration: number,
+  cleanup = true
+): Promise<void> {
+  if (!Number.isFinite(from.width) || !Number.isFinite(from.height) || from.width <= 0 || from.height <= 0) {
+    return;
+  }
+
+  const previous = {
+    width: panel.style.width,
+    height: panel.style.height,
+    maxHeight: panel.style.maxHeight,
+    overflow: panel.style.overflow,
+    pointerEvents: panel.style.pointerEvents,
+    willChange: panel.style.willChange
+  };
+
+  panel.style.width = `${from.width}px`;
+  panel.style.height = `${from.height}px`;
+  panel.style.maxHeight = `${from.height}px`;
+  panel.style.overflow = "hidden";
+  panel.style.pointerEvents = "none";
+  panel.style.willChange = "width, height, max-height";
+
+  const animation = panel.animate(
+    [
+      {
+        width: `${from.width}px`,
+        height: `${from.height}px`,
+        maxHeight: `${from.height}px`
+      },
+      {
+        width: `${to.width}px`,
+        height: `${to.height}px`,
+        maxHeight: `${to.height}px`
+      }
+    ],
+    {
+      duration,
+      easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+      fill: "forwards"
+    }
+  );
+
+  await animation.finished.catch(() => undefined);
+  if (!cleanup) {
+    return;
+  }
+  panel.style.width = previous.width;
+  panel.style.height = previous.height;
+  panel.style.maxHeight = previous.maxHeight;
+  panel.style.overflow = previous.overflow;
+  panel.style.pointerEvents = previous.pointerEvents;
+  panel.style.willChange = previous.willChange;
 }
 
 function appendCaptureStatus(root: HTMLElement): void {
@@ -2469,14 +2486,6 @@ function getSavedOzonExternalIds(settings: ExtensionSettings | null): Set<string
   );
 }
 
-function isPickupCandidateSaved(candidate: OzonPickupCandidate, settings: ExtensionSettings | null): boolean {
-  return getSavedOzonExternalIds(settings).has(candidate.externalLocationId);
-}
-
-function getFirstUnsavedPickupCandidate(settings: ExtensionSettings): OzonPickupCandidate | null {
-  return latestPickupCandidates.find((candidate) => !isPickupCandidateSaved(candidate, settings)) || null;
-}
-
 function ozonCandidateDisplayName(candidate: OzonPickupCandidate): string {
   return safeOzonPickupName(candidate.name, candidate.externalLocationId);
 }
@@ -2497,7 +2506,7 @@ function appendPickupRows(
 ): void {
   const rows = buildPanelComparisonRows(settings, comparedPickupPoints, results);
   if (rows.length > 0) {
-    root.append(renderPickupRows(rows, settings, product));
+    root.append(renderPickupRows(rows, product));
   }
 }
 
@@ -2528,7 +2537,7 @@ function isComparisonPointSelected(pickupPoint: PickupPoint, settings: Extension
   return settings.comparisonPickupPointIds ? settings.comparisonPickupPointIds.includes(pickupPoint.id) : true;
 }
 
-function renderPickupRows(rows: PanelComparisonRow[], settings: ExtensionSettings, product: ProductIdentity): HTMLElement {
+function renderPickupRows(rows: PanelComparisonRow[], product: ProductIdentity): HTMLElement {
   const list = document.createElement("div");
   list.className = "rows";
 
@@ -2543,34 +2552,23 @@ function renderPickupRows(rows: PanelComparisonRow[], settings: ExtensionSetting
 
     const metaHead = document.createElement("div");
     metaHead.className = "metaHead";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.className = "compareToggle";
-    checkbox.checked = row.isSelected;
-    checkbox.title = row.isSelected ? "Remove this pickup point from comparison" : "Compare this pickup point";
-    checkbox.addEventListener("change", () => {
-      void toggleComparisonPoint(row.pickupPoint.id, checkbox.checked, settings, product);
-    });
 
     const metaText = document.createElement("div");
     metaText.className = "metaText";
-    metaText.innerHTML = `<strong>${escapeHtml(ozonPickupDisplayName(row.pickupPoint))}</strong><span class="locationMeta">${escapeHtml(
-      row.pickupPoint.country
-    )} / ${escapeHtml(row.pickupPoint.currency)}</span>`;
-    metaHead.append(checkbox, metaText);
-
+    metaText.innerHTML = `<strong>${escapeHtml(ozonPickupDisplayName(row.pickupPoint))}</strong>`;
     const rowActions = document.createElement("div");
-    rowActions.className = "rowActions";
+    rowActions.className = "rowHoverActions";
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
-    deleteButton.className = "deleteButton";
+    deleteButton.className = "deleteButton rowDeleteButton";
     deleteButton.textContent = "Delete";
     deleteButton.title = "Delete saved pickup point";
     deleteButton.addEventListener("click", () => {
       void deleteSavedPickupPoint(row.pickupPoint, product);
     });
     rowActions.append(deleteButton);
-    meta.append(metaHead, rowActions);
+    metaHead.append(metaText, rowActions);
+    meta.append(metaHead);
 
     const value = document.createElement("div");
     value.className = "value";
@@ -2578,13 +2576,12 @@ function renderPickupRows(rows: PanelComparisonRow[], settings: ExtensionSetting
       const idle = document.createElement("strong");
       idle.textContent = row.isSelected ? "Waiting" : "Not compared";
       const hint = document.createElement("span");
-      hint.textContent = row.isSelected ? "Waiting for Ozon response" : "Enable to fetch this point";
+      hint.textContent = row.isSelected ? "Waiting for Ozon response" : "Enable in Settings";
       value.append(idle, hint);
     } else if (row.result.status === "success") {
       const original = formatCurrency(row.result.originalPrice.amount, row.result.originalPrice.currency);
       const converted = formatCurrency(row.result.convertedAmount, row.result.convertedCurrency);
-      const delivery = row.result.originalPrice.deliveryText;
-      const manualLabel =
+      const capturedTitle =
         row.result.originalPrice.source === "manual" ? `Captured ${formatCapturedAt(row.result.originalPrice.capturedAt)}` : "";
       const delta =
         row.deltaFromCheapest && row.deltaFromCheapest > 0
@@ -2592,9 +2589,10 @@ function renderPickupRows(rows: PanelComparisonRow[], settings: ExtensionSetting
           : row.isCheapest
             ? "best"
             : "";
-      value.innerHTML = `<strong>${converted}</strong><span class="original">${escapeHtml(original)} ${escapeHtml(delta)}</span>${
-        delivery ? `<span>${escapeHtml(delivery)}</span>` : ""
-      }${manualLabel ? `<span>${escapeHtml(manualLabel)}</span>` : ""}`;
+      if (capturedTitle) {
+        value.title = capturedTitle;
+      }
+      value.innerHTML = `<strong>${converted}</strong><span class="original">${escapeHtml([original, delta].filter(Boolean).join(" "))}</span>`;
     } else {
       const error = row.result.error;
       value.title = error;
