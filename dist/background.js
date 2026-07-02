@@ -14,6 +14,7 @@ var DEFAULT_SETTINGS = {
 };
 
 // src/shared/validation.ts
+var MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
 function normalizeSettings(value) {
   const candidate = value;
   const pickupPoints = Array.isArray(candidate?.pickupPoints) ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint) : [];
@@ -23,15 +24,15 @@ function normalizeSettings(value) {
     currencyRateMeta: normalizeCurrencyRateMeta(candidate?.currencyRateMeta),
     ratesToRub: {
       RUB: sanitizeRate(candidate?.ratesToRub?.RUB, DEFAULT_SETTINGS.ratesToRub.RUB),
-      KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT)
+      KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT, MAX_REASONABLE_KZT_TO_RUB_RATE)
     },
     pickupPoints,
     comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints),
     manualQuotes: normalizeManualQuotes(candidate?.manualQuotes, pickupPoints)
   };
 }
-function sanitizeRate(value, fallback) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+function sanitizeRate(value, fallback, max = Number.POSITIVE_INFINITY) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= max ? value : fallback;
 }
 function normalizeCurrencyRateMeta(value) {
   const candidate = value;
@@ -119,6 +120,7 @@ function normalizePriceQuote(value) {
 // src/shared/exchange-rates.ts
 var CURRENCY_RATE_CACHE_TTL_MS = 12 * 60 * 60 * 1e3;
 var PROVIDER_FETCH_TIMEOUT_MS = 5e3;
+var MAX_REASONABLE_KZT_TO_RUB_RATE2 = 1;
 var REMOTE_CURRENCY_RATE_PROVIDERS = ["cbr", "nbk", "exchangeRateApi"];
 function currencyRateProviderFallbackOrder(preferredProvider) {
   if (preferredProvider === "manual") {
@@ -186,26 +188,26 @@ async function fetchProviderQuote(provider, fetcher) {
 }
 async function fetchCbrQuote(fetcher) {
   const text = await fetchText(fetcher, "https://www.cbr.ru/scripts/XML_daily.asp");
-  const valuteBlock = matchBlock(text, /<Valute\b[^>]*>[\s\S]*?<CharCode>\s*KZT\s*<\/CharCode>[\s\S]*?<\/Valute>/i, "CBR KZT rate");
+  const valuteBlock = matchXmlBlockWithTag(text, "Valute", "CharCode", "KZT", "CBR KZT rate");
   const vunitRate = parseDecimal(matchTag(valuteBlock, "VunitRate"));
   const value = parseDecimal(matchTag(valuteBlock, "Value"));
   const nominal = parseDecimal(matchTag(valuteBlock, "Nominal")) || 1;
   const rateKztToRub = vunitRate || value / nominal;
   return {
     provider: "cbr",
-    rateKztToRub: assertPositiveRate(rateKztToRub, "CBR KZT rate"),
+    rateKztToRub: assertKztToRubRate(rateKztToRub, "CBR KZT rate"),
     effectiveDate: text.match(/<ValCurs\b[^>]*Date="([^"]+)"/i)?.[1]
   };
 }
 async function fetchNationalBankKzQuote(fetcher) {
   const text = await fetchText(fetcher, "https://nationalbank.kz/rss/rates_all.xml");
-  const itemBlock = matchBlock(text, /<item\b[^>]*>[\s\S]*?<title>\s*RUB\s*<\/title>[\s\S]*?<\/item>/i, "NBK RUB rate");
+  const itemBlock = matchXmlBlockWithTag(text, "item", "title", "RUB", "NBK RUB rate");
   const rubInKzt = parseDecimal(matchTag(itemBlock, "description"));
   const quant = parseDecimal(matchTag(itemBlock, "quant")) || 1;
   const rateKztToRub = quant / rubInKzt;
   return {
     provider: "nbk",
-    rateKztToRub: assertPositiveRate(rateKztToRub, "NBK RUB rate"),
+    rateKztToRub: assertKztToRubRate(rateKztToRub, "NBK RUB rate"),
     effectiveDate: matchTag(itemBlock, "pubDate")
   };
 }
@@ -221,7 +223,7 @@ async function fetchExchangeRateApiQuote(fetcher) {
   const rubToKzt = typeof data.rates?.KZT === "number" ? data.rates.KZT : Number(data.rates?.KZT);
   return {
     provider: "exchangeRateApi",
-    rateKztToRub: assertPositiveRate(1 / rubToKzt, "ExchangeRate-API KZT rate"),
+    rateKztToRub: assertKztToRubRate(1 / rubToKzt, "ExchangeRate-API KZT rate"),
     effectiveDate: data.time_last_update_utc || data.time_next_update_utc
   };
 }
@@ -243,12 +245,15 @@ async function fetchWithTimeout(fetcher, url) {
     clearTimeout(timeout);
   }
 }
-function matchBlock(value, pattern, label) {
-  const match = value.match(pattern)?.[0];
-  if (!match) {
-    throw new Error(`${label} was not found`);
+function matchXmlBlockWithTag(value, blockTagName, markerTagName, markerValue, label) {
+  const blockPattern = new RegExp(`<${blockTagName}\\b[^>]*>[\\s\\S]*?<\\/${blockTagName}>`, "gi");
+  for (const match of value.matchAll(blockPattern)) {
+    const block = match[0];
+    if (matchTag(block, markerTagName)?.trim().toUpperCase() === markerValue.toUpperCase()) {
+      return block;
+    }
   }
-  return match;
+  throw new Error(`${label} was not found`);
 }
 function matchTag(value, tagName) {
   return value.match(new RegExp(`<${tagName}>\\s*([^<]+?)\\s*<\\/${tagName}>`, "i"))?.[1];
@@ -264,6 +269,13 @@ function assertPositiveRate(value, label) {
     throw new Error(`${label} is invalid`);
   }
   return value;
+}
+function assertKztToRubRate(value, label) {
+  const rate = assertPositiveRate(value, label);
+  if (rate > MAX_REASONABLE_KZT_TO_RUB_RATE2) {
+    throw new Error(`${label} is implausible`);
+  }
+  return rate;
 }
 
 // src/shared/settings.ts

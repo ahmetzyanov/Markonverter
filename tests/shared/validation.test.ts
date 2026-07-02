@@ -24,4 +24,8 @@ describe("settings normalization", () => {
   it("keeps manual rate provider", () => {
     expect(normalizeSettings({ currencyRateProvider: "manual" }).currencyRateProvider).toBe("manual");
   });
+
+  it("replaces implausible saved KZT to RUB rates with the default", () => {
+    expect(normalizeSettings({ ratesToRub: { RUB: 1, KZT: 53.96 } }).ratesToRub.KZT).toBe(0.17);
+  });
 });

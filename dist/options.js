@@ -16,6 +16,7 @@
   };
 
   // src/shared/validation.ts
+  var MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
   function normalizeSettings(value) {
     const candidate = value;
     const pickupPoints = Array.isArray(candidate?.pickupPoints) ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint) : [];
@@ -25,7 +26,7 @@
       currencyRateMeta: normalizeCurrencyRateMeta(candidate?.currencyRateMeta),
       ratesToRub: {
         RUB: sanitizeRate(candidate?.ratesToRub?.RUB, DEFAULT_SETTINGS.ratesToRub.RUB),
-        KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT)
+        KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT, MAX_REASONABLE_KZT_TO_RUB_RATE)
       },
       pickupPoints,
       comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints),
@@ -51,8 +52,8 @@
     }
     return errors;
   }
-  function sanitizeRate(value, fallback) {
-    return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+  function sanitizeRate(value, fallback, max = Number.POSITIVE_INFINITY) {
+    return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= max ? value : fallback;
   }
   function normalizeCurrencyRateMeta(value) {
     const candidate = value;

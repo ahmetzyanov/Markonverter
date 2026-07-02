@@ -10,6 +10,8 @@ import {
   SUPPORTED_CURRENCY_RATE_PROVIDERS
 } from "./types";
 
+const MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
+
 export function normalizeSettings(value: unknown): ExtensionSettings {
   const candidate = value as Partial<ExtensionSettings> | undefined;
   const pickupPoints = Array.isArray(candidate?.pickupPoints)
@@ -26,7 +28,7 @@ export function normalizeSettings(value: unknown): ExtensionSettings {
     currencyRateMeta: normalizeCurrencyRateMeta(candidate?.currencyRateMeta),
     ratesToRub: {
       RUB: sanitizeRate(candidate?.ratesToRub?.RUB, DEFAULT_SETTINGS.ratesToRub.RUB),
-      KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT)
+      KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT, MAX_REASONABLE_KZT_TO_RUB_RATE)
     },
     pickupPoints,
     comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints),
@@ -54,8 +56,8 @@ export function validatePickupPoint(pickupPoint: PickupPoint): string[] {
   return errors;
 }
 
-function sanitizeRate(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+function sanitizeRate(value: unknown, fallback: number, max = Number.POSITIVE_INFINITY): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= max ? value : fallback;
 }
 
 function normalizeCurrencyRateMeta(value: unknown): CurrencyRateMetadata | undefined {

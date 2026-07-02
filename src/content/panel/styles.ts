@@ -167,9 +167,33 @@ export function panelCss(): string {
       font-size: 17px;
       line-height: 1;
     }
+    .collapseButton {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      padding: 0;
+    }
+    .chevronIcon {
+      width: 9px;
+      height: 9px;
+      border: solid currentColor;
+      border-width: 0 2px 2px 0;
+    }
+    .chevronDown {
+      transform: translateY(-2px) rotate(45deg);
+    }
+    .chevronUp {
+      transform: translateY(2px) rotate(-135deg);
+    }
     .collapsed .collapseButton {
+      width: 28px;
       min-height: 28px;
-      padding: 0 9px;
+      padding: 0;
+    }
+    .collapsed .chevronIcon {
+      width: 8px;
+      height: 8px;
     }
     .message {
       margin: 0;

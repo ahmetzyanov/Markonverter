@@ -137,3 +137,7 @@ updates, and non-trivial implementation changes.
   Current-delivery capture now accepts compact address widgets, the fake harness
   covers the street/house-only case, and live QA has
   `OZON_QA_CAPTURE_CHECK=1` for the save-clear-reload capture path.
+- Fixed CBR/NBK XML rate parsing so the KZT/RUB reader selects the exact
+  currency item block instead of spanning from the first currency entry to the
+  target one. Saved implausible KZT-to-RUB rates such as `53.96` are now
+  normalized back to the safe default until a fresh provider update succeeds.

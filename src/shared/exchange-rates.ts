@@ -7,6 +7,7 @@ import { normalizeSettings } from "./validation";
 
 export const CURRENCY_RATE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const PROVIDER_FETCH_TIMEOUT_MS = 5000;
+const MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
 export const REMOTE_CURRENCY_RATE_PROVIDERS: CurrencyRateProvider[] = ["cbr", "nbk", "exchangeRateApi"];
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -101,7 +102,7 @@ async function fetchProviderQuote(provider: CurrencyRateProvider, fetcher: Fetch
 
 async function fetchCbrQuote(fetcher: FetchLike): Promise<ProviderQuote> {
   const text = await fetchText(fetcher, "https://www.cbr.ru/scripts/XML_daily.asp");
-  const valuteBlock = matchBlock(text, /<Valute\b[^>]*>[\s\S]*?<CharCode>\s*KZT\s*<\/CharCode>[\s\S]*?<\/Valute>/i, "CBR KZT rate");
+  const valuteBlock = matchXmlBlockWithTag(text, "Valute", "CharCode", "KZT", "CBR KZT rate");
   const vunitRate = parseDecimal(matchTag(valuteBlock, "VunitRate"));
   const value = parseDecimal(matchTag(valuteBlock, "Value"));
   const nominal = parseDecimal(matchTag(valuteBlock, "Nominal")) || 1;
@@ -109,21 +110,21 @@ async function fetchCbrQuote(fetcher: FetchLike): Promise<ProviderQuote> {
 
   return {
     provider: "cbr",
-    rateKztToRub: assertPositiveRate(rateKztToRub, "CBR KZT rate"),
+    rateKztToRub: assertKztToRubRate(rateKztToRub, "CBR KZT rate"),
     effectiveDate: text.match(/<ValCurs\b[^>]*Date="([^"]+)"/i)?.[1]
   };
 }
 
 async function fetchNationalBankKzQuote(fetcher: FetchLike): Promise<ProviderQuote> {
   const text = await fetchText(fetcher, "https://nationalbank.kz/rss/rates_all.xml");
-  const itemBlock = matchBlock(text, /<item\b[^>]*>[\s\S]*?<title>\s*RUB\s*<\/title>[\s\S]*?<\/item>/i, "NBK RUB rate");
+  const itemBlock = matchXmlBlockWithTag(text, "item", "title", "RUB", "NBK RUB rate");
   const rubInKzt = parseDecimal(matchTag(itemBlock, "description"));
   const quant = parseDecimal(matchTag(itemBlock, "quant")) || 1;
   const rateKztToRub = quant / rubInKzt;
 
   return {
     provider: "nbk",
-    rateKztToRub: assertPositiveRate(rateKztToRub, "NBK RUB rate"),
+    rateKztToRub: assertKztToRubRate(rateKztToRub, "NBK RUB rate"),
     effectiveDate: matchTag(itemBlock, "pubDate")
   };
 }
@@ -146,7 +147,7 @@ async function fetchExchangeRateApiQuote(fetcher: FetchLike): Promise<ProviderQu
   const rubToKzt = typeof data.rates?.KZT === "number" ? data.rates.KZT : Number(data.rates?.KZT);
   return {
     provider: "exchangeRateApi",
-    rateKztToRub: assertPositiveRate(1 / rubToKzt, "ExchangeRate-API KZT rate"),
+    rateKztToRub: assertKztToRubRate(1 / rubToKzt, "ExchangeRate-API KZT rate"),
     effectiveDate: data.time_last_update_utc || data.time_next_update_utc
   };
 }
@@ -172,12 +173,16 @@ async function fetchWithTimeout(fetcher: FetchLike, url: string): Promise<Respon
   }
 }
 
-function matchBlock(value: string, pattern: RegExp, label: string): string {
-  const match = value.match(pattern)?.[0];
-  if (!match) {
-    throw new Error(`${label} was not found`);
+function matchXmlBlockWithTag(value: string, blockTagName: string, markerTagName: string, markerValue: string, label: string): string {
+  const blockPattern = new RegExp(`<${blockTagName}\\b[^>]*>[\\s\\S]*?<\\/${blockTagName}>`, "gi");
+  for (const match of value.matchAll(blockPattern)) {
+    const block = match[0];
+    if (matchTag(block, markerTagName)?.trim().toUpperCase() === markerValue.toUpperCase()) {
+      return block;
+    }
   }
-  return match;
+
+  throw new Error(`${label} was not found`);
 }
 
 function matchTag(value: string, tagName: string): string | undefined {
@@ -196,4 +201,12 @@ function assertPositiveRate(value: number, label: string): number {
     throw new Error(`${label} is invalid`);
   }
   return value;
+}
+
+function assertKztToRubRate(value: number, label: string): number {
+  const rate = assertPositiveRate(value, label);
+  if (rate > MAX_REASONABLE_KZT_TO_RUB_RATE) {
+    throw new Error(`${label} is implausible`);
+  }
+  return rate;
 }

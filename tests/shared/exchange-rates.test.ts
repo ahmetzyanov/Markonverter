@@ -12,6 +12,12 @@ describe("exchange rate providers", () => {
       textResponse(`
         <ValCurs Date="30.06.2026">
           <Valute>
+            <CharCode>AUD</CharCode>
+            <Nominal>1</Nominal>
+            <Value>53,9600</Value>
+            <VunitRate>53,9600</VunitRate>
+          </Valute>
+          <Valute>
             <CharCode>KZT</CharCode>
             <Nominal>100</Nominal>
             <Value>15,9833</Value>
@@ -33,6 +39,12 @@ describe("exchange rate providers", () => {
         <rss>
           <channel>
             <item>
+              <title>USD</title>
+              <pubDate>30.06.2026</pubDate>
+              <description>520.00</description>
+              <quant>1</quant>
+            </item>
+            <item>
               <title>RUB</title>
               <pubDate>30.06.2026</pubDate>
               <description>6.24</description>
@@ -44,6 +56,43 @@ describe("exchange rate providers", () => {
     );
 
     expect(result.provider).toBe("nbk");
+    expect(result.ratesToRub.KZT).toBeCloseTo(1 / 6.24);
+  });
+
+  it("falls back when a provider returns an implausible KZT to RUB rate", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("cbr.ru")) {
+        return textResponse(`
+          <ValCurs Date="30.06.2026">
+            <Valute>
+              <CharCode>KZT</CharCode>
+              <Nominal>1</Nominal>
+              <Value>53,9600</Value>
+              <VunitRate>53,9600</VunitRate>
+            </Valute>
+          </ValCurs>
+        `);
+      }
+
+      return textResponse(`
+        <rss>
+          <channel>
+            <item>
+              <title>RUB</title>
+              <pubDate>30.06.2026</pubDate>
+              <description>6.24</description>
+              <quant>1</quant>
+            </item>
+          </channel>
+        </rss>
+      `);
+    });
+
+    const result = await fetchCurrencyRates("cbr", fetcher);
+
+    expect(result.provider).toBe("nbk");
+    expect(result.fallbackUsed).toBe(true);
     expect(result.ratesToRub.KZT).toBeCloseTo(1 / 6.24);
   });
 
