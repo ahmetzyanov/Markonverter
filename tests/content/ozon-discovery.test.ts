@@ -1,4 +1,5 @@
 import { buildOzonPickupDiscoveryEndpoints, shouldAutoRefreshSavedOzonPickupNames } from "../../src/content/app";
+import { DEFAULT_LANGUAGE_PREFERENCE } from "../../src/shared/i18n";
 import { ExtensionSettings, MarketplaceId } from "../../src/shared/types";
 
 describe("Ozon content discovery", () => {
@@ -62,6 +63,8 @@ describe("Ozon content discovery", () => {
 
 function settingsWithPickupNames(points: Array<[marketplace: MarketplaceId, name: string, externalLocationId: string]>): ExtensionSettings {
   return {
+    language: DEFAULT_LANGUAGE_PREFERENCE,
+    debug: false,
     defaultCurrency: "RUB",
     currencyRateProvider: "manual",
     ratesToRub: { RUB: 1, KZT: 0.17 },

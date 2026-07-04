@@ -1,7 +1,17 @@
+// src/shared/i18n.ts
+var DEFAULT_LANGUAGE_PREFERENCE = "ru";
+var SUPPORTED_LANGUAGES = ["ru", "en"];
+var SUPPORTED_LANGUAGE_PREFERENCES = ["auto", ...SUPPORTED_LANGUAGES];
+function normalizeLanguagePreference(value) {
+  return SUPPORTED_LANGUAGE_PREFERENCES.includes(value) ? value : DEFAULT_LANGUAGE_PREFERENCE;
+}
+
 // src/shared/types.ts
 var SUPPORTED_CURRENCIES = ["RUB", "KZT"];
 var SUPPORTED_CURRENCY_RATE_PROVIDERS = ["manual", "cbr", "nbk", "exchangeRateApi"];
 var DEFAULT_SETTINGS = {
+  language: DEFAULT_LANGUAGE_PREFERENCE,
+  debug: false,
   defaultCurrency: "RUB",
   currencyRateProvider: "cbr",
   ratesToRub: {
@@ -19,6 +29,8 @@ function normalizeSettings(value) {
   const candidate = value;
   const pickupPoints = Array.isArray(candidate?.pickupPoints) ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint) : [];
   return {
+    language: normalizeLanguagePreference(candidate?.language),
+    debug: candidate?.debug === true,
     defaultCurrency: candidate?.defaultCurrency && SUPPORTED_CURRENCIES.includes(candidate.defaultCurrency) ? candidate.defaultCurrency : DEFAULT_SETTINGS.defaultCurrency,
     currencyRateProvider: SUPPORTED_CURRENCY_RATE_PROVIDERS.includes(candidate?.currencyRateProvider) ? candidate?.currencyRateProvider : DEFAULT_SETTINGS.currencyRateProvider,
     currencyRateMeta: normalizeCurrencyRateMeta(candidate?.currencyRateMeta),

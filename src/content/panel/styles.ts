@@ -6,23 +6,31 @@ export function panelCss(): string {
       max-width: 100%;
       min-width: 0;
       container-type: inline-size;
-      color-scheme: dark;
-      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color-scheme: light;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
       letter-spacing: 0;
-      --mk-bg: #0c0c0c;
-      --mk-surface: #141414;
-      --mk-surface-2: #1b1b1c;
-      --mk-surface-3: #202022;
-      --mk-border: #2a2a2c;
-      --mk-border-strong: #3f3f46;
-      --mk-text: #fafafa;
-      --mk-muted: #a1a1aa;
-      --mk-quiet: #71717a;
-      --mk-accent: #f59e0b;
-      --mk-accent-strong: #fbbf24;
-      --mk-success: #22c55e;
-      --mk-danger: #ef4444;
-      --mk-info: #3b82f6;
+      --mk-bg: #f5f7fa;
+      --mk-surface: #ffffff;
+      --mk-surface-2: #f7f9fc;
+      --mk-surface-3: #eef3fa;
+      --mk-border: #dce3ee;
+      --mk-border-strong: #c7d1de;
+      --mk-text: #17233c;
+      --mk-muted: #53627a;
+      --mk-quiet: #7b8798;
+      --mk-disabled: #a6b0bf;
+      --mk-accent: #005bff;
+      --mk-accent-hover: #004ce0;
+      --mk-accent-pressed: #003fb8;
+      --mk-accent-soft: #eaf2ff;
+      --mk-accent-border: #b8d2ff;
+      --mk-success: #10a35a;
+      --mk-success-soft: #eaf8f1;
+      --mk-danger: #e5484d;
+      --mk-danger-soft: #fff0f0;
+      --mk-warning: #f59f00;
+      --mk-warning-soft: #fff6e0;
+      --mk-info: #005bff;
     }
     * {
       box-sizing: border-box;
@@ -33,9 +41,9 @@ export function panelCss(): string {
       min-width: 0;
       margin: 12px 0;
       border: 1px solid var(--mk-border);
-      border-radius: 12px;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.01)), var(--mk-surface);
-      box-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
+      border-top: 3px solid var(--mk-accent);
+      border-radius: 8px;
+      background: var(--mk-surface);
       overflow: hidden;
       font-size: 13px;
       line-height: 1.35;
@@ -47,14 +55,11 @@ export function panelCss(): string {
         box-shadow 180ms ease,
         border-color 180ms ease;
     }
-    .panel.collapsed {
-      max-width: min(268px, calc(100vw - 24px));
-      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
-    }
     .floating {
       position: fixed;
       top: 84px;
       right: 16px;
+      box-shadow: 0 8px 28px rgba(23, 35, 60, 0.14);
     }
     .header {
       display: flex;
@@ -63,33 +68,18 @@ export function panelCss(): string {
       gap: 12px;
       padding: 14px;
       border-bottom: 1px solid var(--mk-border);
-      background:
-        radial-gradient(circle at top left, rgba(245, 158, 11, 0.12), transparent 240px),
-        #111111;
-    }
-    .collapsed .header {
-      min-height: 44px;
-      padding: 8px 10px;
-      border-bottom: 0;
-      cursor: pointer;
-      background:
-        radial-gradient(circle at top left, rgba(245, 158, 11, 0.13), transparent 150px),
-        #111111;
+      background: var(--mk-surface);
     }
     .headerTitle {
       min-width: 0;
     }
-    .collapsedTitle {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
     .eyebrow {
       display: block;
       margin: 0 0 5px;
-      color: var(--mk-accent-strong);
-      font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      text-transform: uppercase;
+      color: var(--mk-accent);
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 720;
     }
     .header strong,
     .meta strong,
@@ -108,44 +98,6 @@ export function panelCss(): string {
       font-size: 12px;
       overflow-wrap: anywhere;
     }
-    .header .collapsedBrandMark {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 26px;
-      height: 26px;
-      flex: 0 0 26px;
-      border: 1px solid rgba(245, 158, 11, 0.5);
-      border-radius: 8px;
-      background:
-        linear-gradient(135deg, rgba(251, 191, 36, 0.14), rgba(59, 130, 246, 0.12)),
-        var(--mk-surface-2);
-      color: var(--mk-accent-strong);
-      font: 850 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
-      overflow-wrap: normal;
-    }
-    .header .collapsedBrandText {
-      display: grid;
-      min-width: 0;
-      gap: 1px;
-      margin: 0;
-    }
-    .header .collapsedBrandText strong {
-      color: var(--mk-text);
-      font: 800 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      letter-spacing: 0;
-      text-transform: lowercase;
-      white-space: nowrap;
-    }
-    .header .collapsedBrandText span {
-      margin: 0;
-      color: var(--mk-muted);
-      font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      letter-spacing: 0;
-      text-transform: uppercase;
-      overflow-wrap: normal;
-    }
     .headerTitle > span:last-child {
       max-width: 210px;
       white-space: nowrap;
@@ -156,9 +108,10 @@ export function panelCss(): string {
     .pointManagerTop .eyebrow,
     .detectedCandidatesTop .eyebrow {
       margin: 0 0 5px;
-      color: var(--mk-accent-strong);
-      font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      text-transform: uppercase;
+      color: var(--mk-accent);
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 720;
     }
     .headerActions {
       display: flex;
@@ -168,9 +121,6 @@ export function panelCss(): string {
       flex-wrap: wrap;
       justify-content: flex-end;
     }
-    .collapsed .headerActions {
-      flex-wrap: nowrap;
-    }
     .secondaryButton,
     .iconButton {
       min-height: 32px;
@@ -178,7 +128,7 @@ export function panelCss(): string {
       border: 1px solid var(--mk-accent);
       border-radius: 8px;
       background: var(--mk-accent);
-      color: #111111;
+      color: #ffffff;
       cursor: pointer;
       font: inherit;
       font-size: 12px;
@@ -190,21 +140,31 @@ export function panelCss(): string {
         background 150ms ease;
     }
     button:hover:not(:disabled) {
-      border-color: var(--mk-accent-strong);
+      border-color: var(--mk-accent-hover);
+    }
+    button:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(0, 91, 255, 0.16);
     }
     button:active:not(:disabled) {
       transform: translateY(1px);
     }
     .secondaryButton {
       border-color: var(--mk-border-strong);
-      background: var(--mk-surface-2);
-      color: var(--mk-text);
+      background: var(--mk-surface);
+      color: var(--mk-accent);
     }
     .iconButton {
       border: 1px solid var(--mk-border-strong);
-      background: var(--mk-surface-2);
+      background: var(--mk-surface);
       color: var(--mk-muted);
       cursor: pointer;
+    }
+    .secondaryButton:hover:not(:disabled),
+    .iconButton:hover:not(:disabled) {
+      border-color: var(--mk-accent-border);
+      background: var(--mk-accent-soft);
+      color: var(--mk-accent);
     }
     .settingsButton {
       width: 32px;
@@ -231,15 +191,6 @@ export function panelCss(): string {
     .chevronUp {
       transform: translateY(2px) rotate(-135deg);
     }
-    .collapsed .collapseButton {
-      width: 28px;
-      min-height: 28px;
-      padding: 0;
-    }
-    .collapsed .chevronIcon {
-      width: 8px;
-      height: 8px;
-    }
     .message {
       margin: 0;
       padding: 12px 14px;
@@ -247,14 +198,14 @@ export function panelCss(): string {
       overflow-wrap: anywhere;
     }
     .message.error {
-      color: #fca5a5;
+      color: var(--mk-danger);
     }
     .capture {
       display: grid;
       gap: 7px;
       padding: 12px 14px;
       border-top: 1px solid var(--mk-border);
-      background: rgba(255, 255, 255, 0.02);
+      background: var(--mk-surface-2);
     }
     .capture > span {
       color: var(--mk-muted);
@@ -269,7 +220,7 @@ export function panelCss(): string {
       border: 1px solid var(--mk-accent);
       border-radius: 8px;
       background: var(--mk-accent);
-      color: #111111;
+      color: #ffffff;
       font: inherit;
       font-weight: 750;
       cursor: pointer;
@@ -280,7 +231,7 @@ export function panelCss(): string {
       gap: 8px;
       padding: 12px 14px;
       border-bottom: 1px solid var(--mk-border);
-      background: #101011;
+      background: var(--mk-surface-2);
     }
     .pointManagerTop,
     .pointChoice,
@@ -318,6 +269,30 @@ export function panelCss(): string {
     .pointManagerControls {
       display: flex;
       gap: 6px;
+    }
+    .detectedHeaderActions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 7px;
+      flex: 0 0 auto;
+    }
+    .detectedToggleButton {
+      min-height: 28px;
+      width: 28px;
+      padding: 0;
+    }
+    .detectedToggleButton .chevronIcon {
+      display: inline-block;
+      margin: 0;
+      color: inherit;
+    }
+    .detectedCandidatesBody {
+      display: grid;
+      gap: 8px;
+    }
+    .detectedCandidates.collapsed {
+      gap: 0;
     }
     .pointManagerControls button,
     .deleteButton,
@@ -382,16 +357,19 @@ export function panelCss(): string {
       pointer-events: auto;
     }
     .deleteButton {
-      border-color: rgba(239, 68, 68, 0.4);
-      color: #fca5a5;
+      border-color: var(--mk-danger);
+      color: var(--mk-danger);
+      background: var(--mk-surface);
     }
     .saveSmallButton {
-      border-color: rgba(245, 158, 11, 0.72);
-      color: var(--mk-accent-strong);
+      border-color: var(--mk-accent);
+      background: var(--mk-accent);
+      color: #ffffff;
     }
     .detailsButton {
       border-color: var(--mk-border-strong);
       color: var(--mk-muted);
+      background: var(--mk-surface);
     }
     .confirmButton.danger {
       border-color: var(--mk-danger);
@@ -402,6 +380,7 @@ export function panelCss(): string {
     .saveSmallButton:disabled {
       border-color: var(--mk-border);
       color: var(--mk-quiet);
+      background: var(--mk-surface-2);
       cursor: default;
     }
     .panelConfirmation {
@@ -409,7 +388,7 @@ export function panelCss(): string {
       gap: 10px;
       padding: 12px 14px;
       border-top: 1px solid var(--mk-border);
-      background: #151516;
+      background: var(--mk-surface-2);
     }
     .panelConfirmation.danger {
       box-shadow: inset 3px 0 0 var(--mk-danger);
@@ -448,7 +427,7 @@ export function panelCss(): string {
       gap: 10px;
       padding: 10px 14px;
       border-top: 1px solid var(--mk-border);
-      background: #101011;
+      background: var(--mk-surface-2);
     }
     .fixtureToolsText {
       min-width: 0;
@@ -467,7 +446,7 @@ export function panelCss(): string {
       overflow-wrap: anywhere;
     }
     .fixtureToolsText .fixtureError {
-      color: #fca5a5;
+      color: var(--mk-danger);
     }
     .fixtureToolsActions {
       display: flex;
@@ -492,11 +471,11 @@ export function panelCss(): string {
       border-top: 0;
     }
     .row.cheapest {
-      background: linear-gradient(90deg, rgba(34, 197, 94, 0.14), rgba(34, 197, 94, 0.03));
+      background: var(--mk-success-soft);
       box-shadow: inset 3px 0 0 var(--mk-success);
     }
     .row.failed {
-      background: linear-gradient(90deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.03));
+      background: var(--mk-surface);
     }
     .row.unselected {
       opacity: 0.72;
@@ -508,16 +487,20 @@ export function panelCss(): string {
       overflow-wrap: anywhere;
     }
     .value strong {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 14px;
       letter-spacing: 0;
+      font-variant-numeric: tabular-nums;
       overflow-wrap: anywhere;
     }
     .value .original {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-variant-numeric: tabular-nums;
     }
     .row.failed .value {
       max-width: 190px;
+      padding: 8px;
+      border: 1px solid rgba(229, 72, 77, 0.24);
+      border-radius: 8px;
+      background: var(--mk-danger-soft);
     }
     .failureActions {
       display: flex;

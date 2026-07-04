@@ -1,0 +1,11 @@
+{
+  "extensionName": {
+    "message": "Markonverter"
+  },
+  "extensionDescription": {
+    "message": "Сравнивает цены товаров Ozon между сохраненными ПВЗ с конвертацией RUB/KZT."
+  },
+  "extensionActionTitle": {
+    "message": "Markonverter"
+  }
+}

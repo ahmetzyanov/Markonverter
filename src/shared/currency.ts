@@ -15,8 +15,8 @@ export function roundMoney(amount: number): number {
   return Math.round((amount + Number.EPSILON) * 100) / 100;
 }
 
-export function formatCurrency(amount: number, currency: Currency): string {
-  return new Intl.NumberFormat("ru-RU", {
+export function formatCurrency(amount: number, currency: Currency, locale = "ru-RU"): string {
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency,
     maximumFractionDigits: currency === "KZT" ? 0 : 2

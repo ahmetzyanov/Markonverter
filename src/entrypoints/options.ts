@@ -6,19 +6,25 @@ import {
   SUPPORTED_CURRENCY_RATE_PROVIDERS
 } from "../shared/types";
 import { normalizeSettings } from "../shared/validation";
+import {
+  createTranslator,
+  type I18nKey,
+  languageLabel,
+  type LanguagePreference,
+  normalizeLanguagePreference,
+  type Translator
+} from "../shared/i18n";
 
-const RATE_PROVIDER_LABELS: Record<CurrencyRateProvider, string> = {
-  manual: "Manual",
-  cbr: "CBR",
-  nbk: "National Bank KZ",
-  exchangeRateApi: "ExchangeRate-API"
-};
-
-let settings: ExtensionSettings;
+let settings: ExtensionSettings = normalizeSettings(undefined);
 let saveChain: Promise<void> = Promise.resolve();
 let saveVersion = 0;
 
 const elements = {
+  language: mustGet<HTMLSelectElement>("language"),
+  saveLanguage: mustGet<HTMLButtonElement>("saveLanguage"),
+  languageResolved: mustGet<HTMLSpanElement>("languageResolved"),
+  debug: mustGet<HTMLInputElement>("debug"),
+  saveDebug: mustGet<HTMLButtonElement>("saveDebug"),
   rateProvider: mustGet<HTMLSelectElement>("rateProvider"),
   defaultCurrency: mustGet<HTMLSelectElement>("defaultCurrency"),
   rateRub: mustGet<HTMLInputElement>("rateRub"),
@@ -35,8 +41,8 @@ void init();
 async function init(): Promise<void> {
   const response = await runtimeRequest({ type: "GET_SETTINGS" });
   if (!response.ok || !("settings" in response)) {
-    setStatus(response.ok ? "Settings are unavailable" : response.error, true);
     settings = normalizeSettings(undefined);
+    setStatus(response.ok ? currentI18n().t("optionsSettingsUnavailable") : response.error, true);
   } else {
     settings = response.settings;
   }
@@ -45,6 +51,22 @@ async function init(): Promise<void> {
 }
 
 function bindEvents(): void {
+  elements.saveLanguage.addEventListener("click", () => {
+    settings = normalizeSettings({
+      ...settings,
+      language: readLanguagePreference()
+    });
+    enqueueSaveSettings("optionsLanguageSaved");
+  });
+
+  elements.saveDebug.addEventListener("click", () => {
+    settings = normalizeSettings({
+      ...settings,
+      debug: elements.debug.checked
+    });
+    enqueueSaveSettings("optionsDebugSaved");
+  });
+
   elements.rateProvider.addEventListener("change", () => {
     updateRateControls();
   });
@@ -66,7 +88,7 @@ function bindEvents(): void {
         KZT: Number(elements.rateKzt.value)
       }
     });
-    enqueueSaveSettings("Currency saved");
+    enqueueSaveSettings("optionsCurrencySaved");
   });
 
   elements.refreshCurrency.addEventListener("click", () => {
@@ -76,6 +98,12 @@ function bindEvents(): void {
 }
 
 function render(): void {
+  const i18n = currentI18n();
+  applyPageTranslations(i18n);
+  renderLanguageOptions(i18n);
+  renderRateProviderOptions(i18n);
+  elements.language.value = settings.language;
+  elements.debug.checked = settings.debug;
   elements.rateProvider.value = settings.currencyRateProvider;
   elements.defaultCurrency.value = settings.defaultCurrency;
   elements.rateRub.value = String(settings.ratesToRub.RUB);
@@ -86,16 +114,17 @@ function render(): void {
 }
 
 async function refreshCurrencyRates(): Promise<void> {
+  const i18n = currentI18n();
   if (readRateProvider() === "manual") {
-    setStatus("Manual rates are saved from the input fields");
+    setStatus(i18n.t("optionsManualRatesSavedFromInputs"));
     return;
   }
   setSaving(true);
-  setStatus("Updating currency rates");
+  setStatus(i18n.t("optionsUpdatingCurrencyRates"));
   try {
     const response = await runtimeRequest({ type: "REFRESH_CURRENCY_RATES", provider: readRateProvider() });
     if (!response.ok || !("settings" in response)) {
-      setStatus(response.ok ? "Currency rates were not updated" : response.error, true);
+      setStatus(response.ok ? i18n.t("optionsCurrencyRatesNotUpdated") : response.error, true);
       return;
     }
     settings = response.settings;
@@ -109,31 +138,35 @@ async function refreshCurrencyRates(): Promise<void> {
 }
 
 function renderCurrencyRateInfo(): void {
+  const i18n = currentI18n();
   if (settings.currencyRateProvider === "manual") {
     elements.currencyRateInfo.textContent = settings.currencyRateMeta?.updatedAt
-      ? `Manual, ${formatDate(settings.currencyRateMeta.updatedAt)}`
-      : "Manual rates";
+      ? `${i18n.t("rateProviderManual")}, ${formatDate(settings.currencyRateMeta.updatedAt)}`
+      : i18n.t("optionsManualRates");
     return;
   }
 
   const meta = settings.currencyRateMeta;
   if (!meta) {
-    elements.currencyRateInfo.textContent = "Saved rates";
+    elements.currencyRateInfo.textContent = i18n.t("optionsSavedRates");
     return;
   }
 
   const date = formatDate(meta.updatedAt);
-  const fallback = meta.fallbackUsed ? " fallback" : "";
+  const fallback = meta.fallbackUsed ? i18n.t("optionsFallback") : "";
   const effectiveDate = meta.effectiveDate ? `, ${meta.effectiveDate}` : "";
-  elements.currencyRateInfo.textContent = `${RATE_PROVIDER_LABELS[meta.provider]}${fallback}, ${date}${effectiveDate}`;
+  elements.currencyRateInfo.textContent = `${rateProviderLabel(meta.provider)}${fallback}, ${date}${effectiveDate}`;
 }
 
 function renderPointList(): void {
+  const i18n = currentI18n();
   elements.pointList.innerHTML = "";
   if (settings.pickupPoints.length === 0) {
     const empty = document.createElement("div");
     empty.className = "point";
-    empty.innerHTML = "<strong>No pickup points configured.</strong><span>Add points from an Ozon delivery selector on a product page.</span>";
+    empty.innerHTML = `<strong>${escapeHtml(i18n.t("optionsNoPickupPointsTitle"))}</strong><span>${escapeHtml(
+      i18n.t("optionsNoPickupPointsHint")
+    )}</span>`;
     elements.pointList.append(empty);
     return;
   }
@@ -150,14 +183,14 @@ function renderPointList(): void {
 
     const compared = isPointCompared(point);
     const compare = button(
-      compared ? "Compared" : "Skipped",
-      compared ? "Exclude from product-page comparison" : "Include in product-page comparison",
+      compared ? i18n.t("optionsCompared") : i18n.t("optionsSkipped"),
+      compared ? i18n.t("optionsCompareTitleExclude") : i18n.t("optionsCompareTitleInclude"),
       () => togglePointComparison(point.id),
       compared ? "compareState" : "compareState isSkipped"
     );
-    const up = button("Up", "Move up", () => movePoint(index, -1));
-    const down = button("Down", "Move down", () => movePoint(index, 1));
-    const remove = button("Delete", "Delete", () => removePoint(point.id), "danger");
+    const up = button(i18n.t("optionsUp"), i18n.t("optionsMoveUp"), () => movePoint(index, -1));
+    const down = button(i18n.t("optionsDown"), i18n.t("optionsMoveDown"), () => movePoint(index, 1));
+    const remove = button(i18n.t("optionsDelete"), i18n.t("optionsDelete"), () => removePoint(point.id), "danger");
     up.disabled = index === 0;
     down.disabled = index === settings.pickupPoints.length - 1;
     actions.append(compare, up, down, remove);
@@ -183,7 +216,7 @@ function togglePointComparison(pointId: string): void {
 
   const nextIds = ozonIds.filter((id) => selected.has(id));
   settings.comparisonPickupPointIds = nextIds.length === ozonIds.length ? null : nextIds;
-  enqueueSaveSettings(isSelected ? "Pickup point skipped" : "Pickup point compared");
+  enqueueSaveSettings(isSelected ? "optionsPickupSkipped" : "optionsPickupCompared");
 }
 
 function movePoint(index: number, direction: -1 | 1): void {
@@ -195,12 +228,12 @@ function movePoint(index: number, direction: -1 | 1): void {
   const [item] = next.splice(index, 1);
   next.splice(nextIndex, 0, item);
   settings.pickupPoints = next;
-  enqueueSaveSettings("Order saved");
+  enqueueSaveSettings("optionsOrderSaved");
 }
 
 function removePoint(id: string): void {
   settings.pickupPoints = settings.pickupPoints.filter((point) => point.id !== id);
-  enqueueSaveSettings("Pickup point deleted");
+  enqueueSaveSettings("optionsPickupDeleted");
 }
 
 function readRateProvider(): CurrencyRateProvider {
@@ -209,7 +242,7 @@ function readRateProvider(): CurrencyRateProvider {
     : "cbr";
 }
 
-function enqueueSaveSettings(message: string): void {
+function enqueueSaveSettings(messageKey: I18nKey): void {
   const version = ++saveVersion;
   const snapshot = structuredClone(settings);
   setSaving(true);
@@ -220,12 +253,12 @@ function enqueueSaveSettings(message: string): void {
         return;
       }
       if (!response.ok || !("settings" in response)) {
-        setStatus(response.ok ? "Settings were not saved" : response.error, true);
+        setStatus(response.ok ? currentI18n().t("optionsSettingsNotSaved") : response.error, true);
         return;
       }
       settings = response.settings;
       render();
-      setStatus(message);
+      setStatus(currentI18n().t(messageKey));
     })
     .catch((error) => {
       if (version === saveVersion) {
@@ -261,6 +294,10 @@ function setStatus(message: string, error = false): void {
 }
 
 function setSaving(isSaving: boolean): void {
+  elements.language.disabled = isSaving;
+  elements.saveLanguage.disabled = isSaving;
+  elements.debug.disabled = isSaving;
+  elements.saveDebug.disabled = isSaving;
   elements.saveCurrency.disabled = isSaving;
   elements.refreshCurrency.disabled = isSaving || readRateProvider() === "manual";
   elements.pointList.querySelectorAll("button").forEach((button) => {
@@ -285,16 +322,17 @@ function escapeHtml(value: string): string {
 function updateRateControls(): void {
   elements.refreshCurrency.disabled = readRateProvider() === "manual";
   elements.refreshCurrency.title =
-    readRateProvider() === "manual" ? "Manual rates are saved from the input fields" : "Fetch the selected source now";
+    readRateProvider() === "manual" ? currentI18n().t("optionsManualRatesSavedFromInputs") : currentI18n().t("optionsUpdateRates");
 }
 
 function formatRateUpdateStatus(meta: ExtensionSettings["currencyRateMeta"]): string {
+  const i18n = currentI18n();
   if (!meta) {
-    return "Currency rates updated";
+    return i18n.t("optionsCurrencyRatesUpdated");
   }
 
-  const fallback = meta.fallbackUsed ? " via fallback" : "";
-  return `Currency rates updated from ${RATE_PROVIDER_LABELS[meta.provider]}${fallback}`;
+  const fallback = meta.fallbackUsed ? i18n.t("optionsFallback") : "";
+  return i18n.t("optionsCurrencyRatesUpdatedFrom", { provider: rateProviderLabel(meta.provider), fallback });
 }
 
 function formatDate(value: string): string {
@@ -302,10 +340,67 @@ function formatDate(value: string): string {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return date.toLocaleString(undefined, {
+  return date.toLocaleString(currentI18n().locale, {
     month: "short",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit"
   });
+}
+
+function currentI18n(): Translator {
+  return createTranslator(settings?.language);
+}
+
+function applyPageTranslations(i18n: Translator): void {
+  document.documentElement.lang = i18n.language;
+  document.title = i18n.t("optionsDocumentTitle");
+  document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((node) => {
+    const key = node.dataset.i18n as I18nKey | undefined;
+    if (key) {
+      node.textContent = i18n.t(key);
+    }
+  });
+  elements.languageResolved.textContent = i18n.t("optionsLanguageResolved", { language: languageLabel(i18n.language) });
+}
+
+function renderLanguageOptions(i18n: Translator): void {
+  const labels: Record<LanguagePreference, string> = {
+    ru: i18n.t("languageRu"),
+    en: i18n.t("languageEn"),
+    auto: i18n.t("languageAuto")
+  };
+  for (const option of Array.from(elements.language.options)) {
+    option.textContent = labels[normalizeLanguagePreference(option.value)];
+  }
+}
+
+function renderRateProviderOptions(i18n: Translator): void {
+  const labels: Record<CurrencyRateProvider, string> = {
+    manual: i18n.t("rateProviderManual"),
+    cbr: i18n.t("rateProviderCbr"),
+    nbk: i18n.t("rateProviderNbk"),
+    exchangeRateApi: i18n.t("rateProviderExchangeRateApi")
+  };
+  for (const option of Array.from(elements.rateProvider.options)) {
+    const provider = option.value as CurrencyRateProvider;
+    if (SUPPORTED_CURRENCY_RATE_PROVIDERS.includes(provider)) {
+      option.textContent = labels[provider];
+    }
+  }
+}
+
+function rateProviderLabel(provider: CurrencyRateProvider): string {
+  const i18n = currentI18n();
+  const labels: Record<CurrencyRateProvider, I18nKey> = {
+    manual: "rateProviderManual",
+    cbr: "rateProviderCbr",
+    nbk: "rateProviderNbk",
+    exchangeRateApi: "rateProviderExchangeRateApi"
+  };
+  return i18n.t(labels[provider]);
+}
+
+function readLanguagePreference(): LanguagePreference {
+  return normalizeLanguagePreference(elements.language.value);
 }

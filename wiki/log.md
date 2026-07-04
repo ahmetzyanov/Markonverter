@@ -150,3 +150,48 @@ updates, and non-trivial implementation changes.
 - Removed manual pickup-point creation from the settings page. Ozon points are
   now added from the product-page delivery selector, while settings keep saved
   point comparison, ordering, and deletion controls.
+- Added extension localization with Russian as the default language. Chrome
+  manifest strings live in `_locales/`, while runtime UI strings use
+  `src/shared/i18n.ts` so options and the Ozon panel can honor the saved
+  `settings.language` preference, including `auto` browser-language detection.
+- Moved unsaved Ozon PVZ candidates below saved pickup rows and made that
+  candidate list collapsible. It defaults expanded until at least two Ozon
+  pickup points are saved, then defaults collapsed while keeping a manual
+  expand/collapse override for the current product page.
+- Stabilized fake-Ozon QA around the new localization layer by seeding an
+  explicit Russian language preference, checking the settings-page language
+  switch, using the language-independent comparison-state button in options, and
+  accepting both Russian and English RUB formatting in price assertions.
+
+## 2026-07-03
+
+- Added project-local skill `markonverter-ozon-live-check` with an Arc cookie
+  refresh script at
+  `.codex/skills/markonverter-ozon-live-check/scripts/export_arc_ozon_cookies.py`.
+  The script exports only Ozon cookies from Arc using macOS `Arc Safe Storage`
+  and rewrites the gitignored `.secrets/ozon-cookies.txt` file without printing
+  cookie values.
+- Refreshed Arc Ozon cookies successfully (`count=26`, zero decrypt failures)
+  and reran `npm run qa:ozon:live`. The live probe still returned
+  `LIVE_OZON_BLOCKED` after importing cookies, for both the saved `ozon.ru`
+  product URL and the same path on `ozon.kz`, so current evidence points to
+  Ozon/browser/network blocking rather than stale local cookies.
+- After re-login in Arc, refreshed cookies again (`count=27`) and found that
+  Ozon also needed Arc localStorage state for the SSO/domain redirect path.
+  Added storage-state export to `markonverter-ozon-live-check`, generated
+  `.secrets/ozon-arc-storage-state.json`, tightened the live block detector to
+  avoid hidden-text false positives on real product pages, and verified
+  `LIVE_OZON_OK status=200 panel=attached` with the unpacked extension.
+
+## 2026-07-04
+
+- Replaced the unrelated dark gstack `DESIGN.md` with Markonverter-specific
+  Ozon-derived design rules: light compact surfaces, Ozon blue primary actions,
+  restrained magenta, neutral borders, and price-card-width panel layouts.
+- Redesign scope includes the options page, injected Ozon product panel,
+  delivery-selector helper controls, and extension icon assets.
+- Added a saved `debug` setting, defaulting to `false`. Debug mode now gates the
+  product-panel Ozon fixture controls, unavailable-row `Copy details`, and
+  page-probe network fixture storage.
+- Changed product-panel collapse so the header remains the same, including the
+  settings and collapse controls, while only the body content is hidden.

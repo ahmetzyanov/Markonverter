@@ -41,6 +41,7 @@ await Promise.all([
 
 await Promise.all([
   cp("src/assets", "dist/assets", { recursive: true }),
+  cp("src/_locales", "dist/_locales", { recursive: true }),
   cp("src/manifest.json", "dist/manifest.json"),
   cp("src/entrypoints/options.html", "dist/options.html")
 ]);

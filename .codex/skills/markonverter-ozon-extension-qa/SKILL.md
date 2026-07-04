@@ -38,6 +38,8 @@ Then write `chrome.storage.local["markonverter.settings"]`. Do this after the se
 
 4. Try the real Ozon product URL first. If Ozon shows its antibot or "no connection" page, record that live Ozon was blocked and continue with the fake-Ozon regression harness below. Do not claim real Ozon API success from the fake harness.
 
+For real live checks in this checkout, use the project-local `markonverter-ozon-live-check` skill first. It refreshes trusted Ozon cookies from Arc into `.secrets/ozon-cookies.txt` before running `npm run qa:ozon:live`.
+
 ## Fake-Ozon Regression Harness
 
 Intercept an `https://ozon.kz/product/fake-product-2229282395/` route and return simple product HTML with `h1` and `[data-widget="webPrice"]`. Intercept `https://ozon.kz/api/**` and return JSON shaped like Ozon composer responses.

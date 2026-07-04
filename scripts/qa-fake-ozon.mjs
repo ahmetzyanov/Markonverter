@@ -13,7 +13,10 @@ const fakeOzonOrigin = "https://www.ozon.kz";
 const productUrl = `${fakeOzonOrigin}/product/fake-product-2229282395/`;
 const settingsKey = "markonverter.settings";
 const panelStateKey = "markonverter.panelState";
+const fixtureStoreKey = "markonverter.ozonFixtures";
 const timeoutMs = 12_000;
+const rub9000Text = /(?:9[\s\u00a0]*000,00[\s\u00a0]*₽|RUB[\s\u00a0]*9,000\.00)/;
+const rub17000Text = /(?:17[\s\u00a0]*000,00[\s\u00a0]*₽|RUB[\s\u00a0]*17,000\.00)/;
 
 const fakePoints = {
   ru: {
@@ -80,6 +83,7 @@ try {
   await assertNoPanel(page, "non-Ozon page");
 
   await verifyDetectedPickupSave(page, worker);
+  await verifyUnsavedPickupListDisclosure(page, worker);
   await verifyCurrentAddressReuseRegression(page, worker);
   await verifyCorruptedEditNameRecovery(page, worker);
   await verifyStreetOnlyCurrentSummaryCapture(page, worker);
@@ -146,16 +150,45 @@ async function verifyDetectedPickupSave(page, worker) {
   await seedStorage(worker, settingsWithPickupPoints([]));
   await openFakeProduct(page, "empty");
 
-  await waitForPanelText(page, /No Ozon pickup points configured\./, "empty settings state");
+  await waitForPanelText(page, /ПВЗ Ozon не настроены\./, "empty settings state");
   await waitForPanelText(page, /Астана|Astana pickup/, "detected fake Ozon pickup point");
-  await waitForPageText(page, /PVZ visible/, "delivery selector helper");
+  await waitForPageText(page, /ПВЗ видно/, "delivery selector helper");
 
-  await clickPanelButton(page, "Save");
-  await waitForPanelText(page, /Saved: |Saved and captured current price|Checking 1 pickup points|Auto captured current price/, "detected pickup save status");
+  await clickPanelButton(page, "Сохранить");
+  await waitForPanelText(page, /Сохранено: |Сохранено и записана текущая цена|Проверяю 1 ПВЗ|Текущая цена автоматически записана/, "detected pickup save status");
   await page.locator('[data-markonverter-pvz-action].is-saved').waitFor({ timeout: timeoutMs });
 
   const settings = await readSettings(worker);
   assert(settings.pickupPoints.some((point) => point.externalLocationId === fakePoints.kz.externalLocationId), "detected pickup was saved");
+}
+
+async function verifyUnsavedPickupListDisclosure(page, worker) {
+  const savedOnlyPoints = [
+    { ...fakePoints.ru, id: "saved-ru", externalLocationId: "saved-ru-only", name: "Saved RU pickup" },
+    { ...fakePoints.kz, id: "saved-kz", externalLocationId: "saved-kz-only", name: "Saved KZ pickup" }
+  ];
+  const candidateText = /Пункт Ozon № 440-129|Пункт Ozon № 469-716/;
+
+  routeState.scenario = "empty";
+  await seedStorage(worker, settingsWithPickupPoints(savedOnlyPoints));
+  await openFakeProduct(page, "unsaved-candidates-collapsed");
+  await waitForPanelText(page, /Saved RU pickup/, "saved pickup rows before unsaved candidates");
+  await waitForPanelText(page, /Не добавленные ПВЗ/, "unsaved pickup list header");
+
+  const collapsedText = await panelText(page);
+  const savedIndex = collapsedText.indexOf("Saved KZ pickup");
+  const unsavedIndex = collapsedText.indexOf("Не добавленные ПВЗ");
+  assert(savedIndex >= 0 && unsavedIndex > savedIndex, `unsaved pickup list should render below saved rows:\n${collapsedText}`);
+  assert(!candidateText.test(collapsedText), `unsaved pickup candidates should be collapsed by default after two saved points:\n${collapsedText}`);
+
+  await clickPanelIconButton(page, "Показать не добавленные ПВЗ");
+  await waitForPanelText(page, candidateText, "expanded unsaved pickup candidates");
+
+  routeState.scenario = "empty";
+  await seedStorage(worker, settingsWithPickupPoints([savedOnlyPoints[0]]));
+  await openFakeProduct(page, "unsaved-candidates-expanded");
+  await waitForPanelText(page, /Не добавленные ПВЗ/, "unsaved pickup list header with one saved point");
+  await waitForPanelText(page, candidateText, "unsaved pickup candidates expanded before two saved points");
 }
 
 async function verifyCurrentAddressReuseRegression(page, worker) {
@@ -166,10 +199,10 @@ async function verifyCurrentAddressReuseRegression(page, worker) {
 
   await waitForPanelText(page, /Moscow pickup/, "Moscow row");
   await waitForPanelText(page, /Astana pickup/, "Astana row");
-  await waitForPanelText(page, /17[\s\u00a0]*000,00[\s\u00a0]*₽/, "current KZ point auto-captured from visible page");
-  await waitForPanelText(page, /Auto captured current price|Captured /, "auto capture status");
-  await waitForPanelText(page, /Unavailable/, "unavailable row before manual capture");
-  await waitForPanelText(page, /Open or select this pickup point in Ozon.*Capture current/i, "current PVZ capture guidance");
+  await waitForPanelText(page, rub17000Text, "current KZ point auto-captured from visible page");
+  await waitForPanelText(page, /Текущая цена автоматически записана|Записано /, "auto capture status");
+  await waitForPanelText(page, /Недоступно/, "unavailable row before manual capture");
+  await waitForPanelText(page, /Откройте или выберите этот ПВЗ.*Записать текущую/i, "current PVZ capture guidance");
   assert(
     routeStats.locationSelectionRequests === locationSelectionRequestsBefore,
     `saved-row comparison sent Ozon location-selection requests: ${JSON.stringify(routeStats.lastLocationSelectionUrls)}`
@@ -178,13 +211,22 @@ async function verifyCurrentAddressReuseRegression(page, worker) {
   let settings = await readSettings(worker);
   assert(settings.manualQuotes["2229282395:kz"], "current KZ point was auto-captured without pressing Capture current");
 
-  await clickPanelButton(page, "Copy details");
-  await waitForPanelText(page, /Copied pickup-point diagnostics|Could not copy diagnostics/, "diagnostics copy status");
+  await assertPanelButtonAbsent(page, "Копировать детали");
+  const defaultPanelText = await panelText(page);
+  assert(!defaultPanelText.includes("Фикстуры Ozon"), `debug fixture row should be hidden by default:\n${defaultPanelText}`);
+  const fixtureStore = await chromeStorageGet(worker, fixtureStoreKey);
+  assert(!fixtureStore?.records?.length, `debug fixtures should not be recorded while debug mode is off: ${JSON.stringify(fixtureStore)}`);
 
-  await clickPanelButton(page, "Capture current");
-  await waitForPanelText(page, /Capture visible price\?/, "inline capture confirmation");
-  await clickPanelButton(page, "Capture price");
-  await waitForPanelText(page, /Captured current page price for Moscow pickup|Captured /, "manual capture status");
+  await setDebugMode(worker, true);
+  await waitForPanelText(page, /Копировать детали/, "debug diagnostics button");
+  await waitForPanelText(page, /Фикстуры Ozon/, "debug fixtures row");
+  await clickPanelButton(page, "Копировать детали");
+  await waitForPanelText(page, /Диагностика ПВЗ скопирована|Не удалось скопировать диагностику/, "diagnostics copy status");
+
+  await clickPanelButton(page, "Записать текущую");
+  await waitForPanelText(page, /Записать видимую цену\?/, "inline capture confirmation");
+  await clickPanelButton(page, "Записать цену");
+  await waitForPanelText(page, /Текущая цена страницы записана для Moscow pickup|Записано /, "manual capture status");
 
   settings = await readSettings(worker);
   assert(settings.manualQuotes["2229282395:ru"], "manual quote was stored for the unavailable Moscow row");
@@ -201,7 +243,7 @@ async function verifyCorruptedEditNameRecovery(page, worker) {
   );
   await openFakeProduct(page, "edit-name-recovery");
 
-  await waitForPanelText(page, /17[\s\u00a0]*000,00[\s\u00a0]*₽/, "auto capture after edit-name repair");
+  await waitForPanelText(page, rub17000Text, "auto capture after edit-name repair");
   const text = await panelText(page);
   assert(!text.includes("Редактировать"), `Ozon edit button text leaked into pickup-point names. Current panel text:\n${text}`);
 
@@ -215,7 +257,7 @@ async function verifyStreetOnlyCurrentSummaryCapture(page, worker) {
   await seedStorage(worker, settingsWithPickupPoints([{ ...fakePoints.kz, name: "Буинск, ул. Вахитова, 174Б" }]));
   await openFakeProduct(page, "street-only-current-summary");
 
-  await waitForPanelText(page, /17[\s\u00a0]*000,00[\s\u00a0]*₽/, "street-only current summary auto-capture");
+  await waitForPanelText(page, rub17000Text, "street-only current summary auto-capture");
 
   const settings = await readSettings(worker);
   assert(
@@ -291,10 +333,10 @@ async function verifyManualTwoPointSuccess(page, worker, extensionId) {
 
   await waitForPanelText(page, /Moscow pickup/, "Moscow manual row");
   await waitForPanelText(page, /Astana pickup/, "Astana manual row");
-  await waitForPanelText(page, /9[\s\u00a0]*000,00[\s\u00a0]*₽/, "Moscow captured price");
-  await waitForPanelText(page, /17[\s\u00a0]*000,00[\s\u00a0]*₽/, "Astana captured converted price");
+  await waitForPanelText(page, rub9000Text, "Moscow captured price");
+  await waitForPanelText(page, rub17000Text, "Astana captured converted price");
   const text = await panelText(page);
-  assert(!text.includes("Unavailable"), "manual quote scenario should not show unavailable rows");
+  assert(!/Unavailable|Недоступно/.test(text), "manual quote scenario should not show unavailable rows");
   await assertPanelRowChrome(page);
   await verifyPanelCollapseAnimation(page);
   await deleteFirstPanelPickupPoint(page, worker);
@@ -413,6 +455,13 @@ async function clickPanelButton(page, label) {
   }, label);
 }
 
+async function assertPanelButtonAbsent(page, label) {
+  const labels = await page.locator("#markonverter-panel-root").evaluate((host) => {
+    return Array.from(host.shadowRoot?.querySelectorAll("button") || []).map((button) => button.textContent?.trim() || "");
+  });
+  assert(!labels.includes(label), `Panel button should be hidden: ${label}. Current buttons: ${JSON.stringify(labels)}`);
+}
+
 async function clickPageButton(page, label) {
   await page.evaluate((buttonLabel) => {
     const buttons = Array.from(document.querySelectorAll("button"));
@@ -436,13 +485,13 @@ async function assertPanelRowChrome(page) {
     if (checkboxCount > 0) {
       throw new Error("Product panel still shows comparison checkboxes");
     }
-    if (buttonLabels.includes("Add current")) {
+    if (buttonLabels.includes("Add current") || buttonLabels.includes("Добавить текущую")) {
       throw new Error("Product panel still shows Add current");
     }
     if (/Moscow pickup\s+(?:RU|KZ)\s*\/\s*(?:RUB|KZT)/i.test(rowText) || /Astana pickup\s+(?:RU|KZ)\s*\/\s*(?:RUB|KZT)/i.test(rowText)) {
       throw new Error(`Product panel still shows country/currency metadata under saved pickup names:\n${rowText}`);
     }
-    if (/Captured |Today, 18:00-20:00|Tomorrow, 10:00-18:00/i.test(rowText)) {
+    if (/Captured |Записано |Today, 18:00-20:00|Tomorrow, 10:00-18:00/i.test(rowText)) {
       throw new Error(`Product panel still shows captured metadata or delivery text under prices:\n${rowText}`);
     }
   });
@@ -450,7 +499,11 @@ async function assertPanelRowChrome(page) {
 
 async function verifyPanelCollapseAnimation(page) {
   const before = await panelBox(page);
-  await clickPanelIconButton(page, "Collapse Markonverter panel");
+  const beforeHeader = await panelHeaderSnapshot(page);
+  assert(beforeHeader.hasSettingsButton, `expanded panel header is missing settings button: ${JSON.stringify(beforeHeader)}`);
+  assert(beforeHeader.bodyChildCount > 0, `expanded panel should render body content: ${JSON.stringify(beforeHeader)}`);
+
+  await clickPanelIconButton(page, "Свернуть панель Markonverter");
   await page.waitForTimeout(110);
   const mid = await panelBox(page);
   assert(!mid.collapsed, `panel switched to collapsed markup before the collapse animation finished: ${JSON.stringify({ before, mid })}`);
@@ -458,9 +511,14 @@ async function verifyPanelCollapseAnimation(page) {
 
   await waitForPanelCollapsed(page, true);
   const collapsed = await panelBox(page);
+  const collapsedHeader = await panelHeaderSnapshot(page);
   assert(collapsed.height < before.height - 24, `panel did not end collapsed: ${JSON.stringify({ before, collapsed })}`);
+  assert(Math.abs(collapsed.width - before.width) < 1, `collapsed panel should keep the same header width: ${JSON.stringify({ before, collapsed })}`);
+  assert(collapsedHeader.title === beforeHeader.title, `collapsed panel header title changed: ${JSON.stringify({ beforeHeader, collapsedHeader })}`);
+  assert(collapsedHeader.hasSettingsButton, `collapsed panel header should keep the settings button: ${JSON.stringify(collapsedHeader)}`);
+  assert(collapsedHeader.bodyChildCount === 0, `collapsed panel should hide only the body: ${JSON.stringify(collapsedHeader)}`);
 
-  await clickPanelIconButton(page, "Expand Markonverter panel");
+  await clickPanelIconButton(page, "Развернуть панель Markonverter");
   await waitForPanelCollapsed(page, false);
   await page.waitForTimeout(260);
   const expanded = await panelBox(page);
@@ -478,6 +536,22 @@ async function panelBox(page) {
       width: rect.width,
       height: rect.height,
       collapsed: panel.classList.contains("collapsed")
+    };
+  });
+}
+
+async function panelHeaderSnapshot(page) {
+  return page.locator("#markonverter-panel-root").evaluate((host) => {
+    const panel = host.shadowRoot?.querySelector(".panel");
+    const header = panel?.querySelector(".header");
+    if (!panel || !header) {
+      throw new Error("Panel header not found");
+    }
+    const title = header.querySelector(".headerTitle")?.textContent?.replace(/\s+/g, " ").trim() || "";
+    return {
+      title,
+      hasSettingsButton: Boolean(header.querySelector('button[aria-label="Открыть настройки"]')),
+      bodyChildCount: Array.from(panel.children).filter((child) => !child.classList.contains("header")).length
     };
   });
 }
@@ -522,8 +596,8 @@ async function deleteFirstPanelPickupPoint(page, worker) {
   assert(Math.abs(after.box.height - before.box.height) < 0.5, `row height changed on hover: ${JSON.stringify({ before, after })}`);
 
   await deleteButton.click();
-  await waitForPanelText(page, /Delete pickup point\?/, "hover delete confirmation");
-  await clickPanelButton(page, "Delete point");
+  await waitForPanelText(page, /Удалить ПВЗ\?/, "hover delete confirmation");
+  await clickPanelButton(page, "Удалить ПВЗ");
   await waitForSettingsCondition(
     worker,
     (settings) => settings.pickupPoints.length === 1 && settings.pickupPoints[0]?.id === "kz",
@@ -549,13 +623,55 @@ async function rowHoverMetrics(row, button) {
 async function verifyOptionsComparisonManagement(page, worker, extensionId) {
   await page.goto(`chrome-extension://${extensionId}/options.html`, { waitUntil: "domcontentloaded" });
   await page.locator("#pointList .point").first().waitFor({ timeout: timeoutMs });
+  await verifyLanguageSetting(page, worker);
 
-  await clickOptionsPointButton(page, "Astana pickup", "Compared");
+  await clickOptionsPointButton(page, "Astana pickup", "Сравнивается");
   await waitForSettingsCondition(
     worker,
     (settings) => Array.isArray(settings.comparisonPickupPointIds) && settings.comparisonPickupPointIds.length === 0,
     "options comparison toggle"
   );
+}
+
+async function verifyLanguageSetting(page, worker) {
+  await waitForOptionsText(page, /Язык интерфейса/, "Russian language section");
+  const initial = await page.locator("#language").inputValue();
+  assert(initial === "ru", `expected default Russian language setting, got ${initial}`);
+
+  await page.selectOption("#language", "en");
+  await clickOptionsButton(page, "Сохранить язык");
+  await waitForOptionsText(page, /Language saved/, "English language save status");
+  await waitForOptionsText(page, /Interface language/, "English settings UI");
+  await waitForSettingsCondition(worker, (settings) => settings.language === "en", "English language setting");
+
+  await page.selectOption("#language", "ru");
+  await clickOptionsButton(page, "Save language");
+  await waitForOptionsText(page, /Язык сохранен/, "Russian language save status");
+  await waitForOptionsText(page, /Язык интерфейса/, "Russian settings UI restored");
+  await waitForSettingsCondition(worker, (settings) => settings.language === "ru", "Russian language setting");
+}
+
+async function waitForOptionsText(page, matcher, label) {
+  const deadline = Date.now() + timeoutMs;
+  let current = "";
+  while (Date.now() < deadline) {
+    current = await page.locator("body").textContent();
+    if (matchesText(current || "", matcher)) {
+      return current;
+    }
+    await page.waitForTimeout(150);
+  }
+  throw new Error(`Timed out waiting for ${label}. Current options text:\n${current}`);
+}
+
+async function clickOptionsButton(page, buttonLabel) {
+  await page.evaluate((label) => {
+    const button = Array.from(document.querySelectorAll("button")).find((item) => item.textContent?.trim() === label);
+    if (!button) {
+      throw new Error(`Options button not found: ${label}`);
+    }
+    button.click();
+  }, buttonLabel);
 }
 
 async function clickOptionsPointButton(page, pointName, buttonLabel) {
@@ -565,9 +681,11 @@ async function clickOptionsPointButton(page, pointName, buttonLabel) {
     if (!row) {
       throw new Error(`Options pickup row not found: ${pointName}`);
     }
-    const button = Array.from(row.querySelectorAll("button")).find((item) => item.textContent?.trim() === buttonLabel);
+    const button =
+      Array.from(row.querySelectorAll("button")).find((item) => item.textContent?.trim() === buttonLabel) ||
+      row.querySelector("button.compareState");
     if (!button) {
-      throw new Error(`Options button not found: ${buttonLabel}`);
+      throw new Error(`Options comparison button not found for ${pointName}`);
     }
     button.click();
   }, { pointName, buttonLabel });
@@ -625,6 +743,8 @@ async function chromeStorageGet(worker, key) {
 
 function settingsWithPickupPoints(points, manualQuotes = {}) {
   return {
+    language: "ru",
+    debug: false,
     defaultCurrency: "RUB",
     currencyRateProvider: "manual",
     ratesToRub: { RUB: 1, KZT: 0.17 },
@@ -640,6 +760,17 @@ function settingsWithPickupPoints(points, manualQuotes = {}) {
     comparisonPickupPointIds: null,
     manualQuotes
   };
+}
+
+async function setDebugMode(worker, debug) {
+  const settings = await readSettings(worker);
+  await chromeStorageSet(worker, {
+    [settingsKey]: {
+      ...settings,
+      debug
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 150));
 }
 
 function manualQuotesForFakePoints() {

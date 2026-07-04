@@ -21,6 +21,22 @@ describe("settings normalization", () => {
     expect(normalizeSettings({ currencyRateProvider: "unknown" }).currencyRateProvider).toBe("cbr");
   });
 
+  it("defaults missing or invalid language to Russian", () => {
+    expect(normalizeSettings({}).language).toBe("ru");
+    expect(normalizeSettings({ language: "de" }).language).toBe("ru");
+  });
+
+  it("keeps supported language preferences", () => {
+    expect(normalizeSettings({ language: "auto" }).language).toBe("auto");
+    expect(normalizeSettings({ language: "en" }).language).toBe("en");
+  });
+
+  it("defaults debug mode to false and keeps explicit true", () => {
+    expect(normalizeSettings({}).debug).toBe(false);
+    expect(normalizeSettings({ debug: "true" }).debug).toBe(false);
+    expect(normalizeSettings({ debug: true }).debug).toBe(true);
+  });
+
   it("keeps manual rate provider", () => {
     expect(normalizeSettings({ currencyRateProvider: "manual" }).currencyRateProvider).toBe("manual");
   });

@@ -13,6 +13,7 @@ const settingsKey = "markonverter.settings";
 const panelStateKey = "markonverter.panelState";
 const timeoutMs = Number(process.env.OZON_QA_TIMEOUT_MS || 20_000);
 const defaultSettings = {
+  language: "ru",
   defaultCurrency: "RUB",
   currencyRateProvider: "cbr",
   ratesToRub: { RUB: 1, KZT: 0.17 },
@@ -21,7 +22,7 @@ const defaultSettings = {
   manualQuotes: {}
 };
 
-const blockedTextRe =
+const blockedPageTextRe =
   /(?:\b403\b|похоже,\s*нет\s*соединения|нет\s*соединения|access\s+denied|captcha|verify\s+you\s+are\s+human|antibot|robot)/i;
 
 if (isDirectRun()) {
@@ -452,9 +453,9 @@ async function verifyCurrentPickupCapture(page, worker, productUrl) {
   await page.goto(productUrl, { waitUntil: "domcontentloaded", timeout: timeoutMs });
   await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
   await page.locator("#markonverter-panel-root").waitFor({ state: "attached", timeout: timeoutMs });
-  await waitForPanelText(page, /New pickup points/i, "detected current pickup point");
+  await waitForPanelText(page, /Не добавленные ПВЗ/i, "detected current pickup point");
 
-  await clickPanelButton(page, "Save");
+  await clickPanelButton(page, "Сохранить");
   const savedSettings = await waitForSettingsCondition(
     worker,
     (settings) => (settings.pickupPoints || []).length > 0 && Object.keys(settings.manualQuotes || {}).length > 0,
@@ -605,12 +606,14 @@ async function inspectLiveOzonPage(page, response) {
 }
 
 function detectBlocked(status, title, bodyText) {
-  const combined = `${status ?? ""}\n${title}\n${bodyText}`;
   if (status === 403) {
     return trimForLog(bodyText || title || "HTTP 403");
   }
-  if (blockedTextRe.test(combined)) {
-    return trimForLog(combined);
+  const normalizedTitle = String(title || "").trim();
+  const normalizedBody = String(bodyText || "").replace(/\s+/g, " ").trim();
+  const bodyStart = normalizedBody.slice(0, 300);
+  if (blockedPageTextRe.test(normalizedTitle) || blockedPageTextRe.test(bodyStart)) {
+    return trimForLog(`${status ?? ""}\n${title}\n${bodyText}`);
   }
   return "";
 }

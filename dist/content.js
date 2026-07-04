@@ -9,8 +9,8 @@
   function roundMoney(amount) {
     return Math.round((amount + Number.EPSILON) * 100) / 100;
   }
-  function formatCurrency(amount, currency) {
-    return new Intl.NumberFormat("ru-RU", {
+  function formatCurrency(amount, currency, locale = "ru-RU") {
+    return new Intl.NumberFormat(locale, {
       style: "currency",
       currency,
       maximumFractionDigits: currency === "KZT" ? 0 : 2
@@ -55,6 +55,446 @@
         deltaFromCheapest: result.status === "success" && cheapest !== void 0 ? roundMoney(result.convertedAmount - cheapest) : void 0
       };
     });
+  }
+
+  // src/shared/i18n.ts
+  var DEFAULT_LANGUAGE = "ru";
+  var DEFAULT_LANGUAGE_PREFERENCE = "ru";
+  var SUPPORTED_LANGUAGES = ["ru", "en"];
+  var SUPPORTED_LANGUAGE_PREFERENCES = ["auto", ...SUPPORTED_LANGUAGES];
+  var RU_MESSAGES = {
+    appName: "Markonverter",
+    appShortName: "Markonverter",
+    optionsDocumentTitle: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 Markonverter",
+    optionsTopEyebrow: "\u041A\u043E\u043D\u0441\u043E\u043B\u044C \u0446\u0435\u043D Ozon",
+    optionsLede: "\u0421\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u0439\u0442\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043D\u044B\u0435 \u041F\u0412\u0417, \u043D\u0430\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u0439\u0442\u0435 \u043A\u0443\u0440\u0441\u044B \u0432\u0430\u043B\u044E\u0442 \u0438 \u0443\u043F\u0440\u0430\u0432\u043B\u044F\u0439\u0442\u0435 Ozon-\u0442\u043E\u0447\u043A\u0430\u043C\u0438, \u043D\u0430\u0439\u0434\u0435\u043D\u043D\u044B\u043C\u0438 \u043D\u0430 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0430\u0445 \u0442\u043E\u0432\u0430\u0440\u043E\u0432.",
+    optionsLanguageEyebrow: "\u0418\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441",
+    optionsLanguageHeading: "\u042F\u0437\u044B\u043A",
+    optionsLanguageHint: "\u041F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u043A \u043F\u0430\u043D\u0435\u043B\u0438 \u043D\u0430 Ozon \u0438 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043A",
+    optionsLanguageSelectLabel: "\u042F\u0437\u044B\u043A \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441\u0430",
+    optionsLanguageResolved: "\u0421\u0435\u0439\u0447\u0430\u0441: {language}",
+    optionsSaveLanguage: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u044F\u0437\u044B\u043A",
+    optionsDebugLabel: "Debug \u0440\u0435\u0436\u0438\u043C",
+    optionsDebugHint: "\u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0434\u0438\u0430\u0433\u043D\u043E\u0441\u0442\u0438\u0447\u0435\u0441\u043A\u0438\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0438 \u0437\u0430\u043F\u0438\u0441\u044C \u0444\u0438\u043A\u0441\u0442\u0443\u0440 Ozon.",
+    optionsSaveDebug: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C debug",
+    optionsDebugSaved: "Debug \u0440\u0435\u0436\u0438\u043C \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D",
+    optionsRatesEyebrow: "\u041A\u0443\u0440\u0441\u044B",
+    optionsRatesHeading: "\u0412\u0430\u043B\u044E\u0442\u0430",
+    optionsRatesHint: "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0432 \u043F\u0430\u043D\u0435\u043B\u0438 \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u044F \u043D\u0430 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0435 \u0442\u043E\u0432\u0430\u0440\u0430",
+    optionsRateSource: "\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A \u043A\u0443\u0440\u0441\u0430",
+    optionsDefaultComparison: "\u0412\u0430\u043B\u044E\u0442\u0430 \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u044F",
+    optionsRateRub: "1 RUB \u0432 RUB",
+    optionsRateKzt: "1 KZT \u0432 RUB",
+    optionsSaveCurrency: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0432\u0430\u043B\u044E\u0442\u0443",
+    optionsUpdateRates: "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u043A\u0443\u0440\u0441\u044B",
+    optionsSavedLocationsEyebrow: "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043D\u044B\u0435 \u0442\u043E\u0447\u043A\u0438",
+    optionsConfiguredPickupPoints: "\u041D\u0430\u0441\u0442\u0440\u043E\u0435\u043D\u043D\u044B\u0435 \u041F\u0412\u0417",
+    optionsNoPickupPointsTitle: "\u041F\u0412\u0417 \u043D\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043D\u044B.",
+    optionsNoPickupPointsHint: "\u0414\u043E\u0431\u0430\u0432\u043B\u044F\u0439\u0442\u0435 \u0442\u043E\u0447\u043A\u0438 \u0438\u0437 \u0432\u044B\u0431\u043E\u0440\u0430 \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0438 Ozon \u043D\u0430 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0435 \u0442\u043E\u0432\u0430\u0440\u0430.",
+    optionsCompared: "\u0421\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u0435\u0442\u0441\u044F",
+    optionsSkipped: "\u041F\u0440\u043E\u043F\u0443\u0449\u0435\u043D",
+    optionsCompareTitleExclude: "\u0418\u0441\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0438\u0437 \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u044F \u043D\u0430 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0435 \u0442\u043E\u0432\u0430\u0440\u0430",
+    optionsCompareTitleInclude: "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0432 \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435 \u043D\u0430 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0435 \u0442\u043E\u0432\u0430\u0440\u0430",
+    optionsUp: "\u0412\u0432\u0435\u0440\u0445",
+    optionsDown: "\u0412\u043D\u0438\u0437",
+    optionsMoveUp: "\u041F\u0435\u0440\u0435\u043C\u0435\u0441\u0442\u0438\u0442\u044C \u0432\u0432\u0435\u0440\u0445",
+    optionsMoveDown: "\u041F\u0435\u0440\u0435\u043C\u0435\u0441\u0442\u0438\u0442\u044C \u0432\u043D\u0438\u0437",
+    optionsDelete: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C",
+    optionsSettingsUnavailable: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B",
+    optionsLanguageSaved: "\u042F\u0437\u044B\u043A \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D",
+    optionsCurrencySaved: "\u0412\u0430\u043B\u044E\u0442\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0430",
+    optionsManualRatesSavedFromInputs: "\u0420\u0443\u0447\u043D\u044B\u0435 \u043A\u0443\u0440\u0441\u044B \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u044E\u0442\u0441\u044F \u0438\u0437 \u043F\u043E\u043B\u0435\u0439 \u0432\u0432\u043E\u0434\u0430",
+    optionsUpdatingCurrencyRates: "\u041E\u0431\u043D\u043E\u0432\u043B\u044F\u044E \u043A\u0443\u0440\u0441\u044B \u0432\u0430\u043B\u044E\u0442",
+    optionsCurrencyRatesNotUpdated: "\u041A\u0443\u0440\u0441\u044B \u0432\u0430\u043B\u044E\u0442 \u043D\u0435 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u044B",
+    optionsManualRates: "\u0420\u0443\u0447\u043D\u044B\u0435 \u043A\u0443\u0440\u0441\u044B",
+    optionsSavedRates: "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043D\u044B\u0435 \u043A\u0443\u0440\u0441\u044B",
+    optionsCurrencyRatesUpdated: "\u041A\u0443\u0440\u0441\u044B \u0432\u0430\u043B\u044E\u0442 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u044B",
+    optionsCurrencyRatesUpdatedFrom: "\u041A\u0443\u0440\u0441\u044B \u0432\u0430\u043B\u044E\u0442 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u044B \u0438\u0437 {provider}{fallback}",
+    optionsFallback: " \u0447\u0435\u0440\u0435\u0437 \u0440\u0435\u0437\u0435\u0440\u0432\u043D\u044B\u0439 \u0438\u0441\u0442\u043E\u0447\u043D\u0438\u043A",
+    optionsSettingsNotSaved: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u043D\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u044B",
+    optionsPickupSkipped: "\u041F\u0412\u0417 \u043F\u0440\u043E\u043F\u0443\u0449\u0435\u043D",
+    optionsPickupCompared: "\u041F\u0412\u0417 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0432 \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u0435",
+    optionsOrderSaved: "\u041F\u043E\u0440\u044F\u0434\u043E\u043A \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D",
+    optionsPickupDeleted: "\u041F\u0412\u0417 \u0443\u0434\u0430\u043B\u0435\u043D",
+    languageAuto: "\u0410\u0432\u0442\u043E",
+    languageRu: "\u0420\u0443\u0441\u0441\u043A\u0438\u0439",
+    languageEn: "English",
+    rateProviderManual: "\u0412\u0440\u0443\u0447\u043D\u0443\u044E",
+    rateProviderCbr: "\u0426\u0411 \u0420\u0424",
+    rateProviderNbk: "\u041D\u0430\u0446\u0431\u0430\u043D\u043A \u041A\u0430\u0437\u0430\u0445\u0441\u0442\u0430\u043D\u0430",
+    rateProviderExchangeRateApi: "ExchangeRate-API",
+    panelCollapsedTag: "\u0446\u0435\u043D\u044B",
+    panelPickupPrices: "\u0426\u0435\u043D\u044B \u043F\u043E \u041F\u0412\u0417",
+    panelProductFallback: "\u0422\u043E\u0432\u0430\u0440 Ozon",
+    panelOpenSettings: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438",
+    panelSettings: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438",
+    panelExpand: "\u0420\u0430\u0437\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C Markonverter",
+    panelCollapse: "\u0421\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u044C Markonverter",
+    panelCheckingPickupPoints: "\u041F\u0440\u043E\u0432\u0435\u0440\u044F\u044E {count} \u041F\u0412\u0417...",
+    panelConfiguredPickupPoints: "\u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043D\u044B\u0435",
+    panelNoOzonPickupPoints: "\u041F\u0412\u0417 Ozon \u043D\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043D\u044B.",
+    panelNoSavedSelected: "\u041D\u0435\u0442 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043D\u044B\u0445 \u041F\u0412\u0417, \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0445 \u0434\u043B\u044F \u0441\u0440\u0430\u0432\u043D\u0435\u043D\u0438\u044F.",
+    panelWaiting: "\u041E\u0436\u0438\u0434\u0430\u043D\u0438\u0435",
+    panelNotCompared: "\u041D\u0435 \u0441\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u0435\u0442\u0441\u044F",
+    panelWaitingHint: "\u0416\u0434\u0443 \u043E\u0442\u0432\u0435\u0442 Ozon",
+    panelEnableInSettings: "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u0432 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u0445",
+    panelCapturedTitle: "\u0417\u0430\u043F\u0438\u0441\u0430\u043D\u043E {time}",
+    panelBest: "\u043B\u0443\u0447\u0448\u0435\u0435",
+    panelUnavailable: "\u041D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E",
+    panelCaptureCurrent: "\u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0443\u044E",
+    panelCaptureCurrentTitle: "\u041F\u043E\u0441\u043B\u0435 \u0432\u044B\u0431\u043E\u0440\u0430 \u044D\u0442\u043E\u0433\u043E \u041F\u0412\u0417 \u0432 Ozon \u0437\u0430\u043F\u0438\u0448\u0438\u0442\u0435 \u0432\u0438\u0434\u0438\u043C\u0443\u044E \u0446\u0435\u043D\u0443 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u044B \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0442\u043E\u0432\u0430\u0440\u0430.",
+    panelCopyDetails: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u0435\u0442\u0430\u043B\u0438",
+    panelCopyDetailsTitle: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0442\u0435\u0445\u043D\u0438\u0447\u0435\u0441\u043A\u0438\u0435 \u0434\u0435\u0442\u0430\u043B\u0438 \u0434\u043B\u044F \u0434\u0438\u0430\u0433\u043D\u043E\u0441\u0442\u0438\u043A\u0438 \u044D\u0442\u043E\u0433\u043E \u041F\u0412\u0417.",
+    panelDetectedEyebrow: "\u0421\u0442\u0440\u0430\u043D\u0438\u0446\u0430 Ozon",
+    panelNewPickupPoints: "\u041D\u0435 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043D\u044B\u0435 \u041F\u0412\u0417",
+    panelNewCount: "{count} \u043D\u0435 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043E",
+    panelShowNewPickupPoints: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043D\u0435 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043D\u044B\u0435 \u041F\u0412\u0417",
+    panelHideNewPickupPoints: "\u0421\u043A\u0440\u044B\u0442\u044C \u043D\u0435 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043D\u044B\u0435 \u041F\u0412\u0417",
+    panelDetectedHint: "\u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0432\u044B\u0431\u043E\u0440 \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0438 Ozon, \u0437\u0430\u0442\u0435\u043C \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0438\u043B\u0438 \u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0438\u0442\u0435 \u041F\u0412\u0417, \u0447\u0442\u043E\u0431\u044B Markonverter \u0435\u0433\u043E \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0438\u043B.",
+    panelSave: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C",
+    panelSaving: "\u0421\u043E\u0445\u0440\u0430\u043D\u044F\u044E: {name}",
+    panelPickupNotSaved: "\u041F\u0412\u0417 \u043D\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D",
+    panelSaved: "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E: {name}",
+    panelSavedAndCaptured: "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E \u0438 \u0437\u0430\u043F\u0438\u0441\u0430\u043D\u0430 \u0442\u0435\u043A\u0443\u0449\u0430\u044F \u0446\u0435\u043D\u0430: {name}",
+    panelCaptureVisibleTitle: "\u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0432\u0438\u0434\u0438\u043C\u0443\u044E \u0446\u0435\u043D\u0443?",
+    panelCaptureDifferentPointMessage: '\u0421\u0435\u0439\u0447\u0430\u0441 Ozon \u043F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0435\u0442 \u0442\u043E\u0447\u043A\u0443 "{current}", \u0430 \u043D\u0435 "{target}". \u0412\u0441\u0435 \u0440\u0430\u0432\u043D\u043E \u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0432\u0438\u0434\u0438\u043C\u0443\u044E \u0446\u0435\u043D\u0443 \u0434\u043B\u044F "{target}"?',
+    panelCaptureUnverifiedMessage: '\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0439 \u041F\u0412\u0417 Ozon. \u0412\u0441\u0435 \u0440\u0430\u0432\u043D\u043E \u0437\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0432\u0438\u0434\u0438\u043C\u0443\u044E \u0446\u0435\u043D\u0443 \u0434\u043B\u044F "{target}"?',
+    panelCapturePrice: "\u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0446\u0435\u043D\u0443",
+    panelCancel: "\u041E\u0442\u043C\u0435\u043D\u0430",
+    panelPriceCaptureCancelled: "\u0417\u0430\u043F\u0438\u0441\u044C \u0446\u0435\u043D\u044B \u043E\u0442\u043C\u0435\u043D\u0435\u043D\u0430",
+    panelVisiblePriceNotFound: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043D\u0430\u0439\u0442\u0438 \u0432\u0438\u0434\u0438\u043C\u0443\u044E \u0446\u0435\u043D\u0443 \u0442\u043E\u0432\u0430\u0440\u0430 \u043D\u0430 \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0435 Ozon.",
+    panelCapturedCurrentPrice: "\u0422\u0435\u043A\u0443\u0449\u0430\u044F \u0446\u0435\u043D\u0430 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u044B \u0437\u0430\u043F\u0438\u0441\u0430\u043D\u0430 \u0434\u043B\u044F {name}",
+    panelAutoCapturedCurrentPrice: "\u0422\u0435\u043A\u0443\u0449\u0430\u044F \u0446\u0435\u043D\u0430 \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0437\u0430\u043F\u0438\u0441\u0430\u043D\u0430 \u0434\u043B\u044F {name}",
+    panelCapturedPriceNotSaved: "\u0417\u0430\u043F\u0438\u0441\u0430\u043D\u043D\u0430\u044F \u0446\u0435\u043D\u0430 \u043D\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0430",
+    panelDeletePickupTitle: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u041F\u0412\u0417?",
+    panelDeletePickupMessage: '\u0423\u0434\u0430\u043B\u0438\u0442\u044C "{name}" \u0438\u0437 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043D\u044B\u0445 \u041F\u0412\u0417?',
+    panelDeletePickupConfirm: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u041F\u0412\u0417",
+    panelDeleted: "\u0423\u0434\u0430\u043B\u0435\u043D\u043E: {name}",
+    panelPickupNotDeleted: "\u041F\u0412\u0417 \u043D\u0435 \u0443\u0434\u0430\u043B\u0435\u043D",
+    panelCurrentPriceNotCaptured: "\u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0438\u043B\u0438 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u044D\u0442\u043E\u0442 \u041F\u0412\u0417 \u0432 Ozon, \u0434\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u0446\u0435\u043D\u044B, \u0437\u0430\u0442\u0435\u043C \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0443\u044E.",
+    panelOzonDidNotConfirm: "Ozon \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043B \u044D\u0442\u043E\u0442 \u041F\u0412\u0417, \u043F\u043E\u044D\u0442\u043E\u043C\u0443 \u043C\u043E\u0433\u043B\u0430 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C\u0441\u044F \u0442\u0435\u043A\u0443\u0449\u0430\u044F \u0442\u043E\u0447\u043A\u0430 \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0438.",
+    panelCapturedFromPage: "\u0441\u043E \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u044B",
+    panelCopiedDiagnostics: "\u0414\u0438\u0430\u0433\u043D\u043E\u0441\u0442\u0438\u043A\u0430 \u041F\u0412\u0417 \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u0430",
+    panelCopyDiagnosticsBlocked: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u0438\u0430\u0433\u043D\u043E\u0441\u0442\u0438\u043A\u0443. \u0411\u0440\u0430\u0443\u0437\u0435\u0440 \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043B \u0434\u043E\u0441\u0442\u0443\u043F \u043A \u0431\u0443\u0444\u0435\u0440\u0443 \u043E\u0431\u043C\u0435\u043D\u0430.",
+    assistSaved: "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E",
+    assistAdd: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C",
+    assistAlreadySavedTitle: "\u0423\u0436\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E \u0432 Markonverter",
+    assistAddTitle: "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C {name} \u0432 Markonverter",
+    assistStatus: "{rows} \u041F\u0412\u0417 \u0432\u0438\u0434\u043D\u043E / {saved} \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E{loading}",
+    assistStatusLoading: " / ID \u0437\u0430\u0433\u0440\u0443\u0436\u0430\u044E\u0442\u0441\u044F",
+    assistListNotLoaded: "\u0421\u043F\u0438\u0441\u043E\u043A \u041F\u0412\u0417 \u043D\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043D",
+    assistRefreshPvz: "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u041F\u0412\u0417",
+    assistShowInPanel: "\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u0432 \u043F\u0430\u043D\u0435\u043B\u0438",
+    fixturesEyebrow: "\u0424\u0438\u043A\u0441\u0442\u0443\u0440\u044B Ozon",
+    fixturesCaptured: "{count} \u0437\u0430\u043F\u0438\u0441\u0430\u043D\u043E",
+    fixturesCopy: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C",
+    fixturesCopyTitle: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u0430\u043D\u043D\u044B\u0435 \u0444\u0438\u043A\u0441\u0442\u0443\u0440\u044B API Ozon",
+    fixturesClear: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C",
+    fixturesClearTitle: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u0430\u043D\u043D\u044B\u0435 \u0444\u0438\u043A\u0441\u0442\u0443\u0440\u044B API Ozon",
+    fixturesNone: "\u0424\u0438\u043A\u0441\u0442\u0443\u0440 \u043F\u043E\u043A\u0430 \u043D\u0435\u0442",
+    fixturesCopied: "\u0421\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u043E {count}",
+    fixturesClipboardBlocked: "\u0411\u0443\u0444\u0435\u0440 \u043E\u0431\u043C\u0435\u043D\u0430 \u0437\u0430\u0431\u043B\u043E\u043A\u0438\u0440\u043E\u0432\u0430\u043D",
+    fixturesClearTitleQuestion: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C \u0444\u0438\u043A\u0441\u0442\u0443\u0440\u044B Ozon?",
+    fixturesClearMessage: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C \u0437\u0430\u043F\u0438\u0441\u0430\u043D\u043D\u044B\u0435 \u0444\u0438\u043A\u0441\u0442\u0443\u0440\u044B API Ozon \u0438\u0437 \u044D\u0442\u043E\u0433\u043E \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430?",
+    fixturesClearConfirm: "\u041E\u0447\u0438\u0441\u0442\u0438\u0442\u044C \u0444\u0438\u043A\u0441\u0442\u0443\u0440\u044B",
+    fixturesCleared: "\u041E\u0447\u0438\u0449\u0435\u043D\u043E"
+  };
+  var EN_MESSAGES = {
+    appName: "Markonverter",
+    appShortName: "Markonverter",
+    optionsDocumentTitle: "Markonverter settings",
+    optionsTopEyebrow: "Ozon price console",
+    optionsLede: "Compare saved pickup points, tune conversion rates, and manage Ozon locations captured from product pages.",
+    optionsLanguageEyebrow: "Interface",
+    optionsLanguageHeading: "Language",
+    optionsLanguageHint: "Used by the Ozon panel and this settings page",
+    optionsLanguageSelectLabel: "Interface language",
+    optionsLanguageResolved: "Current: {language}",
+    optionsSaveLanguage: "Save language",
+    optionsDebugLabel: "Debug mode",
+    optionsDebugHint: "Shows diagnostic actions and records Ozon fixtures.",
+    optionsSaveDebug: "Save debug",
+    optionsDebugSaved: "Debug mode saved",
+    optionsRatesEyebrow: "Rates",
+    optionsRatesHeading: "Currency",
+    optionsRatesHint: "Used by the injected comparison panel",
+    optionsRateSource: "Rate source",
+    optionsDefaultComparison: "Default comparison",
+    optionsRateRub: "1 RUB in RUB",
+    optionsRateKzt: "1 KZT in RUB",
+    optionsSaveCurrency: "Save currency",
+    optionsUpdateRates: "Update rates",
+    optionsSavedLocationsEyebrow: "Saved locations",
+    optionsConfiguredPickupPoints: "Configured pickup points",
+    optionsNoPickupPointsTitle: "No pickup points configured.",
+    optionsNoPickupPointsHint: "Add points from an Ozon delivery selector on a product page.",
+    optionsCompared: "Compared",
+    optionsSkipped: "Skipped",
+    optionsCompareTitleExclude: "Exclude from product-page comparison",
+    optionsCompareTitleInclude: "Include in product-page comparison",
+    optionsUp: "Up",
+    optionsDown: "Down",
+    optionsMoveUp: "Move up",
+    optionsMoveDown: "Move down",
+    optionsDelete: "Delete",
+    optionsSettingsUnavailable: "Settings are unavailable",
+    optionsLanguageSaved: "Language saved",
+    optionsCurrencySaved: "Currency saved",
+    optionsManualRatesSavedFromInputs: "Manual rates are saved from the input fields",
+    optionsUpdatingCurrencyRates: "Updating currency rates",
+    optionsCurrencyRatesNotUpdated: "Currency rates were not updated",
+    optionsManualRates: "Manual rates",
+    optionsSavedRates: "Saved rates",
+    optionsCurrencyRatesUpdated: "Currency rates updated",
+    optionsCurrencyRatesUpdatedFrom: "Currency rates updated from {provider}{fallback}",
+    optionsFallback: " via fallback",
+    optionsSettingsNotSaved: "Settings were not saved",
+    optionsPickupSkipped: "Pickup point skipped",
+    optionsPickupCompared: "Pickup point compared",
+    optionsOrderSaved: "Order saved",
+    optionsPickupDeleted: "Pickup point deleted",
+    languageAuto: "Auto",
+    languageRu: "\u0420\u0443\u0441\u0441\u043A\u0438\u0439",
+    languageEn: "English",
+    rateProviderManual: "Manual",
+    rateProviderCbr: "CBR",
+    rateProviderNbk: "National Bank KZ",
+    rateProviderExchangeRateApi: "ExchangeRate-API",
+    panelCollapsedTag: "prices",
+    panelPickupPrices: "Pickup prices",
+    panelProductFallback: "Ozon product",
+    panelOpenSettings: "Open settings",
+    panelSettings: "Settings",
+    panelExpand: "Expand Markonverter panel",
+    panelCollapse: "Collapse Markonverter panel",
+    panelCheckingPickupPoints: "Checking {count} pickup points...",
+    panelConfiguredPickupPoints: "configured",
+    panelNoOzonPickupPoints: "No Ozon pickup points configured.",
+    panelNoSavedSelected: "No saved pickup points selected for comparison.",
+    panelWaiting: "Waiting",
+    panelNotCompared: "Not compared",
+    panelWaitingHint: "Waiting for Ozon response",
+    panelEnableInSettings: "Enable in Settings",
+    panelCapturedTitle: "Captured {time}",
+    panelBest: "best",
+    panelUnavailable: "Unavailable",
+    panelCaptureCurrent: "Capture current",
+    panelCaptureCurrentTitle: "After selecting this pickup point in Ozon, capture the visible page price for this product.",
+    panelCopyDetails: "Copy details",
+    panelCopyDetailsTitle: "Copy technical details for debugging this pickup point.",
+    panelDetectedEyebrow: "Ozon page",
+    panelNewPickupPoints: "Unsaved pickup points",
+    panelNewCount: "{count} unsaved",
+    panelShowNewPickupPoints: "Show unsaved pickup points",
+    panelHideNewPickupPoints: "Hide unsaved pickup points",
+    panelDetectedHint: "Open Ozon delivery selection, then choose or view a point so Markonverter can detect it.",
+    panelSave: "Save",
+    panelSaving: "Saving: {name}",
+    panelPickupNotSaved: "Pickup point was not saved",
+    panelSaved: "Saved: {name}",
+    panelSavedAndCaptured: "Saved and captured current price: {name}",
+    panelCaptureVisibleTitle: "Capture visible price?",
+    panelCaptureDifferentPointMessage: 'The currently detected Ozon point looks like "{current}", not "{target}". Capture the visible page price for "{target}" anyway?',
+    panelCaptureUnverifiedMessage: 'I could not verify the selected Ozon point. Capture the visible page price for "{target}" anyway?',
+    panelCapturePrice: "Capture price",
+    panelCancel: "Cancel",
+    panelPriceCaptureCancelled: "Price capture cancelled",
+    panelVisiblePriceNotFound: "Could not find a visible product price on the current Ozon page.",
+    panelCapturedCurrentPrice: "Captured current page price for {name}",
+    panelAutoCapturedCurrentPrice: "Auto captured current price for {name}",
+    panelCapturedPriceNotSaved: "Captured price was not saved",
+    panelDeletePickupTitle: "Delete pickup point?",
+    panelDeletePickupMessage: 'Delete "{name}" from saved pickup points?',
+    panelDeletePickupConfirm: "Delete point",
+    panelDeleted: "Deleted: {name}",
+    panelPickupNotDeleted: "Pickup point was not deleted",
+    panelCurrentPriceNotCaptured: "Open or select this pickup point in Ozon, wait for the price, then use Capture current.",
+    panelOzonDidNotConfirm: "Ozon did not confirm this pickup point, so the current address may have been reused.",
+    panelCapturedFromPage: "from page",
+    panelCopiedDiagnostics: "Copied pickup-point diagnostics",
+    panelCopyDiagnosticsBlocked: "Could not copy diagnostics. Browser clipboard access is blocked.",
+    assistSaved: "Saved",
+    assistAdd: "Add",
+    assistAlreadySavedTitle: "Already saved in Markonverter",
+    assistAddTitle: "Add {name} to Markonverter",
+    assistStatus: "{rows} PVZ visible / {saved} saved{loading}",
+    assistStatusLoading: " / IDs loading",
+    assistListNotLoaded: "PVZ list not loaded",
+    assistRefreshPvz: "Refresh PVZ",
+    assistShowInPanel: "Show in panel",
+    fixturesEyebrow: "Ozon fixtures",
+    fixturesCaptured: "{count} captured",
+    fixturesCopy: "Copy",
+    fixturesCopyTitle: "Copy recorded Ozon API fixtures",
+    fixturesClear: "Clear",
+    fixturesClearTitle: "Clear recorded Ozon API fixtures",
+    fixturesNone: "No fixtures yet",
+    fixturesCopied: "Copied {count}",
+    fixturesClipboardBlocked: "Clipboard blocked",
+    fixturesClearTitleQuestion: "Clear Ozon fixtures?",
+    fixturesClearMessage: "Clear recorded Ozon API fixtures from this browser?",
+    fixturesClearConfirm: "Clear fixtures",
+    fixturesCleared: "Cleared"
+  };
+  var MESSAGES = {
+    ru: RU_MESSAGES,
+    en: EN_MESSAGES
+  };
+  function normalizeLanguagePreference(value) {
+    return SUPPORTED_LANGUAGE_PREFERENCES.includes(value) ? value : DEFAULT_LANGUAGE_PREFERENCE;
+  }
+  function resolveLanguage(preference, uiLanguage = browserUiLanguage()) {
+    if (preference !== "auto") {
+      return preference;
+    }
+    const normalized = uiLanguage.toLowerCase();
+    const detected = SUPPORTED_LANGUAGES.find((language) => normalized === language || normalized.startsWith(`${language}-`));
+    return detected || DEFAULT_LANGUAGE;
+  }
+  function languageLocale(language) {
+    return language === "ru" ? "ru-RU" : "en-US";
+  }
+  function createTranslator(preference = DEFAULT_LANGUAGE_PREFERENCE) {
+    const language = resolveLanguage(preference);
+    const messages = MESSAGES[language];
+    return {
+      language,
+      locale: languageLocale(language),
+      t: (key, params) => formatMessage(messages[key] || MESSAGES[DEFAULT_LANGUAGE][key], params)
+    };
+  }
+  function formatMessage(template, params = {}) {
+    return template.replace(/\{(\w+)\}/g, (match, key) => params[key] === void 0 ? match : String(params[key]));
+  }
+  function browserUiLanguage() {
+    try {
+      return chrome.i18n?.getUILanguage?.() || navigator.language || DEFAULT_LANGUAGE;
+    } catch {
+      return typeof navigator === "undefined" ? DEFAULT_LANGUAGE : navigator.language || DEFAULT_LANGUAGE;
+    }
+  }
+
+  // src/shared/types.ts
+  var SUPPORTED_CURRENCIES = ["RUB", "KZT"];
+  var SUPPORTED_CURRENCY_RATE_PROVIDERS = ["manual", "cbr", "nbk", "exchangeRateApi"];
+  var DEFAULT_SETTINGS = {
+    language: DEFAULT_LANGUAGE_PREFERENCE,
+    debug: false,
+    defaultCurrency: "RUB",
+    currencyRateProvider: "cbr",
+    ratesToRub: {
+      RUB: 1,
+      KZT: 0.17
+    },
+    pickupPoints: [],
+    comparisonPickupPointIds: null,
+    manualQuotes: {}
+  };
+
+  // src/shared/validation.ts
+  var MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
+  function normalizeSettings(value) {
+    const candidate = value;
+    const pickupPoints = Array.isArray(candidate?.pickupPoints) ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint) : [];
+    return {
+      language: normalizeLanguagePreference(candidate?.language),
+      debug: candidate?.debug === true,
+      defaultCurrency: candidate?.defaultCurrency && SUPPORTED_CURRENCIES.includes(candidate.defaultCurrency) ? candidate.defaultCurrency : DEFAULT_SETTINGS.defaultCurrency,
+      currencyRateProvider: SUPPORTED_CURRENCY_RATE_PROVIDERS.includes(candidate?.currencyRateProvider) ? candidate?.currencyRateProvider : DEFAULT_SETTINGS.currencyRateProvider,
+      currencyRateMeta: normalizeCurrencyRateMeta(candidate?.currencyRateMeta),
+      ratesToRub: {
+        RUB: sanitizeRate(candidate?.ratesToRub?.RUB, DEFAULT_SETTINGS.ratesToRub.RUB),
+        KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT, MAX_REASONABLE_KZT_TO_RUB_RATE)
+      },
+      pickupPoints,
+      comparisonPickupPointIds: normalizeComparisonPickupPointIds(candidate?.comparisonPickupPointIds, pickupPoints),
+      manualQuotes: normalizeManualQuotes(candidate?.manualQuotes, pickupPoints)
+    };
+  }
+  function sanitizeRate(value, fallback, max = Number.POSITIVE_INFINITY) {
+    return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= max ? value : fallback;
+  }
+  function normalizeCurrencyRateMeta(value) {
+    const candidate = value;
+    if (!candidate || !SUPPORTED_CURRENCY_RATE_PROVIDERS.includes(candidate.provider) || typeof candidate.updatedAt !== "string" || Number.isNaN(Date.parse(candidate.updatedAt))) {
+      return void 0;
+    }
+    return {
+      provider: candidate.provider,
+      updatedAt: new Date(candidate.updatedAt).toISOString(),
+      effectiveDate: typeof candidate.effectiveDate === "string" ? candidate.effectiveDate : void 0,
+      fallbackUsed: candidate.fallbackUsed === true
+    };
+  }
+  function isPickupPointLike(value) {
+    const candidate = value;
+    return typeof candidate?.id === "string" && typeof candidate.name === "string";
+  }
+  function normalizePickupPoint(pickupPoint) {
+    return {
+      id: pickupPoint.id,
+      name: pickupPoint.name,
+      marketplace: pickupPoint.marketplace === "wildberries" ? "wildberries" : "ozon",
+      country: pickupPoint.country || "RU",
+      currency: SUPPORTED_CURRENCIES.includes(pickupPoint.currency) ? pickupPoint.currency : "RUB",
+      externalLocationId: pickupPoint.externalLocationId || "",
+      comment: pickupPoint.comment || ""
+    };
+  }
+  function normalizeComparisonPickupPointIds(value, pickupPoints) {
+    if (!Array.isArray(value)) {
+      return null;
+    }
+    const knownIds = new Set(pickupPoints.map((point) => point.id));
+    return [...new Set(value.filter((id) => typeof id === "string" && knownIds.has(id)))];
+  }
+  function normalizeManualQuotes(value, pickupPoints) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return {};
+    }
+    const knownIds = new Set(pickupPoints.map((point) => point.id));
+    const quotes = {};
+    for (const rawQuote of Object.values(value)) {
+      const quote = normalizeManualQuote(rawQuote, knownIds);
+      if (quote) {
+        quotes[`${quote.productId}:${quote.pickupPointId}`] = quote;
+      }
+    }
+    return quotes;
+  }
+  function normalizeManualQuote(value, knownPickupPointIds) {
+    const candidate = value;
+    if (!candidate || typeof candidate.productId !== "string" || typeof candidate.productUrl !== "string" || typeof candidate.pickupPointId !== "string" || typeof candidate.capturedAt !== "string" || !knownPickupPointIds.has(candidate.pickupPointId)) {
+      return null;
+    }
+    const quote = normalizePriceQuote(candidate.quote);
+    if (!quote) {
+      return null;
+    }
+    return {
+      productId: candidate.productId,
+      productUrl: candidate.productUrl,
+      pickupPointId: candidate.pickupPointId,
+      quote: {
+        ...quote,
+        source: "manual",
+        capturedAt: candidate.capturedAt
+      },
+      capturedAt: candidate.capturedAt
+    };
+  }
+  function normalizePriceQuote(value) {
+    const candidate = value;
+    const currency = typeof candidate?.currency === "string" && SUPPORTED_CURRENCIES.includes(candidate.currency) ? candidate.currency : null;
+    if (!candidate || typeof candidate.amount !== "number" || !Number.isFinite(candidate.amount) || candidate.amount <= 0 || !currency) {
+      return null;
+    }
+    return {
+      amount: candidate.amount,
+      currency,
+      rawText: typeof candidate.rawText === "string" ? candidate.rawText : void 0,
+      deliveryText: typeof candidate.deliveryText === "string" ? candidate.deliveryText : void 0
+    };
   }
 
   // src/shared/settings.ts
@@ -822,23 +1262,31 @@
       max-width: 100%;
       min-width: 0;
       container-type: inline-size;
-      color-scheme: dark;
-      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color-scheme: light;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
       letter-spacing: 0;
-      --mk-bg: #0c0c0c;
-      --mk-surface: #141414;
-      --mk-surface-2: #1b1b1c;
-      --mk-surface-3: #202022;
-      --mk-border: #2a2a2c;
-      --mk-border-strong: #3f3f46;
-      --mk-text: #fafafa;
-      --mk-muted: #a1a1aa;
-      --mk-quiet: #71717a;
-      --mk-accent: #f59e0b;
-      --mk-accent-strong: #fbbf24;
-      --mk-success: #22c55e;
-      --mk-danger: #ef4444;
-      --mk-info: #3b82f6;
+      --mk-bg: #f5f7fa;
+      --mk-surface: #ffffff;
+      --mk-surface-2: #f7f9fc;
+      --mk-surface-3: #eef3fa;
+      --mk-border: #dce3ee;
+      --mk-border-strong: #c7d1de;
+      --mk-text: #17233c;
+      --mk-muted: #53627a;
+      --mk-quiet: #7b8798;
+      --mk-disabled: #a6b0bf;
+      --mk-accent: #005bff;
+      --mk-accent-hover: #004ce0;
+      --mk-accent-pressed: #003fb8;
+      --mk-accent-soft: #eaf2ff;
+      --mk-accent-border: #b8d2ff;
+      --mk-success: #10a35a;
+      --mk-success-soft: #eaf8f1;
+      --mk-danger: #e5484d;
+      --mk-danger-soft: #fff0f0;
+      --mk-warning: #f59f00;
+      --mk-warning-soft: #fff6e0;
+      --mk-info: #005bff;
     }
     * {
       box-sizing: border-box;
@@ -849,9 +1297,9 @@
       min-width: 0;
       margin: 12px 0;
       border: 1px solid var(--mk-border);
-      border-radius: 12px;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.01)), var(--mk-surface);
-      box-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
+      border-top: 3px solid var(--mk-accent);
+      border-radius: 8px;
+      background: var(--mk-surface);
       overflow: hidden;
       font-size: 13px;
       line-height: 1.35;
@@ -863,14 +1311,11 @@
         box-shadow 180ms ease,
         border-color 180ms ease;
     }
-    .panel.collapsed {
-      max-width: min(268px, calc(100vw - 24px));
-      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
-    }
     .floating {
       position: fixed;
       top: 84px;
       right: 16px;
+      box-shadow: 0 8px 28px rgba(23, 35, 60, 0.14);
     }
     .header {
       display: flex;
@@ -879,33 +1324,18 @@
       gap: 12px;
       padding: 14px;
       border-bottom: 1px solid var(--mk-border);
-      background:
-        radial-gradient(circle at top left, rgba(245, 158, 11, 0.12), transparent 240px),
-        #111111;
-    }
-    .collapsed .header {
-      min-height: 44px;
-      padding: 8px 10px;
-      border-bottom: 0;
-      cursor: pointer;
-      background:
-        radial-gradient(circle at top left, rgba(245, 158, 11, 0.13), transparent 150px),
-        #111111;
+      background: var(--mk-surface);
     }
     .headerTitle {
       min-width: 0;
     }
-    .collapsedTitle {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
     .eyebrow {
       display: block;
       margin: 0 0 5px;
-      color: var(--mk-accent-strong);
-      font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      text-transform: uppercase;
+      color: var(--mk-accent);
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 720;
     }
     .header strong,
     .meta strong,
@@ -924,44 +1354,6 @@
       font-size: 12px;
       overflow-wrap: anywhere;
     }
-    .header .collapsedBrandMark {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 26px;
-      height: 26px;
-      flex: 0 0 26px;
-      border: 1px solid rgba(245, 158, 11, 0.5);
-      border-radius: 8px;
-      background:
-        linear-gradient(135deg, rgba(251, 191, 36, 0.14), rgba(59, 130, 246, 0.12)),
-        var(--mk-surface-2);
-      color: var(--mk-accent-strong);
-      font: 850 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
-      overflow-wrap: normal;
-    }
-    .header .collapsedBrandText {
-      display: grid;
-      min-width: 0;
-      gap: 1px;
-      margin: 0;
-    }
-    .header .collapsedBrandText strong {
-      color: var(--mk-text);
-      font: 800 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      letter-spacing: 0;
-      text-transform: lowercase;
-      white-space: nowrap;
-    }
-    .header .collapsedBrandText span {
-      margin: 0;
-      color: var(--mk-muted);
-      font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      letter-spacing: 0;
-      text-transform: uppercase;
-      overflow-wrap: normal;
-    }
     .headerTitle > span:last-child {
       max-width: 210px;
       white-space: nowrap;
@@ -972,9 +1364,10 @@
     .pointManagerTop .eyebrow,
     .detectedCandidatesTop .eyebrow {
       margin: 0 0 5px;
-      color: var(--mk-accent-strong);
-      font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      text-transform: uppercase;
+      color: var(--mk-accent);
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 720;
     }
     .headerActions {
       display: flex;
@@ -984,9 +1377,6 @@
       flex-wrap: wrap;
       justify-content: flex-end;
     }
-    .collapsed .headerActions {
-      flex-wrap: nowrap;
-    }
     .secondaryButton,
     .iconButton {
       min-height: 32px;
@@ -994,7 +1384,7 @@
       border: 1px solid var(--mk-accent);
       border-radius: 8px;
       background: var(--mk-accent);
-      color: #111111;
+      color: #ffffff;
       cursor: pointer;
       font: inherit;
       font-size: 12px;
@@ -1006,21 +1396,31 @@
         background 150ms ease;
     }
     button:hover:not(:disabled) {
-      border-color: var(--mk-accent-strong);
+      border-color: var(--mk-accent-hover);
+    }
+    button:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(0, 91, 255, 0.16);
     }
     button:active:not(:disabled) {
       transform: translateY(1px);
     }
     .secondaryButton {
       border-color: var(--mk-border-strong);
-      background: var(--mk-surface-2);
-      color: var(--mk-text);
+      background: var(--mk-surface);
+      color: var(--mk-accent);
     }
     .iconButton {
       border: 1px solid var(--mk-border-strong);
-      background: var(--mk-surface-2);
+      background: var(--mk-surface);
       color: var(--mk-muted);
       cursor: pointer;
+    }
+    .secondaryButton:hover:not(:disabled),
+    .iconButton:hover:not(:disabled) {
+      border-color: var(--mk-accent-border);
+      background: var(--mk-accent-soft);
+      color: var(--mk-accent);
     }
     .settingsButton {
       width: 32px;
@@ -1047,15 +1447,6 @@
     .chevronUp {
       transform: translateY(2px) rotate(-135deg);
     }
-    .collapsed .collapseButton {
-      width: 28px;
-      min-height: 28px;
-      padding: 0;
-    }
-    .collapsed .chevronIcon {
-      width: 8px;
-      height: 8px;
-    }
     .message {
       margin: 0;
       padding: 12px 14px;
@@ -1063,14 +1454,14 @@
       overflow-wrap: anywhere;
     }
     .message.error {
-      color: #fca5a5;
+      color: var(--mk-danger);
     }
     .capture {
       display: grid;
       gap: 7px;
       padding: 12px 14px;
       border-top: 1px solid var(--mk-border);
-      background: rgba(255, 255, 255, 0.02);
+      background: var(--mk-surface-2);
     }
     .capture > span {
       color: var(--mk-muted);
@@ -1085,7 +1476,7 @@
       border: 1px solid var(--mk-accent);
       border-radius: 8px;
       background: var(--mk-accent);
-      color: #111111;
+      color: #ffffff;
       font: inherit;
       font-weight: 750;
       cursor: pointer;
@@ -1096,7 +1487,7 @@
       gap: 8px;
       padding: 12px 14px;
       border-bottom: 1px solid var(--mk-border);
-      background: #101011;
+      background: var(--mk-surface-2);
     }
     .pointManagerTop,
     .pointChoice,
@@ -1134,6 +1525,30 @@
     .pointManagerControls {
       display: flex;
       gap: 6px;
+    }
+    .detectedHeaderActions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 7px;
+      flex: 0 0 auto;
+    }
+    .detectedToggleButton {
+      min-height: 28px;
+      width: 28px;
+      padding: 0;
+    }
+    .detectedToggleButton .chevronIcon {
+      display: inline-block;
+      margin: 0;
+      color: inherit;
+    }
+    .detectedCandidatesBody {
+      display: grid;
+      gap: 8px;
+    }
+    .detectedCandidates.collapsed {
+      gap: 0;
     }
     .pointManagerControls button,
     .deleteButton,
@@ -1198,16 +1613,19 @@
       pointer-events: auto;
     }
     .deleteButton {
-      border-color: rgba(239, 68, 68, 0.4);
-      color: #fca5a5;
+      border-color: var(--mk-danger);
+      color: var(--mk-danger);
+      background: var(--mk-surface);
     }
     .saveSmallButton {
-      border-color: rgba(245, 158, 11, 0.72);
-      color: var(--mk-accent-strong);
+      border-color: var(--mk-accent);
+      background: var(--mk-accent);
+      color: #ffffff;
     }
     .detailsButton {
       border-color: var(--mk-border-strong);
       color: var(--mk-muted);
+      background: var(--mk-surface);
     }
     .confirmButton.danger {
       border-color: var(--mk-danger);
@@ -1218,6 +1636,7 @@
     .saveSmallButton:disabled {
       border-color: var(--mk-border);
       color: var(--mk-quiet);
+      background: var(--mk-surface-2);
       cursor: default;
     }
     .panelConfirmation {
@@ -1225,7 +1644,7 @@
       gap: 10px;
       padding: 12px 14px;
       border-top: 1px solid var(--mk-border);
-      background: #151516;
+      background: var(--mk-surface-2);
     }
     .panelConfirmation.danger {
       box-shadow: inset 3px 0 0 var(--mk-danger);
@@ -1264,7 +1683,7 @@
       gap: 10px;
       padding: 10px 14px;
       border-top: 1px solid var(--mk-border);
-      background: #101011;
+      background: var(--mk-surface-2);
     }
     .fixtureToolsText {
       min-width: 0;
@@ -1283,7 +1702,7 @@
       overflow-wrap: anywhere;
     }
     .fixtureToolsText .fixtureError {
-      color: #fca5a5;
+      color: var(--mk-danger);
     }
     .fixtureToolsActions {
       display: flex;
@@ -1308,11 +1727,11 @@
       border-top: 0;
     }
     .row.cheapest {
-      background: linear-gradient(90deg, rgba(34, 197, 94, 0.14), rgba(34, 197, 94, 0.03));
+      background: var(--mk-success-soft);
       box-shadow: inset 3px 0 0 var(--mk-success);
     }
     .row.failed {
-      background: linear-gradient(90deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.03));
+      background: var(--mk-surface);
     }
     .row.unselected {
       opacity: 0.72;
@@ -1324,16 +1743,20 @@
       overflow-wrap: anywhere;
     }
     .value strong {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 14px;
       letter-spacing: 0;
+      font-variant-numeric: tabular-nums;
       overflow-wrap: anywhere;
     }
     .value .original {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-variant-numeric: tabular-nums;
     }
     .row.failed .value {
       max-width: 190px;
+      padding: 8px;
+      border: 1px solid rgba(229, 72, 77, 0.24);
+      border-radius: 8px;
+      background: var(--mk-danger-soft);
     }
     .failureActions {
       display: flex;
@@ -2218,9 +2641,9 @@
   var COLLECT_PICKUP_EVENT = "markonverter:collect-ozon-pickup";
   var PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
   var NETWORK_FIXTURE_EVENT = "markonverter:ozon-network-fixture";
+  var SETTINGS_KEY = "markonverter.settings";
   var PANEL_STATE_KEY = "markonverter.panelState";
-  var PANEL_COLLAPSED_HEIGHT = 44;
-  var PANEL_COLLAPSED_MAX_WIDTH = 268;
+  var DETECTED_PICKUP_LIST_ID = "markonverter-detected-pickup-list";
   var PANEL_COLLAPSE_DURATION_MS = 220;
   var PANEL_EXPAND_DURATION_MS = 240;
   var CURRENT_OZON_PRICE_NOT_CAPTURED = "Open or select this pickup point in Ozon, wait for the visible product price, then use Capture current if Markonverter does not capture it automatically.";
@@ -2238,6 +2661,7 @@
   var fixtureFlushTimer = null;
   var pendingFixtureInputs = [];
   var isPanelCollapsed = false;
+  var detectedPickupListCollapsedOverride = null;
   var panelRecoveryTimer = null;
   var currentQuoteCaptureTimer = null;
   var assistSyncTimer = null;
@@ -2253,6 +2677,7 @@
   async function boot() {
     document.addEventListener(PICKUP_CANDIDATES_EVENT, handlePickupCandidatesEvent);
     document.addEventListener(NETWORK_FIXTURE_EVENT, handleNetworkFixtureEvent);
+    installSettingsChangeListener();
     if (document.readyState === "loading") {
       await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
     }
@@ -2266,6 +2691,17 @@
         void runIfProductPage();
       }
     }, 1e3);
+  }
+  function installSettingsChangeListener() {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "local" || !changes[SETTINGS_KEY]) {
+        return;
+      }
+      latestSettings = normalizeSettings(changes[SETTINGS_KEY].newValue);
+      updateLastPanelSettings(latestSettings);
+      renderLastPanel();
+      scheduleOzonDeliveryAssistSync();
+    });
   }
   function installPanelRecovery() {
     const observer = new MutationObserver(schedulePanelRecovery);
@@ -2317,6 +2753,7 @@
     if (pageChanged) {
       targetedPickupDiscoveryIds.clear();
       autoPickupSelectorOpenKeys.clear();
+      detectedPickupListCollapsedOverride = null;
     }
     activeUrl = currentUrl;
     const panel = ensurePanel();
@@ -2328,7 +2765,7 @@
     }
     const settingsResponse = await runtimeRequest({ type: "GET_SETTINGS" });
     if (!settingsResponse.ok || !("settings" in settingsResponse)) {
-      renderPanel(panel, { state: "fatal", product, message: settingsResponse.ok ? "Settings are unavailable" : settingsResponse.error });
+      renderPanel(panel, { state: "fatal", product, message: settingsResponse.ok ? t("optionsSettingsUnavailable") : settingsResponse.error });
       return;
     }
     let settings = settingsResponse.settings;
@@ -2421,6 +2858,9 @@
     }
   }
   function handleNetworkFixtureEvent(event) {
+    if (!isDebugModeEnabled()) {
+      return;
+    }
     const detail = event.detail;
     if (!detail) {
       return;
@@ -2450,6 +2890,10 @@
   }
   async function flushPendingFixtures() {
     if (pendingFixtureInputs.length === 0) {
+      return;
+    }
+    if (!isDebugModeEnabled()) {
+      pendingFixtureInputs = [];
       return;
     }
     const inputs = pendingFixtureInputs.splice(0, pendingFixtureInputs.length);
@@ -2766,7 +3210,7 @@
   async function captureCurrentPriceForPickupPoint(pickupPoint, product) {
     const saved = await saveCurrentVisibleQuoteForPoint(pickupPoint, product, { requireConfirmation: true });
     if (saved) {
-      captureStatus = { tone: "normal", message: `Captured current page price for ${ozonPickupDisplayName(pickupPoint)}` };
+      captureStatus = { tone: "normal", message: t("panelCapturedCurrentPrice", { name: ozonPickupDisplayName(pickupPoint) }) };
       await runIfProductPage();
     } else {
       renderLastPanel();
@@ -2778,29 +3222,29 @@
       const pickupPointName = ozonPickupDisplayName(pickupPoint);
       if (currentCandidate && currentCandidate.externalLocationId !== pickupPoint.externalLocationId) {
         const shouldContinue = await requestPanelConfirmation({
-          title: "Capture visible price?",
-          message: `The currently detected Ozon point looks like "${ozonCandidateDisplayName(currentCandidate)}", not "${pickupPointName}". Capture the visible page price for "${pickupPointName}" anyway?`,
-          confirmText: "Capture price"
+          title: t("panelCaptureVisibleTitle"),
+          message: t("panelCaptureDifferentPointMessage", { current: ozonCandidateDisplayName(currentCandidate), target: pickupPointName }),
+          confirmText: t("panelCapturePrice")
         });
         if (!shouldContinue) {
-          captureStatus = { tone: "normal", message: "Price capture cancelled" };
+          captureStatus = { tone: "normal", message: t("panelPriceCaptureCancelled") };
           return false;
         }
       } else if (!currentCandidate) {
         const shouldContinue = await requestPanelConfirmation({
-          title: "Capture visible price?",
-          message: `I could not verify the selected Ozon point. Capture the visible page price for "${pickupPointName}" anyway?`,
-          confirmText: "Capture price"
+          title: t("panelCaptureVisibleTitle"),
+          message: t("panelCaptureUnverifiedMessage", { target: pickupPointName }),
+          confirmText: t("panelCapturePrice")
         });
         if (!shouldContinue) {
-          captureStatus = { tone: "normal", message: "Price capture cancelled" };
+          captureStatus = { tone: "normal", message: t("panelPriceCaptureCancelled") };
           return false;
         }
       }
     }
     const quote = extractVisibleOzonPrice(pickupPoint.currency);
     if (!quote) {
-      captureStatus = { tone: "error", message: "Could not find a visible product price on the current Ozon page." };
+      captureStatus = { tone: "error", message: t("panelVisiblePriceNotFound") };
       return false;
     }
     const updatedSettings = await saveManualQuoteForPoint(pickupPoint, product, quote);
@@ -2836,7 +3280,7 @@
       if (!updatedSettings) {
         return settings;
       }
-      captureStatus = { tone: "normal", message: `Auto captured current price for ${ozonPickupDisplayName(pickupPoint)}` };
+      captureStatus = { tone: "normal", message: t("panelAutoCapturedCurrentPrice", { name: ozonPickupDisplayName(pickupPoint) }) };
       return updatedSettings;
     } finally {
       autoCaptureInFlight.delete(lockKey);
@@ -3077,7 +3521,7 @@
     };
     const response = await runtimeRequest({ type: "SAVE_MANUAL_QUOTE", manualQuote });
     if (!response.ok || !("settings" in response)) {
-      captureStatus = { tone: "error", message: response.ok ? "Captured price was not saved" : response.error };
+      captureStatus = { tone: "error", message: response.ok ? t("panelCapturedPriceNotSaved") : response.error };
       return null;
     }
     latestSettings = response.settings;
@@ -3086,18 +3530,18 @@
   async function deleteSavedPickupPoint(pickupPoint, product) {
     const pickupPointName = ozonPickupDisplayName(pickupPoint);
     const shouldDelete = await requestPanelConfirmation({
-      title: "Delete pickup point?",
-      message: `Delete "${pickupPointName}" from saved pickup points?`,
-      confirmText: "Delete point",
+      title: t("panelDeletePickupTitle"),
+      message: t("panelDeletePickupMessage", { name: pickupPointName }),
+      confirmText: t("panelDeletePickupConfirm"),
       danger: true
     });
     if (!shouldDelete) {
       return;
     }
-    captureStatus = { tone: "normal", message: `Deleted: ${pickupPointName}` };
+    captureStatus = { tone: "normal", message: t("panelDeleted", { name: pickupPointName }) };
     const response = await runtimeRequest({ type: "DELETE_PICKUP_POINT", pickupPointId: pickupPoint.id });
     if (!response.ok || !("settings" in response)) {
-      captureStatus = { tone: "error", message: response.ok ? "Pickup point was not deleted" : response.error };
+      captureStatus = { tone: "error", message: response.ok ? t("panelPickupNotDeleted") : response.error };
       renderLastPanel();
       return;
     }
@@ -3202,12 +3646,11 @@
         "gap:8px",
         "margin:8px 0",
         "padding:8px",
-        "border:1px solid #2a2a2c",
-        "border-radius:10px",
-        "background:#141414",
-        "box-shadow:0 12px 30px rgba(0,0,0,.34)",
-        "font:13px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
-        "color:#fafafa",
+        "border:1px solid #dce3ee",
+        "border-radius:8px",
+        "background:#ffffff",
+        "font:13px -apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif",
+        "color:#17233c",
         "overflow:hidden",
         "z-index:2147483647"
       ].join(";")
@@ -3674,7 +4117,7 @@
   function pickupRowName(text) {
     const cleaned = compactText3(
       text.replace(
-        /(?:^|[\s,;|•-])(?:Add|Saved|Refresh PVZ|Show in panel|Удалить|Редактировать|Изменить|Edit|Delete|Remove)(?=$|[\s,;|•-])/giu,
+        /(?:^|[\s,;|•-])(?:Add|Saved|Refresh PVZ|Show in panel|Добавить|Сохранено|Обновить ПВЗ|Показать в панели|Удалить|Редактировать|Изменить|Edit|Delete|Remove)(?=$|[\s,;|•-])/giu,
         " "
       ).replace(/(?:срок\s+хранения\s+заказа|storage\s+period).*$/i, " ")
     );
@@ -3732,8 +4175,8 @@
     action.dataset.markonverterActionState = stateKey;
     action.dataset.markonverterExternalLocationId = candidate.externalLocationId;
     action.className = `markonverter-ozon-pvz-action${isSaved ? " is-saved" : ""}`;
-    action.textContent = isSaved ? "Saved" : "Add";
-    action.title = isSaved ? "Already saved in Markonverter" : `Add ${ozonCandidateDisplayName(candidate)} to Markonverter`;
+    action.textContent = isSaved ? t("assistSaved") : t("assistAdd");
+    action.title = isSaved ? t("assistAlreadySavedTitle") : t("assistAddTitle", { name: ozonCandidateDisplayName(candidate) });
     action.setAttribute("role", "button");
     action.tabIndex = isSaved ? -1 : 0;
     action.setAttribute("aria-disabled", String(isSaved));
@@ -3749,8 +4192,8 @@
       if (action.dataset.markonverterExternalLocationId !== candidate.externalLocationId) {
         return;
       }
-      action.textContent = "Saved";
-      action.title = "Already saved in Markonverter";
+      action.textContent = t("assistSaved");
+      action.title = t("assistAlreadySavedTitle");
       action.classList.add("is-saved");
       action.dataset.markonverterActionState = `${candidate.externalLocationId}:saved`;
       if (action instanceof HTMLButtonElement) {
@@ -3764,7 +4207,11 @@
   function renderOzonDeliveryAssist(assist, rows, savedExternalIds) {
     const identifiedRows = rows.filter((row) => row.candidate);
     const savedCount = identifiedRows.filter((row) => row.candidate && savedExternalIds.has(row.candidate.externalLocationId)).length;
-    const statusText = rows.length > 0 ? `${rows.length} PVZ visible / ${savedCount} saved${identifiedRows.length < rows.length ? " / IDs loading" : ""}` : "PVZ list not loaded";
+    const statusText = rows.length > 0 ? t("assistStatus", {
+      rows: rows.length,
+      saved: savedCount,
+      loading: identifiedRows.length < rows.length ? t("assistStatusLoading") : ""
+    }) : t("assistListNotLoaded");
     const stateKey = `${rows.length}:${identifiedRows.length}:${savedCount}:${statusText}`;
     if (assist.dataset.markonverterAssistState === stateKey) {
       return;
@@ -3774,7 +4221,7 @@
     const status = document.createElement("span");
     status.className = "markonverter-assist-status";
     status.textContent = statusText;
-    const refreshButton = pageButton("Refresh PVZ", "secondary");
+    const refreshButton = pageButton(t("assistRefreshPvz"), "secondary");
     bindGuardedPageAction(refreshButton, () => {
       requestPagePickupCandidates();
       const product = getCurrentProduct();
@@ -3783,7 +4230,7 @@
       }
       scheduleOzonDeliveryAssistSync();
     });
-    const showButton = pageButton("Show in panel", "secondary");
+    const showButton = pageButton(t("assistShowInPanel"), "secondary");
     bindGuardedPageAction(showButton, () => {
       requestPagePickupCandidates();
       renderLastPanel();
@@ -3821,13 +4268,13 @@
       max-height: 24px !important;
       margin: 0 !important;
       padding: 0 8px !important;
-      border: 1px solid rgba(245, 158, 11, 0.78) !important;
-      border-radius: 7px !important;
-      background: #141414 !important;
-      color: #fbbf24 !important;
+      border: 1px solid #005BFF !important;
+      border-radius: 8px !important;
+      background: #005BFF !important;
+      color: #ffffff !important;
       cursor: pointer !important;
       pointer-events: auto !important;
-      font: 700 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      font: 700 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important;
       letter-spacing: 0 !important;
       text-align: center !important;
       text-decoration: none !important;
@@ -3840,19 +4287,20 @@
       transition: border-color 150ms ease, background 150ms ease !important;
     }
     .markonverter-ozon-pvz-action.is-saved {
-      border-color: rgba(34, 197, 94, 0.55) !important;
-      color: #86efac !important;
+      border-color: rgba(16, 163, 90, 0.36) !important;
+      background: #EAF8F1 !important;
+      color: #10A35A !important;
       cursor: default !important;
       pointer-events: auto !important;
     }
     .markonverter-ozon-pvz-action:hover:not(:disabled):not(.is-saved) {
-      border-color: #fbbf24 !important;
-      background: #1b1b1c !important;
+      border-color: #004CE0 !important;
+      background: #004CE0 !important;
     }
     .markonverter-assist-status {
       flex: 1 1 auto;
       min-width: 0;
-      color: #a1a1aa;
+      color: #53627A;
       font-size: 12px;
       overflow-wrap: anywhere;
     }
@@ -3871,10 +4319,10 @@
         "box-sizing:border-box",
         "max-width:100%",
         "padding:0 10px",
-        `border:1px solid ${isPrimary ? "#f59e0b" : "#3f3f46"}`,
+        `border:1px solid ${isPrimary ? "#005BFF" : "#dce3ee"}`,
         "border-radius:8px",
-        `background:${isPrimary ? "#f59e0b" : "#1b1b1c"}`,
-        `color:${isPrimary ? "#111" : "#fafafa"}`,
+        `background:${isPrimary ? "#005BFF" : "#ffffff"}`,
+        `color:${isPrimary ? "#ffffff" : "#005BFF"}`,
         "cursor:pointer",
         "font:inherit",
         "font-weight:700",
@@ -3914,7 +4362,24 @@
       pageActionHandlers.get(target)?.(event);
     }
   }
+  function currentI18n(settings = latestSettings) {
+    return createTranslator(settings?.language);
+  }
+  function panelI18n(model) {
+    const settings = "settings" in model ? model.settings : latestSettings;
+    return createTranslator(settings?.language);
+  }
+  function t(key, params) {
+    return currentI18n().t(key, params);
+  }
+  function isDebugModeEnabled(settings = latestSettings) {
+    return settings?.debug === true;
+  }
+  function panelDebugEnabled(model) {
+    return isDebugModeEnabled("settings" in model ? model.settings : latestSettings);
+  }
   function renderPanel(shadow, model) {
+    const i18n = panelI18n(model);
     lastPanelModel = model;
     cancelPendingPanelConfirmation();
     shadow.innerHTML = "";
@@ -3929,23 +4394,16 @@
     }
     const header = document.createElement("div");
     header.className = "header";
-    header.innerHTML = isPanelCollapsed ? `<div class="headerTitle collapsedTitle"><span class="collapsedBrandMark" aria-hidden="true">M</span><span class="collapsedBrandText"><strong>markonverter</strong><span>prices</span></span></div>` : `<div class="headerTitle"><span class="eyebrow">Markonverter</span><strong>Pickup prices</strong><span>${escapeHtml(model.product.title || "Ozon product")}</span></div>`;
-    if (isPanelCollapsed) {
-      header.title = "Expand Markonverter panel";
-      header.addEventListener("click", (event) => {
-        if (event.target.closest("button")) {
-          return;
-        }
-        void setPanelCollapsed(false);
-      });
-    }
+    header.innerHTML = `<div class="headerTitle"><span class="eyebrow">Markonverter</span><strong>${escapeHtml(
+      i18n.t("panelPickupPrices")
+    )}</strong><span>${escapeHtml(model.product.title || i18n.t("panelProductFallback"))}</span></div>`;
     const headerActions = document.createElement("div");
     headerActions.className = "headerActions";
     const settingsButton = document.createElement("button");
     settingsButton.type = "button";
     settingsButton.className = "iconButton settingsButton";
-    settingsButton.setAttribute("aria-label", "Open settings");
-    settingsButton.title = "Settings";
+    settingsButton.setAttribute("aria-label", i18n.t("panelOpenSettings"));
+    settingsButton.title = i18n.t("panelSettings");
     settingsButton.textContent = "\u2699";
     settingsButton.addEventListener("click", () => {
       openOptionsPage();
@@ -3953,7 +4411,7 @@
     const collapseButton = document.createElement("button");
     collapseButton.type = "button";
     collapseButton.className = "iconButton collapseButton";
-    const collapseButtonLabel = isPanelCollapsed ? "Expand Markonverter panel" : "Collapse Markonverter panel";
+    const collapseButtonLabel = isPanelCollapsed ? i18n.t("panelExpand") : i18n.t("panelCollapse");
     collapseButton.setAttribute("aria-label", collapseButtonLabel);
     collapseButton.title = collapseButtonLabel;
     const collapseIcon = document.createElement("span");
@@ -3963,11 +4421,7 @@
     collapseButton.addEventListener("click", () => {
       void setPanelCollapsed(!isPanelCollapsed);
     });
-    if (isPanelCollapsed) {
-      headerActions.append(collapseButton);
-    } else {
-      headerActions.append(settingsButton, collapseButton);
-    }
+    headerActions.append(settingsButton, collapseButton);
     header.append(headerActions);
     root.append(header);
     if (isPanelCollapsed) {
@@ -3975,27 +4429,29 @@
       return;
     }
     if (model.state === "loading") {
-      root.append(messageNode(`Checking ${model.pickupPoints?.length || "configured"} pickup points...`));
+      root.append(messageNode(i18n.t("panelCheckingPickupPoints", { count: model.pickupPoints?.length ?? i18n.t("panelConfiguredPickupPoints") })));
       if (captureStatus) {
         root.append(messageNode(captureStatus.message, captureStatus.tone));
       }
     } else if (model.state === "empty") {
-      root.append(messageNode("No Ozon pickup points configured."));
+      root.append(messageNode(i18n.t("panelNoOzonPickupPoints")));
       appendDetectedPickupCandidates(root, model.settings, model.product, true);
       appendCaptureStatus(root);
     } else if (model.state === "noSelection") {
-      root.append(messageNode("No saved pickup points selected for comparison."));
+      root.append(messageNode(i18n.t("panelNoSavedSelected")));
       appendPickupRows(root, model.settings, [], [], model.product);
       appendDetectedPickupCandidates(root, model.settings, model.product, false);
       appendCaptureStatus(root);
     } else if (model.state === "fatal") {
       root.append(messageNode(model.message, "error"));
     } else {
-      appendDetectedPickupCandidates(root, model.settings, model.product, false);
       appendPickupRows(root, model.settings, model.pickupPoints, model.results, model.product);
+      appendDetectedPickupCandidates(root, model.settings, model.product, false);
       appendCaptureStatus(root);
     }
-    appendOzonFixtureTools(root);
+    if (panelDebugEnabled(model)) {
+      appendOzonFixtureTools(root);
+    }
     shadow.append(root);
   }
   function renderLastPanel() {
@@ -4037,7 +4493,7 @@
       const cancelButton = document.createElement("button");
       cancelButton.type = "button";
       cancelButton.className = "confirmButton secondaryButton";
-      cancelButton.textContent = options.cancelText || "Cancel";
+      cancelButton.textContent = options.cancelText || t("panelCancel");
       const confirmButton = document.createElement("button");
       confirmButton.type = "button";
       confirmButton.className = `confirmButton${options.danger ? " danger" : ""}`;
@@ -4090,13 +4546,11 @@
     const currentPanel = currentPanelElement();
     const fromRect = currentPanel?.getBoundingClientRect();
     if (collapsed && currentPanel && fromRect) {
+      const collapsedHeight = measureHeaderOnlyPanelHeight(currentPanel);
       await animatePanelBox(
         currentPanel,
         { width: fromRect.width, height: fromRect.height },
-        {
-          width: Math.min(fromRect.width, PANEL_COLLAPSED_MAX_WIDTH, Math.max(0, window.innerWidth - 24)),
-          height: PANEL_COLLAPSED_HEIGHT
-        },
+        { width: fromRect.width, height: collapsedHeight },
         PANEL_COLLAPSE_DURATION_MS,
         false
       );
@@ -4129,6 +4583,15 @@
   function currentPanelElement() {
     const host = document.getElementById(PANEL_ID);
     return host?.shadowRoot?.querySelector(".panel") || null;
+  }
+  function measureHeaderOnlyPanelHeight(panel) {
+    const panelRect = panel.getBoundingClientRect();
+    const header = panel.querySelector(".header");
+    if (!header) {
+      return panelRect.height;
+    }
+    const borderHeight = Math.max(0, panelRect.height - panel.clientHeight);
+    return header.getBoundingClientRect().height + borderHeight;
   }
   async function animatePanelBox(panel, from, to, duration, cleanup = true) {
     if (!Number.isFinite(from.width) || !Number.isFinite(from.height) || from.width <= 0 || from.height <= 0) {
@@ -4189,22 +4652,24 @@
     const text = document.createElement("div");
     text.className = "fixtureToolsText";
     const statusLine = fixtureStatus ? `<span class="${fixtureStatus.tone === "error" ? "fixtureError" : ""}">${escapeHtml(fixtureStatus.message)}</span>` : "";
-    text.innerHTML = `<span class="eyebrow">Ozon fixtures</span><strong>${ozonFixtureCount} captured</strong>${statusLine}`;
+    text.innerHTML = `<span class="eyebrow">${escapeHtml(t("fixturesEyebrow"))}</span><strong>${escapeHtml(
+      t("fixturesCaptured", { count: ozonFixtureCount })
+    )}</strong>${statusLine}`;
     const actions = document.createElement("div");
     actions.className = "fixtureToolsActions";
     const copyButton = document.createElement("button");
     copyButton.type = "button";
     copyButton.className = "detailsButton";
-    copyButton.textContent = "Copy";
-    copyButton.title = "Copy recorded Ozon API fixtures";
+    copyButton.textContent = t("fixturesCopy");
+    copyButton.title = t("fixturesCopyTitle");
     copyButton.addEventListener("click", () => {
       void copyOzonFixtures();
     });
     const clearButton = document.createElement("button");
     clearButton.type = "button";
     clearButton.className = "deleteButton";
-    clearButton.textContent = "Clear";
-    clearButton.title = "Clear recorded Ozon API fixtures";
+    clearButton.textContent = t("fixturesClear");
+    clearButton.title = t("fixturesClearTitle");
     clearButton.addEventListener("click", () => {
       void clearOzonFixtures();
     });
@@ -4228,23 +4693,23 @@
     const store = await readOzonFixtureStore();
     ozonFixtureCount = store.records.length;
     if (store.records.length === 0) {
-      fixtureStatus = { tone: "error", message: "No fixtures yet" };
+      fixtureStatus = { tone: "error", message: t("fixturesNone") };
       renderLastPanel();
       return;
     }
     try {
       await navigator.clipboard.writeText(JSON.stringify(store, null, 2));
-      fixtureStatus = { tone: "normal", message: `Copied ${store.records.length}` };
+      fixtureStatus = { tone: "normal", message: t("fixturesCopied", { count: store.records.length }) };
     } catch {
-      fixtureStatus = { tone: "error", message: "Clipboard blocked" };
+      fixtureStatus = { tone: "error", message: t("fixturesClipboardBlocked") };
     }
     renderLastPanel();
   }
   async function clearOzonFixtures() {
     if (ozonFixtureCount > 0 && !await requestPanelConfirmation({
-      title: "Clear Ozon fixtures?",
-      message: "Clear recorded Ozon API fixtures from this browser?",
-      confirmText: "Clear fixtures",
+      title: t("fixturesClearTitleQuestion"),
+      message: t("fixturesClearMessage"),
+      confirmText: t("fixturesClearConfirm"),
       danger: true
     })) {
       return;
@@ -4252,7 +4717,7 @@
     pendingFixtureInputs = [];
     await chrome.storage.local.set({ [OZON_FIXTURE_STORE_KEY]: emptyOzonFixtureStore() });
     ozonFixtureCount = 0;
-    fixtureStatus = { tone: "normal", message: "Cleared" };
+    fixtureStatus = { tone: "normal", message: t("fixturesCleared") };
     renderLastPanel();
   }
   function getSavedOzonExternalIds(settings) {
@@ -4272,7 +4737,7 @@
   function appendPickupRows(root, settings, comparedPickupPoints, results, product) {
     const rows = buildPanelComparisonRows(settings, comparedPickupPoints, results);
     if (rows.length > 0) {
-      root.append(renderPickupRows(rows, product));
+      root.append(renderPickupRows(rows, product, settings));
     }
   }
   function buildPanelComparisonRows(settings, comparedPickupPoints, results) {
@@ -4294,7 +4759,8 @@
   function isComparisonPointSelected(pickupPoint, settings) {
     return settings.comparisonPickupPointIds ? settings.comparisonPickupPointIds.includes(pickupPoint.id) : true;
   }
-  function renderPickupRows(rows, product) {
+  function renderPickupRows(rows, product, settings) {
+    const i18n = currentI18n(settings);
     const list = document.createElement("div");
     list.className = "rows";
     for (const row of rows) {
@@ -4312,8 +4778,8 @@
       const deleteButton = document.createElement("button");
       deleteButton.type = "button";
       deleteButton.className = "deleteButton rowDeleteButton";
-      deleteButton.textContent = "Delete";
-      deleteButton.title = "Delete saved pickup point";
+      deleteButton.textContent = i18n.t("optionsDelete");
+      deleteButton.title = i18n.t("panelDeletePickupTitle");
       deleteButton.addEventListener("click", () => {
         void deleteSavedPickupPoint(row.pickupPoint, product);
       });
@@ -4324,15 +4790,15 @@
       value.className = "value";
       if (!row.result) {
         const idle = document.createElement("strong");
-        idle.textContent = row.isSelected ? "Waiting" : "Not compared";
+        idle.textContent = row.isSelected ? i18n.t("panelWaiting") : i18n.t("panelNotCompared");
         const hint = document.createElement("span");
-        hint.textContent = row.isSelected ? "Waiting for Ozon response" : "Enable in Settings";
+        hint.textContent = row.isSelected ? i18n.t("panelWaitingHint") : i18n.t("panelEnableInSettings");
         value.append(idle, hint);
       } else if (row.result.status === "success") {
-        const original = formatCurrency(row.result.originalPrice.amount, row.result.originalPrice.currency);
-        const converted = formatCurrency(row.result.convertedAmount, row.result.convertedCurrency);
-        const capturedTitle = row.result.originalPrice.source === "manual" ? `Captured ${formatCapturedAt(row.result.originalPrice.capturedAt)}` : "";
-        const delta = row.deltaFromCheapest && row.deltaFromCheapest > 0 ? `+${formatCurrency(row.deltaFromCheapest, row.result.convertedCurrency)}` : row.isCheapest ? "best" : "";
+        const original = formatCurrency(row.result.originalPrice.amount, row.result.originalPrice.currency, i18n.locale);
+        const converted = formatCurrency(row.result.convertedAmount, row.result.convertedCurrency, i18n.locale);
+        const capturedTitle = row.result.originalPrice.source === "manual" ? i18n.t("panelCapturedTitle", { time: formatCapturedAt(row.result.originalPrice.capturedAt, i18n) }) : "";
+        const delta = row.deltaFromCheapest && row.deltaFromCheapest > 0 ? `+${formatCurrency(row.deltaFromCheapest, row.result.convertedCurrency, i18n.locale)}` : row.isCheapest ? i18n.t("panelBest") : "";
         if (capturedTitle) {
           value.title = capturedTitle;
         }
@@ -4341,28 +4807,31 @@
         const error = row.result.error;
         value.title = error;
         const unavailable = document.createElement("strong");
-        unavailable.textContent = "Unavailable";
+        unavailable.textContent = i18n.t("panelUnavailable");
         const reason = document.createElement("span");
-        reason.textContent = readableResultError(error);
+        reason.textContent = readableResultError(error, i18n);
         const actions = document.createElement("div");
         actions.className = "failureActions";
         const captureButton = document.createElement("button");
         captureButton.type = "button";
         captureButton.className = "saveSmallButton";
-        captureButton.textContent = "Capture current";
-        captureButton.title = "After selecting this pickup point in Ozon, capture the visible page price for this product.";
+        captureButton.textContent = i18n.t("panelCaptureCurrent");
+        captureButton.title = i18n.t("panelCaptureCurrentTitle");
         captureButton.addEventListener("click", () => {
           void captureCurrentPriceForPickupPoint(row.pickupPoint, product);
         });
         const detailsButton = document.createElement("button");
         detailsButton.type = "button";
         detailsButton.className = "detailsButton";
-        detailsButton.textContent = "Copy details";
-        detailsButton.title = "Copy technical details for debugging this pickup point.";
+        detailsButton.textContent = i18n.t("panelCopyDetails");
+        detailsButton.title = i18n.t("panelCopyDetailsTitle");
         detailsButton.addEventListener("click", () => {
           void copyFailureDiagnostics(row.pickupPoint, error, product);
         });
-        actions.append(captureButton, detailsButton);
+        actions.append(captureButton);
+        if (settings.debug) {
+          actions.append(detailsButton);
+        }
         value.append(unavailable, reason, actions);
       }
       item.append(meta, value);
@@ -4377,22 +4846,56 @@
     }
   }
   function detectedPickupCandidateList(settings, product, showEmptyHint) {
+    const i18n = currentI18n(settings);
     const savedExternalIds = getSavedOzonExternalIds(settings);
     const detected = latestPickupCandidates.filter((candidate) => !savedExternalIds.has(candidate.externalLocationId)).slice(0, 8);
     if (detected.length === 0 && !showEmptyHint) {
       return null;
     }
+    const isCollapsed = detectedPickupListCollapsedOverride ?? savedExternalIds.size >= 2;
     const wrapper = document.createElement("div");
-    wrapper.className = "detectedCandidates";
+    wrapper.className = `detectedCandidates${isCollapsed ? " collapsed" : ""}`;
     const detectedHeader = document.createElement("div");
     detectedHeader.className = "detectedCandidatesTop";
-    detectedHeader.innerHTML = `<div><span class="eyebrow">Ozon page</span><strong>New pickup points</strong></div><span>${detected.length} new</span>`;
+    const headerText = document.createElement("div");
+    headerText.innerHTML = `<span class="eyebrow">${escapeHtml(i18n.t("panelDetectedEyebrow"))}</span><strong>${escapeHtml(
+      i18n.t("panelNewPickupPoints")
+    )}</strong>`;
+    const headerActions = document.createElement("div");
+    headerActions.className = "detectedHeaderActions";
+    const count = document.createElement("span");
+    count.textContent = i18n.t("panelNewCount", { count: detected.length });
+    const toggleButton = document.createElement("button");
+    toggleButton.type = "button";
+    toggleButton.className = "iconButton detectedToggleButton";
+    const toggleLabel = i18n.t(isCollapsed ? "panelShowNewPickupPoints" : "panelHideNewPickupPoints");
+    toggleButton.setAttribute("aria-controls", DETECTED_PICKUP_LIST_ID);
+    toggleButton.setAttribute("aria-expanded", String(!isCollapsed));
+    toggleButton.setAttribute("aria-label", toggleLabel);
+    toggleButton.title = toggleLabel;
+    const toggleIcon = document.createElement("span");
+    toggleIcon.className = isCollapsed ? "chevronIcon chevronDown" : "chevronIcon chevronUp";
+    toggleIcon.setAttribute("aria-hidden", "true");
+    toggleButton.append(toggleIcon);
+    toggleButton.addEventListener("click", () => {
+      detectedPickupListCollapsedOverride = !isCollapsed;
+      renderLastPanel();
+    });
+    headerActions.append(count, toggleButton);
+    detectedHeader.append(headerText, headerActions);
     wrapper.append(detectedHeader);
+    if (isCollapsed) {
+      return wrapper;
+    }
+    const body = document.createElement("div");
+    body.id = DETECTED_PICKUP_LIST_ID;
+    body.className = "detectedCandidatesBody";
     if (detected.length === 0) {
       const hint = document.createElement("p");
       hint.className = "pointManagerHint";
-      hint.textContent = "Open Ozon delivery selection, then choose or view a point so Markonverter can detect it.";
-      wrapper.append(hint);
+      hint.textContent = i18n.t("panelDetectedHint");
+      body.append(hint);
+      wrapper.append(body);
       return wrapper;
     }
     for (const candidate of detected) {
@@ -4406,22 +4909,23 @@
       const saveButton = document.createElement("button");
       saveButton.type = "button";
       saveButton.className = "saveSmallButton";
-      saveButton.textContent = "Save";
+      saveButton.textContent = i18n.t("panelSave");
       saveButton.addEventListener("click", () => {
         void saveDetectedPickupCandidate(candidate, product);
       });
       row.append(text, saveButton);
-      wrapper.append(row);
+      body.append(row);
     }
+    wrapper.append(body);
     return wrapper;
   }
   async function saveDetectedPickupCandidate(candidate, product) {
     const candidateName = ozonCandidateDisplayName(candidate);
-    captureStatus = { tone: "normal", message: `Saving: ${candidateName}` };
+    captureStatus = { tone: "normal", message: t("panelSaving", { name: candidateName }) };
     renderLastPanel();
     const response = await savePickupCandidate(candidate, product);
     if (!response.ok || !("settings" in response)) {
-      captureStatus = { tone: "error", message: response.ok ? "Pickup point was not saved" : response.error };
+      captureStatus = { tone: "error", message: response.ok ? t("panelPickupNotSaved") : response.error };
       renderLastPanel();
       return;
     }
@@ -4431,7 +4935,7 @@
     const quoteCaptured = savedPoint && isCurrentVisibleOzonPickupCandidate(candidate) ? await saveCurrentVisibleQuoteForPoint(savedPoint, product, { requireConfirmation: false }) : false;
     captureStatus = {
       tone: "normal",
-      message: quoteCaptured ? `Saved and captured current price: ${candidateName}` : `Saved: ${candidateName}`
+      message: quoteCaptured ? t("panelSavedAndCaptured", { name: candidateName }) : t("panelSaved", { name: candidateName })
     };
     await syncCurrentOzonDeliveryMenuAssist();
     await runIfProductPage();
@@ -4459,24 +4963,24 @@
       window.open(chrome.runtime.getURL("options.html"), "_blank", "noopener");
     });
   }
-  function readableResultError(error) {
+  function readableResultError(error, i18n = currentI18n()) {
     if (error === CURRENT_OZON_PRICE_NOT_CAPTURED) {
-      return "Open or select this pickup point in Ozon, wait for the price, then use Capture current.";
+      return i18n.t("panelCurrentPriceNotCaptured");
     }
     if (error.includes("response did not confirm requested pickup point")) {
-      return "Ozon did not confirm this pickup point, so the current address may have been reused.";
+      return i18n.t("panelOzonDidNotConfirm");
     }
     return error.length > 150 ? `${error.slice(0, 147)}...` : error;
   }
-  function formatCapturedAt(value) {
+  function formatCapturedAt(value, i18n = currentI18n()) {
     if (!value) {
-      return "from page";
+      return i18n.t("panelCapturedFromPage");
     }
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
-      return "from page";
+      return i18n.t("panelCapturedFromPage");
     }
-    return date.toLocaleString(void 0, {
+    return date.toLocaleString(i18n.locale, {
       month: "short",
       day: "2-digit",
       hour: "2-digit",
@@ -4509,9 +5013,9 @@
     };
     try {
       await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2));
-      captureStatus = { tone: "normal", message: "Copied pickup-point diagnostics" };
+      captureStatus = { tone: "normal", message: t("panelCopiedDiagnostics") };
     } catch {
-      captureStatus = { tone: "error", message: "Could not copy diagnostics. Browser clipboard access is blocked." };
+      captureStatus = { tone: "error", message: t("panelCopyDiagnosticsBlocked") };
     }
     renderLastPanel();
   }

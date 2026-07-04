@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ozon Live Check"
+  short_description: "Refresh Arc cookies and run live Ozon QA"
+  default_prompt: "Use $markonverter-ozon-live-check to refresh Arc Ozon cookies and run the live Markonverter Ozon probe."

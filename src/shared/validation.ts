@@ -9,6 +9,7 @@ import {
   SUPPORTED_CURRENCIES,
   SUPPORTED_CURRENCY_RATE_PROVIDERS
 } from "./types";
+import { normalizeLanguagePreference } from "./i18n";
 
 const MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
 
@@ -18,6 +19,8 @@ export function normalizeSettings(value: unknown): ExtensionSettings {
     ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint)
     : [];
   return {
+    language: normalizeLanguagePreference(candidate?.language),
+    debug: candidate?.debug === true,
     defaultCurrency:
       candidate?.defaultCurrency && SUPPORTED_CURRENCIES.includes(candidate.defaultCurrency)
         ? candidate.defaultCurrency

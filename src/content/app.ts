@@ -1,8 +1,10 @@
 import { buildComparisonRows, makeErrorResult, makeSuccessResult } from "../shared/comparison";
 import { formatCurrency } from "../shared/currency";
+import { createTranslator, type I18nKey, type Translator } from "../shared/i18n";
 import { RuntimeRequest, RuntimeResponse } from "../shared/messages";
 import { ComparisonResult, Currency, ExtensionSettings, ManualQuote, PickupPoint, PriceQuote, ProductIdentity } from "../shared/types";
 import { manualQuoteKey } from "../shared/settings";
+import { normalizeSettings } from "../shared/validation";
 import {
   appendOzonFixtureRecords,
   emptyOzonFixtureStore,
@@ -33,9 +35,9 @@ const PAGE_ACTION_SELECTOR = "[data-markonverter-page-action]";
 const COLLECT_PICKUP_EVENT = "markonverter:collect-ozon-pickup";
 const PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
 const NETWORK_FIXTURE_EVENT = "markonverter:ozon-network-fixture";
+const SETTINGS_KEY = "markonverter.settings";
 const PANEL_STATE_KEY = "markonverter.panelState";
-const PANEL_COLLAPSED_HEIGHT = 44;
-const PANEL_COLLAPSED_MAX_WIDTH = 268;
+const DETECTED_PICKUP_LIST_ID = "markonverter-detected-pickup-list";
 const PANEL_COLLAPSE_DURATION_MS = 220;
 const PANEL_EXPAND_DURATION_MS = 240;
 const CURRENT_OZON_PRICE_NOT_CAPTURED =
@@ -55,6 +57,7 @@ let ozonFixtureCount = 0;
 let fixtureFlushTimer: number | null = null;
 let pendingFixtureInputs: OzonNetworkFixtureInput[] = [];
 let isPanelCollapsed = false;
+let detectedPickupListCollapsedOverride: boolean | null = null;
 let panelRecoveryTimer: number | null = null;
 let currentQuoteCaptureTimer: number | null = null;
 let assistSyncTimer: number | null = null;
@@ -71,6 +74,7 @@ let pageActionEventGuardInstalled = false;
 export async function boot(): Promise<void> {
   document.addEventListener(PICKUP_CANDIDATES_EVENT, handlePickupCandidatesEvent);
   document.addEventListener(NETWORK_FIXTURE_EVENT, handleNetworkFixtureEvent);
+  installSettingsChangeListener();
   if (document.readyState === "loading") {
     await new Promise<void>((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
   }
@@ -84,6 +88,18 @@ export async function boot(): Promise<void> {
       void runIfProductPage();
     }
   }, 1000);
+}
+
+function installSettingsChangeListener(): void {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "local" || !changes[SETTINGS_KEY]) {
+      return;
+    }
+    latestSettings = normalizeSettings(changes[SETTINGS_KEY].newValue);
+    updateLastPanelSettings(latestSettings);
+    renderLastPanel();
+    scheduleOzonDeliveryAssistSync();
+  });
 }
 
 function installPanelRecovery(): void {
@@ -142,6 +158,7 @@ async function runIfProductPage(): Promise<void> {
   if (pageChanged) {
     targetedPickupDiscoveryIds.clear();
     autoPickupSelectorOpenKeys.clear();
+    detectedPickupListCollapsedOverride = null;
   }
   activeUrl = currentUrl;
   const panel = ensurePanel();
@@ -154,7 +171,7 @@ async function runIfProductPage(): Promise<void> {
 
   const settingsResponse = await runtimeRequest({ type: "GET_SETTINGS" });
   if (!settingsResponse.ok || !("settings" in settingsResponse)) {
-    renderPanel(panel, { state: "fatal", product, message: settingsResponse.ok ? "Settings are unavailable" : settingsResponse.error });
+    renderPanel(panel, { state: "fatal", product, message: settingsResponse.ok ? t("optionsSettingsUnavailable") : settingsResponse.error });
     return;
   }
 
@@ -270,6 +287,9 @@ function handlePickupCandidatesEvent(event: Event): void {
 }
 
 function handleNetworkFixtureEvent(event: Event): void {
+  if (!isDebugModeEnabled()) {
+    return;
+  }
   const detail = (event as CustomEvent<string>).detail;
   if (!detail) {
     return;
@@ -310,6 +330,10 @@ function scheduleFixtureFlush(): void {
 
 async function flushPendingFixtures(): Promise<void> {
   if (pendingFixtureInputs.length === 0) {
+    return;
+  }
+  if (!isDebugModeEnabled()) {
+    pendingFixtureInputs = [];
     return;
   }
   const inputs = pendingFixtureInputs.splice(0, pendingFixtureInputs.length);
@@ -694,7 +718,7 @@ async function savePickupCandidate(candidate: OzonPickupCandidate, product: Prod
 async function captureCurrentPriceForPickupPoint(pickupPoint: PickupPoint, product: ProductIdentity): Promise<void> {
   const saved = await saveCurrentVisibleQuoteForPoint(pickupPoint, product, { requireConfirmation: true });
   if (saved) {
-    captureStatus = { tone: "normal", message: `Captured current page price for ${ozonPickupDisplayName(pickupPoint)}` };
+    captureStatus = { tone: "normal", message: t("panelCapturedCurrentPrice", { name: ozonPickupDisplayName(pickupPoint) }) };
     await runIfProductPage();
   } else {
     renderLastPanel();
@@ -711,22 +735,22 @@ async function saveCurrentVisibleQuoteForPoint(
     const pickupPointName = ozonPickupDisplayName(pickupPoint);
     if (currentCandidate && currentCandidate.externalLocationId !== pickupPoint.externalLocationId) {
       const shouldContinue = await requestPanelConfirmation({
-        title: "Capture visible price?",
-        message: `The currently detected Ozon point looks like "${ozonCandidateDisplayName(currentCandidate)}", not "${pickupPointName}". Capture the visible page price for "${pickupPointName}" anyway?`,
-        confirmText: "Capture price"
+        title: t("panelCaptureVisibleTitle"),
+        message: t("panelCaptureDifferentPointMessage", { current: ozonCandidateDisplayName(currentCandidate), target: pickupPointName }),
+        confirmText: t("panelCapturePrice")
       });
       if (!shouldContinue) {
-        captureStatus = { tone: "normal", message: "Price capture cancelled" };
+        captureStatus = { tone: "normal", message: t("panelPriceCaptureCancelled") };
         return false;
       }
     } else if (!currentCandidate) {
       const shouldContinue = await requestPanelConfirmation({
-        title: "Capture visible price?",
-        message: `I could not verify the selected Ozon point. Capture the visible page price for "${pickupPointName}" anyway?`,
-        confirmText: "Capture price"
+        title: t("panelCaptureVisibleTitle"),
+        message: t("panelCaptureUnverifiedMessage", { target: pickupPointName }),
+        confirmText: t("panelCapturePrice")
       });
       if (!shouldContinue) {
-        captureStatus = { tone: "normal", message: "Price capture cancelled" };
+        captureStatus = { tone: "normal", message: t("panelPriceCaptureCancelled") };
         return false;
       }
     }
@@ -734,7 +758,7 @@ async function saveCurrentVisibleQuoteForPoint(
 
   const quote = extractVisibleOzonPrice(pickupPoint.currency);
   if (!quote) {
-    captureStatus = { tone: "error", message: "Could not find a visible product price on the current Ozon page." };
+    captureStatus = { tone: "error", message: t("panelVisiblePriceNotFound") };
     return false;
   }
 
@@ -777,7 +801,7 @@ async function autoCaptureCurrentVisibleQuote(product: ProductIdentity, settings
     if (!updatedSettings) {
       return settings;
     }
-    captureStatus = { tone: "normal", message: `Auto captured current price for ${ozonPickupDisplayName(pickupPoint)}` };
+    captureStatus = { tone: "normal", message: t("panelAutoCapturedCurrentPrice", { name: ozonPickupDisplayName(pickupPoint) }) };
     return updatedSettings;
   } finally {
     autoCaptureInFlight.delete(lockKey);
@@ -1084,7 +1108,7 @@ async function saveManualQuoteForPoint(
   };
   const response = await runtimeRequest({ type: "SAVE_MANUAL_QUOTE", manualQuote });
   if (!response.ok || !("settings" in response)) {
-    captureStatus = { tone: "error", message: response.ok ? "Captured price was not saved" : response.error };
+    captureStatus = { tone: "error", message: response.ok ? t("panelCapturedPriceNotSaved") : response.error };
     return null;
   }
   latestSettings = response.settings;
@@ -1094,19 +1118,19 @@ async function saveManualQuoteForPoint(
 async function deleteSavedPickupPoint(pickupPoint: PickupPoint, product: ProductIdentity): Promise<void> {
   const pickupPointName = ozonPickupDisplayName(pickupPoint);
   const shouldDelete = await requestPanelConfirmation({
-    title: "Delete pickup point?",
-    message: `Delete "${pickupPointName}" from saved pickup points?`,
-    confirmText: "Delete point",
+    title: t("panelDeletePickupTitle"),
+    message: t("panelDeletePickupMessage", { name: pickupPointName }),
+    confirmText: t("panelDeletePickupConfirm"),
     danger: true
   });
   if (!shouldDelete) {
     return;
   }
 
-  captureStatus = { tone: "normal", message: `Deleted: ${pickupPointName}` };
+  captureStatus = { tone: "normal", message: t("panelDeleted", { name: pickupPointName }) };
   const response = await runtimeRequest({ type: "DELETE_PICKUP_POINT", pickupPointId: pickupPoint.id });
   if (!response.ok || !("settings" in response)) {
-    captureStatus = { tone: "error", message: response.ok ? "Pickup point was not deleted" : response.error };
+    captureStatus = { tone: "error", message: response.ok ? t("panelPickupNotDeleted") : response.error };
     renderLastPanel();
     return;
   }
@@ -1225,12 +1249,11 @@ function ensureOzonDeliveryMenuAssist(): void {
       "gap:8px",
       "margin:8px 0",
       "padding:8px",
-      "border:1px solid #2a2a2c",
-      "border-radius:10px",
-      "background:#141414",
-      "box-shadow:0 12px 30px rgba(0,0,0,.34)",
-      "font:13px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
-      "color:#fafafa",
+      "border:1px solid #dce3ee",
+      "border-radius:8px",
+      "background:#ffffff",
+      "font:13px -apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif",
+      "color:#17233c",
       "overflow:hidden",
       "z-index:2147483647"
     ].join(";")
@@ -1779,7 +1802,7 @@ function getOzonRowText(element: HTMLElement): string {
 function pickupRowName(text: string): string {
   const cleaned = compactText(
     text.replace(
-      /(?:^|[\s,;|•-])(?:Add|Saved|Refresh PVZ|Show in panel|Удалить|Редактировать|Изменить|Edit|Delete|Remove)(?=$|[\s,;|•-])/giu,
+      /(?:^|[\s,;|•-])(?:Add|Saved|Refresh PVZ|Show in panel|Добавить|Сохранено|Обновить ПВЗ|Показать в панели|Удалить|Редактировать|Изменить|Edit|Delete|Remove)(?=$|[\s,;|•-])/giu,
       " "
     ).replace(/(?:срок\s+хранения\s+заказа|storage\s+period).*$/i, " ")
   );
@@ -1851,8 +1874,8 @@ function buildOzonRowAction(
   action.dataset.markonverterActionState = stateKey;
   action.dataset.markonverterExternalLocationId = candidate.externalLocationId;
   action.className = `markonverter-ozon-pvz-action${isSaved ? " is-saved" : ""}`;
-  action.textContent = isSaved ? "Saved" : "Add";
-  action.title = isSaved ? "Already saved in Markonverter" : `Add ${ozonCandidateDisplayName(candidate)} to Markonverter`;
+  action.textContent = isSaved ? t("assistSaved") : t("assistAdd");
+  action.title = isSaved ? t("assistAlreadySavedTitle") : t("assistAddTitle", { name: ozonCandidateDisplayName(candidate) });
   action.setAttribute("role", "button");
   action.tabIndex = isSaved ? -1 : 0;
   action.setAttribute("aria-disabled", String(isSaved));
@@ -1869,8 +1892,8 @@ function markSavedPickupCandidateInPage(candidate: OzonPickupCandidate): void {
     if (action.dataset.markonverterExternalLocationId !== candidate.externalLocationId) {
       return;
     }
-    action.textContent = "Saved";
-    action.title = "Already saved in Markonverter";
+    action.textContent = t("assistSaved");
+    action.title = t("assistAlreadySavedTitle");
     action.classList.add("is-saved");
     action.dataset.markonverterActionState = `${candidate.externalLocationId}:saved`;
     if (action instanceof HTMLButtonElement) {
@@ -1887,8 +1910,12 @@ function renderOzonDeliveryAssist(assist: HTMLElement, rows: OzonPickupRowCandid
   const savedCount = identifiedRows.filter((row) => row.candidate && savedExternalIds.has(row.candidate.externalLocationId)).length;
   const statusText =
     rows.length > 0
-      ? `${rows.length} PVZ visible / ${savedCount} saved${identifiedRows.length < rows.length ? " / IDs loading" : ""}`
-      : "PVZ list not loaded";
+      ? t("assistStatus", {
+          rows: rows.length,
+          saved: savedCount,
+          loading: identifiedRows.length < rows.length ? t("assistStatusLoading") : ""
+        })
+      : t("assistListNotLoaded");
   const stateKey = `${rows.length}:${identifiedRows.length}:${savedCount}:${statusText}`;
   if (assist.dataset.markonverterAssistState === stateKey) {
     return;
@@ -1900,7 +1927,7 @@ function renderOzonDeliveryAssist(assist: HTMLElement, rows: OzonPickupRowCandid
   status.className = "markonverter-assist-status";
   status.textContent = statusText;
 
-  const refreshButton = pageButton("Refresh PVZ", "secondary");
+  const refreshButton = pageButton(t("assistRefreshPvz"), "secondary");
   bindGuardedPageAction(refreshButton, () => {
     requestPagePickupCandidates();
     const product = getCurrentProduct();
@@ -1910,7 +1937,7 @@ function renderOzonDeliveryAssist(assist: HTMLElement, rows: OzonPickupRowCandid
     scheduleOzonDeliveryAssistSync();
   });
 
-  const showButton = pageButton("Show in panel", "secondary");
+  const showButton = pageButton(t("assistShowInPanel"), "secondary");
   bindGuardedPageAction(showButton, () => {
     requestPagePickupCandidates();
     renderLastPanel();
@@ -1950,13 +1977,13 @@ function ensureOzonDeliveryAssistStyles(): void {
       max-height: 24px !important;
       margin: 0 !important;
       padding: 0 8px !important;
-      border: 1px solid rgba(245, 158, 11, 0.78) !important;
-      border-radius: 7px !important;
-      background: #141414 !important;
-      color: #fbbf24 !important;
+      border: 1px solid #005BFF !important;
+      border-radius: 8px !important;
+      background: #005BFF !important;
+      color: #ffffff !important;
       cursor: pointer !important;
       pointer-events: auto !important;
-      font: 700 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+      font: 700 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important;
       letter-spacing: 0 !important;
       text-align: center !important;
       text-decoration: none !important;
@@ -1969,19 +1996,20 @@ function ensureOzonDeliveryAssistStyles(): void {
       transition: border-color 150ms ease, background 150ms ease !important;
     }
     .markonverter-ozon-pvz-action.is-saved {
-      border-color: rgba(34, 197, 94, 0.55) !important;
-      color: #86efac !important;
+      border-color: rgba(16, 163, 90, 0.36) !important;
+      background: #EAF8F1 !important;
+      color: #10A35A !important;
       cursor: default !important;
       pointer-events: auto !important;
     }
     .markonverter-ozon-pvz-action:hover:not(:disabled):not(.is-saved) {
-      border-color: #fbbf24 !important;
-      background: #1b1b1c !important;
+      border-color: #004CE0 !important;
+      background: #004CE0 !important;
     }
     .markonverter-assist-status {
       flex: 1 1 auto;
       min-width: 0;
-      color: #a1a1aa;
+      color: #53627A;
       font-size: 12px;
       overflow-wrap: anywhere;
     }
@@ -2001,10 +2029,10 @@ function pageButton(text: string, variant: "primary" | "secondary" = "primary"):
       "box-sizing:border-box",
       "max-width:100%",
       "padding:0 10px",
-      `border:1px solid ${isPrimary ? "#f59e0b" : "#3f3f46"}`,
+      `border:1px solid ${isPrimary ? "#005BFF" : "#dce3ee"}`,
       "border-radius:8px",
-      `background:${isPrimary ? "#f59e0b" : "#1b1b1c"}`,
-      `color:${isPrimary ? "#111" : "#fafafa"}`,
+      `background:${isPrimary ? "#005BFF" : "#ffffff"}`,
+      `color:${isPrimary ? "#ffffff" : "#005BFF"}`,
       "cursor:pointer",
       "font:inherit",
       "font-weight:700",
@@ -2071,7 +2099,29 @@ interface PanelComparisonRow {
   isSelected: boolean;
 }
 
+function currentI18n(settings: ExtensionSettings | null = latestSettings): Translator {
+  return createTranslator(settings?.language);
+}
+
+function panelI18n(model: PanelModel): Translator {
+  const settings = "settings" in model ? model.settings : latestSettings;
+  return createTranslator(settings?.language);
+}
+
+function t(key: I18nKey, params?: Record<string, string | number>): string {
+  return currentI18n().t(key, params);
+}
+
+function isDebugModeEnabled(settings: ExtensionSettings | null = latestSettings): boolean {
+  return settings?.debug === true;
+}
+
+function panelDebugEnabled(model: PanelModel): boolean {
+  return isDebugModeEnabled("settings" in model ? model.settings : latestSettings);
+}
+
 function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
+  const i18n = panelI18n(model);
   lastPanelModel = model;
   cancelPendingPanelConfirmation();
   shadow.innerHTML = "";
@@ -2088,18 +2138,9 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
 
   const header = document.createElement("div");
   header.className = "header";
-  header.innerHTML = isPanelCollapsed
-    ? `<div class="headerTitle collapsedTitle"><span class="collapsedBrandMark" aria-hidden="true">M</span><span class="collapsedBrandText"><strong>markonverter</strong><span>prices</span></span></div>`
-    : `<div class="headerTitle"><span class="eyebrow">Markonverter</span><strong>Pickup prices</strong><span>${escapeHtml(model.product.title || "Ozon product")}</span></div>`;
-  if (isPanelCollapsed) {
-    header.title = "Expand Markonverter panel";
-    header.addEventListener("click", (event) => {
-      if ((event.target as HTMLElement).closest("button")) {
-        return;
-      }
-      void setPanelCollapsed(false);
-    });
-  }
+  header.innerHTML = `<div class="headerTitle"><span class="eyebrow">Markonverter</span><strong>${escapeHtml(
+    i18n.t("panelPickupPrices")
+  )}</strong><span>${escapeHtml(model.product.title || i18n.t("panelProductFallback"))}</span></div>`;
 
   const headerActions = document.createElement("div");
   headerActions.className = "headerActions";
@@ -2107,8 +2148,8 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   const settingsButton = document.createElement("button");
   settingsButton.type = "button";
   settingsButton.className = "iconButton settingsButton";
-  settingsButton.setAttribute("aria-label", "Open settings");
-  settingsButton.title = "Settings";
+  settingsButton.setAttribute("aria-label", i18n.t("panelOpenSettings"));
+  settingsButton.title = i18n.t("panelSettings");
   settingsButton.textContent = "\u2699";
   settingsButton.addEventListener("click", () => {
     openOptionsPage();
@@ -2117,7 +2158,7 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   const collapseButton = document.createElement("button");
   collapseButton.type = "button";
   collapseButton.className = "iconButton collapseButton";
-  const collapseButtonLabel = isPanelCollapsed ? "Expand Markonverter panel" : "Collapse Markonverter panel";
+  const collapseButtonLabel = isPanelCollapsed ? i18n.t("panelExpand") : i18n.t("panelCollapse");
   collapseButton.setAttribute("aria-label", collapseButtonLabel);
   collapseButton.title = collapseButtonLabel;
   const collapseIcon = document.createElement("span");
@@ -2128,11 +2169,7 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
     void setPanelCollapsed(!isPanelCollapsed);
   });
 
-  if (isPanelCollapsed) {
-    headerActions.append(collapseButton);
-  } else {
-    headerActions.append(settingsButton, collapseButton);
-  }
+  headerActions.append(settingsButton, collapseButton);
   header.append(headerActions);
   root.append(header);
 
@@ -2142,28 +2179,30 @@ function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   }
 
   if (model.state === "loading") {
-    root.append(messageNode(`Checking ${model.pickupPoints?.length || "configured"} pickup points...`));
+    root.append(messageNode(i18n.t("panelCheckingPickupPoints", { count: model.pickupPoints?.length ?? i18n.t("panelConfiguredPickupPoints") })));
     if (captureStatus) {
       root.append(messageNode(captureStatus.message, captureStatus.tone));
     }
   } else if (model.state === "empty") {
-    root.append(messageNode("No Ozon pickup points configured."));
+    root.append(messageNode(i18n.t("panelNoOzonPickupPoints")));
     appendDetectedPickupCandidates(root, model.settings, model.product, true);
     appendCaptureStatus(root);
   } else if (model.state === "noSelection") {
-    root.append(messageNode("No saved pickup points selected for comparison."));
+    root.append(messageNode(i18n.t("panelNoSavedSelected")));
     appendPickupRows(root, model.settings, [], [], model.product);
     appendDetectedPickupCandidates(root, model.settings, model.product, false);
     appendCaptureStatus(root);
   } else if (model.state === "fatal") {
     root.append(messageNode(model.message, "error"));
   } else {
-    appendDetectedPickupCandidates(root, model.settings, model.product, false);
     appendPickupRows(root, model.settings, model.pickupPoints, model.results, model.product);
+    appendDetectedPickupCandidates(root, model.settings, model.product, false);
     appendCaptureStatus(root);
   }
 
-  appendOzonFixtureTools(root);
+  if (panelDebugEnabled(model)) {
+    appendOzonFixtureTools(root);
+  }
   shadow.append(root);
 }
 
@@ -2220,7 +2259,7 @@ async function requestPanelConfirmation(options: PanelConfirmationOptions): Prom
     const cancelButton = document.createElement("button");
     cancelButton.type = "button";
     cancelButton.className = "confirmButton secondaryButton";
-    cancelButton.textContent = options.cancelText || "Cancel";
+    cancelButton.textContent = options.cancelText || t("panelCancel");
     const confirmButton = document.createElement("button");
     confirmButton.type = "button";
     confirmButton.className = `confirmButton${options.danger ? " danger" : ""}`;
@@ -2281,13 +2320,11 @@ async function setPanelCollapsed(collapsed: boolean): Promise<void> {
   const fromRect = currentPanel?.getBoundingClientRect();
 
   if (collapsed && currentPanel && fromRect) {
+    const collapsedHeight = measureHeaderOnlyPanelHeight(currentPanel);
     await animatePanelBox(
       currentPanel,
       { width: fromRect.width, height: fromRect.height },
-      {
-        width: Math.min(fromRect.width, PANEL_COLLAPSED_MAX_WIDTH, Math.max(0, window.innerWidth - 24)),
-        height: PANEL_COLLAPSED_HEIGHT
-      },
+      { width: fromRect.width, height: collapsedHeight },
       PANEL_COLLAPSE_DURATION_MS,
       false
     );
@@ -2325,6 +2362,16 @@ async function setPanelCollapsed(collapsed: boolean): Promise<void> {
 function currentPanelElement(): HTMLElement | null {
   const host = document.getElementById(PANEL_ID);
   return host?.shadowRoot?.querySelector<HTMLElement>(".panel") || null;
+}
+
+function measureHeaderOnlyPanelHeight(panel: HTMLElement): number {
+  const panelRect = panel.getBoundingClientRect();
+  const header = panel.querySelector<HTMLElement>(".header");
+  if (!header) {
+    return panelRect.height;
+  }
+  const borderHeight = Math.max(0, panelRect.height - panel.clientHeight);
+  return header.getBoundingClientRect().height + borderHeight;
 }
 
 async function animatePanelBox(
@@ -2399,7 +2446,9 @@ function appendOzonFixtureTools(root: HTMLElement): void {
   const text = document.createElement("div");
   text.className = "fixtureToolsText";
   const statusLine = fixtureStatus ? `<span class="${fixtureStatus.tone === "error" ? "fixtureError" : ""}">${escapeHtml(fixtureStatus.message)}</span>` : "";
-  text.innerHTML = `<span class="eyebrow">Ozon fixtures</span><strong>${ozonFixtureCount} captured</strong>${statusLine}`;
+  text.innerHTML = `<span class="eyebrow">${escapeHtml(t("fixturesEyebrow"))}</span><strong>${escapeHtml(
+    t("fixturesCaptured", { count: ozonFixtureCount })
+  )}</strong>${statusLine}`;
 
   const actions = document.createElement("div");
   actions.className = "fixtureToolsActions";
@@ -2407,8 +2456,8 @@ function appendOzonFixtureTools(root: HTMLElement): void {
   const copyButton = document.createElement("button");
   copyButton.type = "button";
   copyButton.className = "detailsButton";
-  copyButton.textContent = "Copy";
-  copyButton.title = "Copy recorded Ozon API fixtures";
+  copyButton.textContent = t("fixturesCopy");
+  copyButton.title = t("fixturesCopyTitle");
   copyButton.addEventListener("click", () => {
     void copyOzonFixtures();
   });
@@ -2416,8 +2465,8 @@ function appendOzonFixtureTools(root: HTMLElement): void {
   const clearButton = document.createElement("button");
   clearButton.type = "button";
   clearButton.className = "deleteButton";
-  clearButton.textContent = "Clear";
-  clearButton.title = "Clear recorded Ozon API fixtures";
+  clearButton.textContent = t("fixturesClear");
+  clearButton.title = t("fixturesClearTitle");
   clearButton.addEventListener("click", () => {
     void clearOzonFixtures();
   });
@@ -2445,16 +2494,16 @@ async function copyOzonFixtures(): Promise<void> {
   const store = await readOzonFixtureStore();
   ozonFixtureCount = store.records.length;
   if (store.records.length === 0) {
-    fixtureStatus = { tone: "error", message: "No fixtures yet" };
+    fixtureStatus = { tone: "error", message: t("fixturesNone") };
     renderLastPanel();
     return;
   }
 
   try {
     await navigator.clipboard.writeText(JSON.stringify(store, null, 2));
-    fixtureStatus = { tone: "normal", message: `Copied ${store.records.length}` };
+    fixtureStatus = { tone: "normal", message: t("fixturesCopied", { count: store.records.length }) };
   } catch {
-    fixtureStatus = { tone: "error", message: "Clipboard blocked" };
+    fixtureStatus = { tone: "error", message: t("fixturesClipboardBlocked") };
   }
   renderLastPanel();
 }
@@ -2463,9 +2512,9 @@ async function clearOzonFixtures(): Promise<void> {
   if (
     ozonFixtureCount > 0 &&
     !(await requestPanelConfirmation({
-      title: "Clear Ozon fixtures?",
-      message: "Clear recorded Ozon API fixtures from this browser?",
-      confirmText: "Clear fixtures",
+      title: t("fixturesClearTitleQuestion"),
+      message: t("fixturesClearMessage"),
+      confirmText: t("fixturesClearConfirm"),
       danger: true
     }))
   ) {
@@ -2474,7 +2523,7 @@ async function clearOzonFixtures(): Promise<void> {
   pendingFixtureInputs = [];
   await chrome.storage.local.set({ [OZON_FIXTURE_STORE_KEY]: emptyOzonFixtureStore() });
   ozonFixtureCount = 0;
-  fixtureStatus = { tone: "normal", message: "Cleared" };
+  fixtureStatus = { tone: "normal", message: t("fixturesCleared") };
   renderLastPanel();
 }
 
@@ -2506,7 +2555,7 @@ function appendPickupRows(
 ): void {
   const rows = buildPanelComparisonRows(settings, comparedPickupPoints, results);
   if (rows.length > 0) {
-    root.append(renderPickupRows(rows, product));
+    root.append(renderPickupRows(rows, product, settings));
   }
 }
 
@@ -2537,7 +2586,8 @@ function isComparisonPointSelected(pickupPoint: PickupPoint, settings: Extension
   return settings.comparisonPickupPointIds ? settings.comparisonPickupPointIds.includes(pickupPoint.id) : true;
 }
 
-function renderPickupRows(rows: PanelComparisonRow[], product: ProductIdentity): HTMLElement {
+function renderPickupRows(rows: PanelComparisonRow[], product: ProductIdentity, settings: ExtensionSettings): HTMLElement {
+  const i18n = currentI18n(settings);
   const list = document.createElement("div");
   list.className = "rows";
 
@@ -2561,8 +2611,8 @@ function renderPickupRows(rows: PanelComparisonRow[], product: ProductIdentity):
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "deleteButton rowDeleteButton";
-    deleteButton.textContent = "Delete";
-    deleteButton.title = "Delete saved pickup point";
+    deleteButton.textContent = i18n.t("optionsDelete");
+    deleteButton.title = i18n.t("panelDeletePickupTitle");
     deleteButton.addEventListener("click", () => {
       void deleteSavedPickupPoint(row.pickupPoint, product);
     });
@@ -2574,20 +2624,22 @@ function renderPickupRows(rows: PanelComparisonRow[], product: ProductIdentity):
     value.className = "value";
     if (!row.result) {
       const idle = document.createElement("strong");
-      idle.textContent = row.isSelected ? "Waiting" : "Not compared";
+      idle.textContent = row.isSelected ? i18n.t("panelWaiting") : i18n.t("panelNotCompared");
       const hint = document.createElement("span");
-      hint.textContent = row.isSelected ? "Waiting for Ozon response" : "Enable in Settings";
+      hint.textContent = row.isSelected ? i18n.t("panelWaitingHint") : i18n.t("panelEnableInSettings");
       value.append(idle, hint);
     } else if (row.result.status === "success") {
-      const original = formatCurrency(row.result.originalPrice.amount, row.result.originalPrice.currency);
-      const converted = formatCurrency(row.result.convertedAmount, row.result.convertedCurrency);
+      const original = formatCurrency(row.result.originalPrice.amount, row.result.originalPrice.currency, i18n.locale);
+      const converted = formatCurrency(row.result.convertedAmount, row.result.convertedCurrency, i18n.locale);
       const capturedTitle =
-        row.result.originalPrice.source === "manual" ? `Captured ${formatCapturedAt(row.result.originalPrice.capturedAt)}` : "";
+        row.result.originalPrice.source === "manual"
+          ? i18n.t("panelCapturedTitle", { time: formatCapturedAt(row.result.originalPrice.capturedAt, i18n) })
+          : "";
       const delta =
         row.deltaFromCheapest && row.deltaFromCheapest > 0
-          ? `+${formatCurrency(row.deltaFromCheapest, row.result.convertedCurrency)}`
+          ? `+${formatCurrency(row.deltaFromCheapest, row.result.convertedCurrency, i18n.locale)}`
           : row.isCheapest
-            ? "best"
+            ? i18n.t("panelBest")
             : "";
       if (capturedTitle) {
         value.title = capturedTitle;
@@ -2597,28 +2649,31 @@ function renderPickupRows(rows: PanelComparisonRow[], product: ProductIdentity):
       const error = row.result.error;
       value.title = error;
       const unavailable = document.createElement("strong");
-      unavailable.textContent = "Unavailable";
+      unavailable.textContent = i18n.t("panelUnavailable");
       const reason = document.createElement("span");
-      reason.textContent = readableResultError(error);
+      reason.textContent = readableResultError(error, i18n);
       const actions = document.createElement("div");
       actions.className = "failureActions";
       const captureButton = document.createElement("button");
       captureButton.type = "button";
       captureButton.className = "saveSmallButton";
-      captureButton.textContent = "Capture current";
-      captureButton.title = "After selecting this pickup point in Ozon, capture the visible page price for this product.";
+      captureButton.textContent = i18n.t("panelCaptureCurrent");
+      captureButton.title = i18n.t("panelCaptureCurrentTitle");
       captureButton.addEventListener("click", () => {
         void captureCurrentPriceForPickupPoint(row.pickupPoint, product);
       });
       const detailsButton = document.createElement("button");
       detailsButton.type = "button";
       detailsButton.className = "detailsButton";
-      detailsButton.textContent = "Copy details";
-      detailsButton.title = "Copy technical details for debugging this pickup point.";
+      detailsButton.textContent = i18n.t("panelCopyDetails");
+      detailsButton.title = i18n.t("panelCopyDetailsTitle");
       detailsButton.addEventListener("click", () => {
         void copyFailureDiagnostics(row.pickupPoint, error, product);
       });
-      actions.append(captureButton, detailsButton);
+      actions.append(captureButton);
+      if (settings.debug) {
+        actions.append(detailsButton);
+      }
       value.append(unavailable, reason, actions);
     }
 
@@ -2642,25 +2697,62 @@ function appendDetectedPickupCandidates(
 }
 
 function detectedPickupCandidateList(settings: ExtensionSettings, product: ProductIdentity, showEmptyHint: boolean): HTMLElement | null {
+  const i18n = currentI18n(settings);
   const savedExternalIds = getSavedOzonExternalIds(settings);
   const detected = latestPickupCandidates.filter((candidate) => !savedExternalIds.has(candidate.externalLocationId)).slice(0, 8);
   if (detected.length === 0 && !showEmptyHint) {
     return null;
   }
 
+  const isCollapsed = detectedPickupListCollapsedOverride ?? savedExternalIds.size >= 2;
   const wrapper = document.createElement("div");
-  wrapper.className = "detectedCandidates";
+  wrapper.className = `detectedCandidates${isCollapsed ? " collapsed" : ""}`;
 
   const detectedHeader = document.createElement("div");
   detectedHeader.className = "detectedCandidatesTop";
-  detectedHeader.innerHTML = `<div><span class="eyebrow">Ozon page</span><strong>New pickup points</strong></div><span>${detected.length} new</span>`;
+  const headerText = document.createElement("div");
+  headerText.innerHTML = `<span class="eyebrow">${escapeHtml(i18n.t("panelDetectedEyebrow"))}</span><strong>${escapeHtml(
+    i18n.t("panelNewPickupPoints")
+  )}</strong>`;
+
+  const headerActions = document.createElement("div");
+  headerActions.className = "detectedHeaderActions";
+  const count = document.createElement("span");
+  count.textContent = i18n.t("panelNewCount", { count: detected.length });
+  const toggleButton = document.createElement("button");
+  toggleButton.type = "button";
+  toggleButton.className = "iconButton detectedToggleButton";
+  const toggleLabel = i18n.t(isCollapsed ? "panelShowNewPickupPoints" : "panelHideNewPickupPoints");
+  toggleButton.setAttribute("aria-controls", DETECTED_PICKUP_LIST_ID);
+  toggleButton.setAttribute("aria-expanded", String(!isCollapsed));
+  toggleButton.setAttribute("aria-label", toggleLabel);
+  toggleButton.title = toggleLabel;
+  const toggleIcon = document.createElement("span");
+  toggleIcon.className = isCollapsed ? "chevronIcon chevronDown" : "chevronIcon chevronUp";
+  toggleIcon.setAttribute("aria-hidden", "true");
+  toggleButton.append(toggleIcon);
+  toggleButton.addEventListener("click", () => {
+    detectedPickupListCollapsedOverride = !isCollapsed;
+    renderLastPanel();
+  });
+  headerActions.append(count, toggleButton);
+  detectedHeader.append(headerText, headerActions);
   wrapper.append(detectedHeader);
+
+  if (isCollapsed) {
+    return wrapper;
+  }
+
+  const body = document.createElement("div");
+  body.id = DETECTED_PICKUP_LIST_ID;
+  body.className = "detectedCandidatesBody";
 
   if (detected.length === 0) {
     const hint = document.createElement("p");
     hint.className = "pointManagerHint";
-    hint.textContent = "Open Ozon delivery selection, then choose or view a point so Markonverter can detect it.";
-    wrapper.append(hint);
+    hint.textContent = i18n.t("panelDetectedHint");
+    body.append(hint);
+    wrapper.append(body);
     return wrapper;
   }
 
@@ -2677,26 +2769,27 @@ function detectedPickupCandidateList(settings: ExtensionSettings, product: Produ
     const saveButton = document.createElement("button");
     saveButton.type = "button";
     saveButton.className = "saveSmallButton";
-    saveButton.textContent = "Save";
+    saveButton.textContent = i18n.t("panelSave");
     saveButton.addEventListener("click", () => {
       void saveDetectedPickupCandidate(candidate, product);
     });
 
     row.append(text, saveButton);
-    wrapper.append(row);
+    body.append(row);
   }
 
+  wrapper.append(body);
   return wrapper;
 }
 
 async function saveDetectedPickupCandidate(candidate: OzonPickupCandidate, product: ProductIdentity): Promise<void> {
   const candidateName = ozonCandidateDisplayName(candidate);
-  captureStatus = { tone: "normal", message: `Saving: ${candidateName}` };
+  captureStatus = { tone: "normal", message: t("panelSaving", { name: candidateName }) };
   renderLastPanel();
 
   const response = await savePickupCandidate(candidate, product);
   if (!response.ok || !("settings" in response)) {
-    captureStatus = { tone: "error", message: response.ok ? "Pickup point was not saved" : response.error };
+    captureStatus = { tone: "error", message: response.ok ? t("panelPickupNotSaved") : response.error };
     renderLastPanel();
     return;
   }
@@ -2710,7 +2803,7 @@ async function saveDetectedPickupCandidate(candidate: OzonPickupCandidate, produ
       : false;
   captureStatus = {
     tone: "normal",
-    message: quoteCaptured ? `Saved and captured current price: ${candidateName}` : `Saved: ${candidateName}`
+    message: quoteCaptured ? t("panelSavedAndCaptured", { name: candidateName }) : t("panelSaved", { name: candidateName })
   };
   await syncCurrentOzonDeliveryMenuAssist();
   await runIfProductPage();
@@ -2744,25 +2837,25 @@ function openOptionsPage(): void {
     });
 }
 
-function readableResultError(error: string): string {
+function readableResultError(error: string, i18n: Translator = currentI18n()): string {
   if (error === CURRENT_OZON_PRICE_NOT_CAPTURED) {
-    return "Open or select this pickup point in Ozon, wait for the price, then use Capture current.";
+    return i18n.t("panelCurrentPriceNotCaptured");
   }
   if (error.includes("response did not confirm requested pickup point")) {
-    return "Ozon did not confirm this pickup point, so the current address may have been reused.";
+    return i18n.t("panelOzonDidNotConfirm");
   }
   return error.length > 150 ? `${error.slice(0, 147)}...` : error;
 }
 
-function formatCapturedAt(value: string | undefined): string {
+function formatCapturedAt(value: string | undefined, i18n: Translator = currentI18n()): string {
   if (!value) {
-    return "from page";
+    return i18n.t("panelCapturedFromPage");
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "from page";
+    return i18n.t("panelCapturedFromPage");
   }
-  return date.toLocaleString(undefined, {
+  return date.toLocaleString(i18n.locale, {
     month: "short",
     day: "2-digit",
     hour: "2-digit",
@@ -2797,9 +2890,9 @@ async function copyFailureDiagnostics(pickupPoint: PickupPoint, error: string, p
 
   try {
     await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2));
-    captureStatus = { tone: "normal", message: "Copied pickup-point diagnostics" };
+    captureStatus = { tone: "normal", message: t("panelCopiedDiagnostics") };
   } catch {
-    captureStatus = { tone: "error", message: "Could not copy diagnostics. Browser clipboard access is blocked." };
+    captureStatus = { tone: "error", message: t("panelCopyDiagnosticsBlocked") };
   }
   renderLastPanel();
 }

@@ -1,3 +1,5 @@
+import { DEFAULT_LANGUAGE_PREFERENCE, type LanguagePreference } from "./i18n";
+
 export type Currency = "RUB" | "KZT";
 
 export type CurrencyRateProvider = "manual" | "cbr" | "nbk" | "exchangeRateApi";
@@ -26,6 +28,8 @@ export interface CapturedPickupPoint {
 }
 
 export interface ExtensionSettings {
+  language: LanguagePreference;
+  debug: boolean;
   defaultCurrency: Currency;
   currencyRateProvider: CurrencyRateProvider;
   currencyRateMeta?: CurrencyRateMetadata;
@@ -103,6 +107,8 @@ export const SUPPORTED_CURRENCIES: Currency[] = ["RUB", "KZT"];
 export const SUPPORTED_CURRENCY_RATE_PROVIDERS: CurrencyRateProvider[] = ["manual", "cbr", "nbk", "exchangeRateApi"];
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
+  language: DEFAULT_LANGUAGE_PREFERENCE,
+  debug: false,
   defaultCurrency: "RUB",
   currencyRateProvider: "cbr",
   ratesToRub: {

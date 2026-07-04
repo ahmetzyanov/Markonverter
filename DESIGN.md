@@ -1,86 +1,184 @@
-# Design System — gstack
+# Design System - Markonverter for Ozon
 
 ## Product Context
-- **What this is:** Community website for gstack — a CLI tool that turns Claude Code into a virtual engineering team
-- **Who it's for:** Developers discovering gstack, existing community members
-- **Space/industry:** Developer tools (peers: Linear, Raycast, Warp, Zed)
-- **Project type:** Community dashboard + marketing site
 
-## Aesthetic Direction
-- **Direction:** Industrial/Utilitarian — function-first, data-dense, monospace as personality font
-- **Decoration level:** Intentional — subtle noise/grain texture on surfaces for materiality
-- **Mood:** Serious tool built by someone who cares about craft. Warm, not cold. The CLI heritage IS the brand.
-- **Reference sites:** formulae.brew.sh (competitor, but ours is live and interactive), Linear (dark + restrained), Warp (warm accents)
+- **What this is:** A Chrome/Chromium extension that compares Ozon product prices across saved pickup points.
+- **Where it appears:** Inside Ozon product pages, Ozon delivery selectors, and the extension options page.
+- **User mindset:** The user is shopping or debugging pickup-point prices. The UI must feel like a compact Ozon tool, not a separate dashboard.
+- **Design source:** Derived from Ozon BrandLab and current Ozon product UI patterns. Ozon's official brand colors are Ozon blue `#005BFF` and Ozon magenta `#F1117E`.
 
-## Typography
-- **Display/Hero:** Satoshi (Black 900 / Bold 700) — geometric with warmth, distinctive letterforms (the lowercase 'a' and 'g'). Not Inter, not Geist. Loaded from Fontshare CDN.
-- **Body:** DM Sans (Regular 400 / Medium 500 / Semibold 600) — clean, readable, slightly friendlier than geometric display. Loaded from Google Fonts.
-- **UI/Labels:** DM Sans (same as body)
-- **Data/Tables:** JetBrains Mono (Regular 400 / Medium 500) — the personality font. Supports tabular-nums. Monospace should be prominent, not hidden in code blocks. Loaded from Google Fonts.
-- **Code:** JetBrains Mono
-- **Loading:** Google Fonts for DM Sans + JetBrains Mono, Fontshare for Satoshi. Use `display=swap`.
-- **Scale:**
-  - Hero: 72px / clamp(40px, 6vw, 72px)
-  - H1: 48px
-  - H2: 32px
-  - H3: 24px
-  - H4: 18px
-  - Body: 16px
-  - Small: 14px
-  - Caption: 13px
-  - Micro: 12px
-  - Nano: 11px (JetBrains Mono labels)
+## Design Direction
+
+- **Aesthetic:** Clean Ozon-adjacent ecommerce utility.
+- **Mood:** Light, compact, direct, trustworthy.
+- **Density:** High enough to fit inside Ozon's price column, but not cramped.
+- **Do not use:** Dark industrial surfaces, amber accents, terminal styling, decorative gradients, grain textures, large marketing sections, or monospace branding.
+- **Brand relationship:** Markonverter is an overlay for Ozon, so it should blend into Ozon's light product UI while remaining clearly an extension.
+
+## Core Principles
+
+- Fit into Ozon before expressing Markonverter.
+- Make prices and pickup-point names the visual priority.
+- Use color for action and state, not decoration.
+- Keep controls predictable: blue primary buttons, neutral secondary buttons, red destructive buttons.
+- Avoid layout shifts on hover, loading, collapse, delete, and save states.
+- Never make raw Ozon ids or technical diagnostics look like primary content.
 
 ## Color
-- **Approach:** Restrained — amber accent is rare and meaningful. Dashboard data gets the color; chrome stays neutral.
-- **Primary (dark mode):** amber-500 #F59E0B — warm, energetic, reads as "terminal cursor"
-- **Primary (light mode):** amber-600 #D97706 — darker for contrast against white backgrounds
-- **Primary text accent (dark mode):** amber-400 #FBBF24
-- **Primary text accent (light mode):** amber-700 #B45309
-- **Neutrals:** Cool zinc grays
-  - zinc-50: #FAFAFA (lightest)
-  - zinc-400: #A1A1AA
-  - zinc-600: #52525B
-  - zinc-800: #27272A
-  - Surface (dark): #141414
-  - Base (dark): #0C0C0C
-  - Surface (light): #FFFFFF
-  - Base (light): #FAFAF9
-- **Semantic:** success #22C55E, warning #F59E0B, error #EF4444, info #3B82F6
-- **Dark mode:** Default. Near-black base (#0C0C0C), surface cards at #141414, borders at #262626.
-- **Light mode:** Warm stone base (#FAFAF9), white surface cards, stone borders (#E7E5E4). Amber accent shifts to amber-600 for contrast.
+
+### Brand Tokens
+
+- Ozon blue: `#005BFF`
+- Ozon blue hover: `#004CE0`
+- Ozon blue pressed: `#003FB8`
+- Ozon blue soft: `#EAF2FF`
+- Ozon blue border: `#B8D2FF`
+- Ozon magenta: `#F1117E`
+- Ozon magenta soft: `#FFF0F7`
+
+### Neutral Tokens
+
+- Page background: `#F5F7FA`
+- Panel surface: `#FFFFFF`
+- Subtle surface: `#F7F9FC`
+- Muted surface: `#EEF3FA`
+- Border: `#DCE3EE`
+- Strong border: `#C7D1DE`
+- Primary text: `#17233C`
+- Secondary text: `#53627A`
+- Muted text: `#7B8798`
+- Disabled text: `#A6B0BF`
+
+### Semantic Tokens
+
+- Success: `#10A35A`
+- Success soft: `#EAF8F1`
+- Warning: `#F59F00`
+- Warning soft: `#FFF6E0`
+- Danger: `#E5484D`
+- Danger soft: `#FFF0F0`
+- Info: `#005BFF`
+- Info soft: `#EAF2FF`
+
+### Color Rules
+
+- Use Ozon blue for primary actions, focus rings, selected states, and links.
+- Use magenta sparingly for small brand accents or exceptional highlights. Do not pair blue and magenta inside the same button, badge, row state, or gradient.
+- Use neutral text and borders for most structure. The UI should read mostly white/blue, not multicolor.
+- Use green only for best/confirmed price states. Use red only for errors and destructive actions.
+- Preserve WCAG AA contrast for text and actionable controls.
+
+## Typography
+
+- Use the system sans stack: `ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif`.
+- Do not load remote fonts from extension pages or content scripts.
+- Avoid monospace except for short technical fragments that genuinely need fixed-width alignment.
+- Letter spacing is `0`.
+- Product-panel base text: `13px`.
+- Options-page base text: `14px`.
+- Price values: `15px-18px`, semibold or bold, tabular numbers if available.
+- Labels and helper text: `12px-13px`.
+- Avoid uppercase eyebrow labels except for very small utility labels where they reduce ambiguity.
 
 ## Spacing
-- **Base unit:** 4px
-- **Density:** Comfortable — not cramped (not Bloomberg Terminal), not spacious (not a marketing site)
-- **Scale:** 2xs(2px) xs(4px) sm(8px) md(16px) lg(24px) xl(32px) 2xl(48px) 3xl(64px)
 
-## Layout
-- **Approach:** Grid-disciplined for dashboard, editorial hero for landing page
-- **Grid:** 12 columns at lg+, 1 column at mobile
-- **Max content width:** 1200px (6xl)
-- **Border radius:** sm:4px, md:8px, lg:12px, full:9999px
-  - Cards/panels: lg (12px)
-  - Buttons/inputs: md (8px)
-  - Badges/pills: full (9999px)
-  - Skill bars: sm (4px)
+- Base unit: `4px`.
+- Tight gaps: `4px-6px`.
+- Control gaps: `8px`.
+- Row padding in product panel: `10px-12px`.
+- Section padding in options: `16px-20px`.
+- Keep fixed-format controls stable with explicit min-height, width, grid tracks, or reserved action space.
+
+## Shape And Elevation
+
+- Radius:
+  - Product panel: `8px`.
+  - Rows, inputs, buttons: `8px`.
+  - Small icon buttons: `8px`.
+  - Pills/badges: `999px` only for status chips.
+- Shadows:
+  - Prefer borders over shadows inside Ozon pages.
+  - Floating fallback panel may use a light shadow: `0 8px 28px rgba(23, 35, 60, 0.14)`.
+  - Do not use heavy dark shadows.
+
+## Product Page Panel
+
+- The injected panel must fit inside Ozon's price-card container. Do not widen Ozon's layout.
+- Use a white panel with a subtle border and a compact blue header or blue accent line.
+- Collapsed state should remain recognizable, short, and stable in width.
+- Price rows should use a two-column layout where space allows: pickup point on the left, price/status on the right.
+- On narrow containers, rows stack with price below name.
+- The cheapest/confirmed best row may use a soft green background and a green left border.
+- Failed/unavailable rows may use soft red only around the status/action area, not the whole panel.
+- Hidden destructive row actions must keep reserved layout space so hover/focus does not resize rows.
+- Fixture/debug tools are secondary utility controls and should be visually quieter than price comparison rows.
+
+## Options Page
+
+- The options page is a settings tool, not a marketing page.
+- Use a light page background, white sections, restrained borders, and compact controls.
+- Keep a simple header with product name, short purpose text, and a small Ozon/price context chip.
+- Avoid hero treatment, large cards, decorative backgrounds, and dark mode.
+- Keep language, currency, and pickup-point management as separate full-width sections.
+- Saved pickup rows should prioritize human-readable names, compare state, order controls, and delete controls.
+
+## Delivery Selector Helper
+
+- Injected controls in Ozon delivery rows must look like small Ozon-adjacent actions:
+  - Blue primary action for saving.
+  - Neutral saved/disabled state.
+  - Compact height and no full-row takeover.
+- Controls must consume pointer, click, and keyboard events before Ozon row handlers see them.
+- Do not make saved badges transparent to clicks.
+- Avoid adding per-row spinners or noisy badges. Use the existing assist status for loading/feedback.
+
+## Controls
+
+- Primary button: blue fill, white text, `8px` radius.
+- Secondary button: white or subtle surface, neutral border, primary text.
+- Icon button: square, neutral border, blue hover/focus state, clear `aria-label` and `title`.
+- Danger button: red text/border by default, red fill only for confirmation.
+- Inputs/selects: white surface, neutral border, blue focus ring.
+- Focus ring: `0 0 0 3px rgba(0, 91, 255, 0.16)`.
+- Disabled controls must look inactive without disappearing.
 
 ## Motion
-- **Approach:** Minimal-functional — only transitions that aid comprehension. The dashboard's live feed IS the motion.
-- **Easing:** enter(ease-out / cubic-bezier(0.16,1,0.3,1)) exit(ease-in) move(ease-in-out)
-- **Duration:** micro(50-100ms) short(150ms) medium(250ms) long(400ms)
-- **Animated elements:** live feed dot pulse (2s infinite), skill bar fill (600ms ease-out), hover states (150ms)
 
-## Grain Texture
-Apply a subtle noise overlay to the entire page for materiality:
-- Dark mode: opacity 0.03
-- Light mode: opacity 0.02
-- Use SVG feTurbulence filter as a CSS background-image on body::after
-- pointer-events: none, position: fixed, z-index: 9999
+- Keep motion functional and short.
+- Hover/focus transitions: `120ms-160ms`.
+- Collapse/expand: `180ms-240ms` with `cubic-bezier(0.16, 1, 0.3, 1)`.
+- Do not animate prices, row order, or error states in a way that distracts from shopping.
+
+## Content And Copy
+
+- Russian is the default user-facing language; English remains supported by runtime i18n.
+- Use plain action labels: Save, Delete, Capture current, Copy details.
+- Keep Ozon-specific nouns consistent: pickup point, PVZ, Ozon point.
+- User-facing text must not expose internal ids unless it is a diagnostics/export path.
+
+## Implementation Rules
+
+- `src/content/panel/styles.ts` owns product-panel styling.
+- `src/entrypoints/options.html` owns options-page layout and inline CSS.
+- `src/content/app.ts` may define generated structure/classes and small helper styles, but avoid redesigning business logic there.
+- Keep `dist/` as build output. Update it only through `npm run build` when source changes need a loadable extension.
+- If a design choice diverges from this file, document the reason in `wiki/log.md`.
+
+## Verification
+
+- For source UI changes, run:
+  - `npm run typecheck`
+  - `npm test`
+  - `npm run build`
+  - `npm run qa:ozon`
+- Before signoff, inspect the product panel and options page in a browser or via the fake-Ozon harness.
+- State live Ozon status separately from fake-harness success.
 
 ## Decisions Log
+
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| 2026-03-21 | Initial design system | Created by /design-consultation. Industrial aesthetic, warm amber accent, Satoshi + DM Sans + JetBrains Mono. |
-| 2026-03-21 | Light mode amber-600 | amber-500 too bright/washed against white; amber-700 too brown/umber. amber-600 is the sweet spot. |
-| 2026-03-21 | Grain texture | Adds materiality to flat dark surfaces. Prevents the "generic SaaS template" sameness. |
+| 2026-07-04 | Replaced unrelated gstack design system | The previous file described a dark developer-tool brand and conflicted with Markonverter's Ozon product-page context. |
+| 2026-07-04 | Adopted Ozon blue as primary action color | Ozon BrandLab identifies `#005BFF` as the main brand color, and it aligns with Ozon product UI. |
+| 2026-07-04 | Kept magenta as rare accent only | Ozon BrandLab pairs blue and magenta as brand colors, but extension UI needs fewer colors and clearer action semantics. |
+| 2026-07-04 | Standardized on light surfaces | Markonverter appears inside Ozon shopping pages, where a light compact ecommerce utility is lower risk than a dark overlay. |

@@ -17,6 +17,9 @@ a browser extension panel.
 - `src/marketplaces/ozon/`: Ozon adapter, private product-price API, and pickup-point capture logic.
 - `src/shared/`: shared types, settings, comparison, validation, currency, and
   exchange-rate helpers.
+- `src/shared/i18n.ts` and `src/_locales/`: runtime UI translations plus Chrome
+  manifest localization. The saved `settings.language` preference defaults to
+  Russian and may be set to `auto` for browser-language detection.
 - `tests/`: Vitest coverage grouped by shared behavior and marketplace integration.
 - `scripts/qa-fake-ozon.mjs`: Playwright browser harness that loads `dist/` as
   an unpacked MV3 extension and serves fake Ozon product/API responses for
@@ -28,10 +31,11 @@ a browser extension panel.
 
 ## Design Anchor
 
-The root `DESIGN.md` currently describes a different product. Until that file
-is corrected for Markonverter, use the existing extension UI as the design
-anchor: dark compact surfaces, amber actions, restrained blue/green status
-accents, and price-card-width layouts.
+The root `DESIGN.md` is the design source for Markonverter. It is derived from
+Ozon BrandLab and the extension's Ozon product-page context: light compact
+surfaces, Ozon blue primary actions, restrained semantic state colors, and
+price-card-width layouts. Do not reintroduce the old dark industrial/amber
+dashboard look.
 
 ## Ozon Content UI
 
@@ -144,10 +148,24 @@ accents, and price-card-width layouts.
   points `OZON_QA_COOKIES` at `.secrets/ozon-cookies.txt`. These files are
   gitignored and must not be committed, printed, or copied into docs. When
   present, run `set -a; source .env.ozon.local; set +a; npm run qa:ozon:live`.
+- For live Ozon checks, first refresh those cookies from Arc with
+  `rtk python3 .codex/skills/markonverter-ozon-live-check/scripts/export_arc_ozon_cookies.py`.
+  The script reads only Ozon rows from Arc's cookie DB through the macOS
+  `Arc Safe Storage` keychain item and writes the gitignored cookie file. If the
+  refreshed-cookie probe still returns `LIVE_OZON_BLOCKED`, report Ozon/browser
+  blocking separately from extension behavior.
+- Cookie-only import may be insufficient after Ozon SSO/domain redirects. Also
+  refresh Arc localStorage with
+  `rtk node .codex/skills/markonverter-ozon-live-check/scripts/export_arc_ozon_storage_state.mjs`.
+  It writes `.secrets/ozon-arc-storage-state.json`, which `.env.ozon.local`
+  should expose through `OZON_QA_STORAGE_STATE`.
 - Real Ozon replay fixtures should come from a trusted manual browser session:
   the page probe records relevant Ozon network responses, the content script
   stores a bounded buffer under `markonverter.ozonFixtures`, and the product
   panel's `Ozon fixtures` row can copy or clear that local buffer.
+- The saved `settings.debug` flag defaults to `false`. Only debug mode should
+  show the product-panel `Ozon fixtures` row, show unavailable-row `Copy
+  details`, or store page-probe network fixtures.
 - Product-panel confirmations should be inline UI, not native browser
   `confirm()` dialogs. Chrome can suppress repeated page dialogs after the user
   opts out, causing later destructive actions such as fixture clearing to
