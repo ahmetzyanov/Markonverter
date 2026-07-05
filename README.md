@@ -4,118 +4,139 @@
 
 # Markonverter
 
-**Compare an Ozon product's price across all your saved pickup points — right on the product page.**
+**Сравнивайте цену товара на Ozon по всем сохранённым пунктам выдачи — прямо на странице товара.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-005BFF.svg?style=flat-square)](LICENSE.md)
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-F1117E.svg?style=flat-square)](src/entrypoints/)
-[![Platform](https://img.shields.io/badge/Chrome%20%7C%20Chromium-005BFF.svg?style=flat-square&logo=googlechrome&logoColor=white)](#load-in-chrome)
+[![Platform](https://img.shields.io/badge/Chrome%20%7C%20Chromium-005BFF.svg?style=flat-square&logo=googlechrome&logoColor=white)](#загрузка-в-chrome)
 [![TypeScript](https://img.shields.io/badge/TypeScript-005BFF.svg?style=flat-square&logo=typescript&logoColor=white)](tsconfig.json)
 
-[What it does](#what-it-does) · [Build](#build) · [Load in Chrome](#load-in-chrome) · [Pickup point setup](#pickup-point-setup)
+[Что делает](#что-делает) · [Сборка](#сборка) · [Загрузка в Chrome](#загрузка-в-chrome) · [Настройка пунктов выдачи](#настройка-пунктов-выдачи)
+
+English version: [docs/README.en.md](docs/README.en.md)
 
 </div>
 
 ---
 
-Markonverter is not affiliated with, endorsed by, or sponsored by Ozon. It uses
-Ozon product pages from the user's own browser session and may make automated
-pickup-point price requests to Ozon's undocumented internal APIs. Those requests
-can hit Ozon anti-bot checks or rate limits on the user's own account; that is a
-Terms of Use risk of this approach, not an extension malfunction.
+Markonverter не связан с Ozon, не одобрен и не спонсируется им. Расширение
+работает со страницами товаров Ozon в рамках собственной сессии пользователя
+в браузере и может делать автоматические запросы цен по пунктам выдачи к
+недокументированным внутренним API Ozon. Такие запросы могут попадать под
+антибот-проверки или лимиты Ozon на аккаунте пользователя — это риск,
+связанный с самим подходом и условиями использования Ozon, а не сбой
+расширения.
 
-## What it does
+## Что делает
 
-- Injects a compact comparison panel on Ozon product pages.
-- Opens the product-page panel automatically and remembers whether it is expanded or collapsed.
-- Captures verified product prices for configured Ozon pickup points when a product page opens.
-- Saves the currently selected Ozon delivery point from the product page panel.
-- Lets you choose and delete saved pickup points directly in the product-page panel.
-- Shows pickup points detected from Ozon page/network data when Ozon loads them.
-- Adds Markonverter save controls near Ozon's delivery selection UI when it is visible.
-- Uses product-specific captured prices for saved Ozon pickup points.
-- Automatically captures the visible product price when the current Ozon delivery
-  point or selected delivery row clearly matches a saved Markonverter point.
-- Tries read-only Ozon price requests first, then falls back to guarded
-  sequential pickup activation and restores the originally selected point.
-- Copies per-point diagnostics for failed Ozon API attempts.
-- Converts prices between RUB and KZT.
-- Uses RUB as the default comparison currency.
-- Keeps marketplace support behind adapters so Wildberries can be added later.
+- Встраивает компактную панель сравнения цен на страницы товаров Ozon.
+- Автоматически открывает панель на странице товара и запоминает, свёрнута она или развёрнута.
+- Захватывает подтверждённые цены товара для настроенных пунктов выдачи Ozon при открытии страницы товара.
+- Сохраняет текущий выбранный пункт доставки Ozon прямо из панели на странице товара.
+- Позволяет выбирать и удалять сохранённые пункты выдачи прямо в панели на странице товара.
+- Показывает пункты выдачи, обнаруженные из данных страницы или сетевых запросов Ozon, как только Ozon их загружает.
+- Добавляет элементы управления сохранением Markonverter рядом с интерфейсом выбора доставки Ozon, когда он виден.
+- Использует захваченные для конкретного товара цены для сохранённых пунктов выдачи Ozon.
+- Автоматически захватывает видимую цену товара, когда текущий пункт доставки Ozon или выбранная строка доставки явно совпадает с сохранённым пунктом Markonverter.
+- Сначала пробует запросы цены, которые ничего не меняют на стороне Ozon, а если это не работает — переключается на осторожную последовательную активацию пунктов выдачи и затем восстанавливает изначально выбранный пункт.
+- Копирует диагностику по каждому пункту для неудачных попыток обращения к API Ozon.
+- Конвертирует цены между RUB и KZT.
+- По умолчанию использует RUB как валюту сравнения.
+- Держит поддержку маркетплейсов за адаптерами, чтобы позже можно было добавить Wildberries.
 
-## Build
+## Сборка
 
 ```bash
 npm install
 npm run build
 ```
 
-The loadable extension is written to `dist/`.
+Готовое к загрузке расширение записывается в `dist/`.
 
-## Project structure
+## Структура проекта
 
-- `src/entrypoints/`: Manifest-loaded extension scripts and `options.html`.
-- `src/content/`: Ozon product-page controller, panel styling, and page parsing helpers.
-- `src/marketplaces/`: Marketplace adapter registry plus per-marketplace implementation folders.
-- `src/shared/`: Cross-entrypoint types, validation, settings, currency, and comparison helpers.
-- `tests/`: Vitest coverage mirrored by shared and marketplace areas.
+- `src/entrypoints/`: скрипты расширения, подключаемые через манифест, и `options.html`.
+- `src/content/`: контроллер страницы товара Ozon, стили панели и хелперы для разбора страницы.
+- `src/marketplaces/`: реестр адаптеров маркетплейсов и папки с реализацией для каждого из них.
+- `src/shared/`: общие типы, валидация, настройки, работа с валютами и сравнением цен.
+- `tests/`: тесты на Vitest, покрывающие общий код и код маркетплейсов.
 
-## Load in Chrome
+## Загрузка в Chrome
 
-1. Open `chrome://extensions`.
-2. Enable Developer mode.
-3. Click Load unpacked.
-4. Select the generated `dist/` directory.
-5. Open an Ozon product page and add pickup points from Ozon's delivery selector or the Markonverter panel.
+1. Откройте `chrome://extensions`.
+2. Включите режим разработчика.
+3. Нажмите «Загрузить распакованное расширение».
+4. Выберите собранную папку `dist/`.
+5. Откройте страницу товара на Ozon и добавьте пункты выдачи через селектор доставки Ozon или панель Markonverter.
 
-## Pickup point setup
+## Настройка пунктов выдачи
 
-Recommended flow:
+Рекомендуемый порядок действий:
 
-1. Open an Ozon product page.
-2. Open Ozon's delivery selector so Ozon loads pickup-point rows.
-3. Press `Add` next to the exact pickup point in the Ozon selector, or use `Save` in Markonverter's detected pickup list.
-4. Rows already stored in Markonverter show `Saved` instead of another add action.
+1. Откройте страницу товара на Ozon.
+2. Откройте селектор доставки Ozon, чтобы Ozon загрузил строки пунктов выдачи.
+3. Нажмите `Add` рядом с нужным пунктом выдачи в селекторе Ozon либо `Save` в списке обнаруженных пунктов Markonverter.
+4. Строки, уже сохранённые в Markonverter, показывают `Saved` вместо повторной кнопки добавления.
 
-Markonverter keeps up to 4 saved Ozon pickup points. When a product page opens,
-each selected saved row first tries a verified Ozon price request that does not
-change the current delivery point. If Ozon only prices the active delivery
-point, Markonverter checks saved points sequentially through Ozon's address
-activation flow, saves product-specific captured quotes, and then asks Ozon to
-restore the point that was selected when the page opened. If Ozon does not
-confirm a requested point, the row stays `Unavailable` instead of reusing another
-point's price.
-If Ozon confirms the pickup point but says the product is not delivered to that
-region, Markonverter shows an orange warning on that pickup-point row and keeps
-the page on a pickup point where the product is available when one was found.
+Markonverter хранит до 4 сохранённых пунктов выдачи Ozon. При открытии
+страницы товара для каждой выбранной сохранённой строки сначала выполняется
+подтверждённый запрос цены Ozon, который не меняет текущий пункт доставки.
+Если Ozon показывает цену только для активного пункта доставки, Markonverter
+последовательно проверяет сохранённые пункты через штатный механизм смены
+адреса Ozon, сохраняет полученные для товара котировки, а затем просит Ozon
+восстановить тот пункт, который был выбран на момент открытия страницы. Если
+Ozon не подтверждает запрошенный пункт, строка остаётся в статусе
+`Unavailable` — вместо того чтобы подставить туда цену другого пункта.
+Если Ozon подтверждает пункт выдачи, но сообщает, что товар туда не
+доставляется, Markonverter показывает оранжевое предупреждение на строке
+этого пункта и, если находит подходящий вариант, оставляет страницу на
+пункте выдачи, где товар доступен.
 
-Each pickup point stores:
+Для каждого пункта выдачи хранится:
 
-- name
-- marketplace
-- country
-- currency
-- Ozon location id
+- название
+- маркетплейс
+- страна
+- валюта
+- id адреса в Ozon
 
-Current-point matching also watches Ozon's compact address bar, because live
-product pages may show the opened pickup point as only a short street/house
-label rather than a full delivery card. Use `Capture current` on a row as the
-manual fallback when automatic capture cannot be verified.
+Определение текущего пункта также учитывает компактную адресную строку Ozon,
+потому что на живых страницах товара открытый пункт выдачи иногда
+отображается лишь коротким названием улицы/дома, а не полной карточкой
+доставки. Используйте `Capture current` на строке как ручной запасной
+вариант, если автоматический захват не удалось подтвердить.
 
-Use the checkbox in each product-page row to choose which saved Markonverter points are compared. The same panel shows new detected pickup points when Ozon exposes them through the visible page or network responses. Those detected points can be saved into Markonverter from their own rows.
+Чекбокс в каждой строке на странице товара определяет, какие сохранённые
+пункты Markonverter участвуют в сравнении. Та же панель показывает новые
+обнаруженные пункты выдачи, как только Ozon раскрывает их через видимую
+страницу или сетевые ответы. Такие обнаруженные пункты можно сохранить прямо
+из их собственных строк.
 
-When Ozon's delivery selector is open, Markonverter shows selector-level status and adds `Add` / `Saved` controls next to visible pickup-point rows. Use row-level `Delete` buttons in Markonverter to remove stale or wrong pickup points without opening the settings page.
+Когда селектор доставки Ozon открыт, Markonverter показывает статус на
+уровне селектора и добавляет элементы управления `Add` / `Saved` рядом с
+видимыми строками пунктов выдачи. Кнопки `Delete` в строках Markonverter
+позволяют удалять устаревшие или неверные пункты выдачи, не открывая
+страницу настроек.
 
-## Ozon API note
+## О работе с API Ozon
 
-The extension records relevant Ozon same-origin JSON payloads from the trusted
-page session for debugging and replay fixtures. Product-page comparison tries
-non-mutating price requests first. Addressbook selection endpoints are used only
-as a guarded fallback for saved rows, and the original selected point is restored
-after the sequence when Markonverter can identify it.
+Расширение записывает релевантные JSON-ответы Ozon того же origin из
+доверенной сессии страницы — для отладки и как фикстуры для повторного
+воспроизведения. Сравнение на странице товара сначала пробует запросы цены,
+которые ничего не меняют. Эндпоинты выбора адреса используются только как
+осторожный запасной вариант для сохранённых строк, и после последовательности
+запросов исходно выбранный пункт восстанавливается, если Markonverter может
+его определить.
 
-Current-price capture remains strict: request echoes, URLs, and tracking/debug fields are not enough to match a point. If Markonverter cannot match the visible Ozon point to a saved point, it leaves the row `Unavailable` instead of reusing the current address price for another row. Use `Capture current` when automatic current-point capture cannot be verified, and `Copy details` when debugging a failed point.
+Захват текущей цены остаётся строгим: эхо запроса, URL и служебные/трекинговые
+поля сами по себе не считаются достаточным совпадением с пунктом выдачи. Если
+Markonverter не может сопоставить видимый на Ozon пункт с сохранённым, строка
+остаётся в статусе `Unavailable`, а не переиспользует цену текущего адреса для
+другой строки. Используйте `Capture current`, когда автоматический захват
+текущего пункта не удалось подтвердить, и `Copy details` — при отладке
+неудачного пункта.
 
-## Checks
+## Проверки
 
 ```bash
 npm run typecheck
@@ -123,38 +144,43 @@ npm test
 npm run build
 ```
 
-## Browser QA without live Ozon
+## QA в браузере без реального Ozon
 
-Ozon can return 403 or an antibot/no-connection page to automated browser
-sessions. Do not treat that as an extension regression and do not weaken pickup
-point confirmation to make live automation pass.
+Ozon может отдавать автоматизированным браузерным сессиям 403 или
+антибот-страницу/страницу без соединения. Не воспринимайте это как регресс
+расширения и не ослабляйте подтверждение пункта выдачи только ради того,
+чтобы живая автоматизация прошла.
 
-Use the fake-Ozon browser harness for agent-run regression checks:
+Для регрессионных проверок, запускаемых агентом, используйте тестовый стенд
+с поддельным Ozon:
 
 ```bash
 npm run qa:ozon
 ```
 
-The harness loads `dist/` as an unpacked MV3 extension in Chromium, serves a
-fake `https://www.ozon.kz/product/fake-product-2229282395/` page, and intercepts
-`https://*.ozon.kz/api/**` before the network. It verifies the panel, detected
-pickup saving, visible current-point auto-capture, manual capture fallback,
-diagnostic copy status, automatic two-point capture with restoration, manual
-two-point comparison, saved-point limit handling, inline selection, and row
-deletion. Live Ozon reachability should be reported separately when checked.
+Стенд загружает `dist/` как распакованное MV3-расширение в Chromium, отдаёт
+поддельную страницу `https://www.ozon.kz/product/fake-product-2229282395/` и
+перехватывает `https://*.ozon.kz/api/**` до выхода в сеть. Он проверяет
+панель, сохранение обнаруженных пунктов выдачи, автозахват видимого текущего
+пункта, ручной запасной захват, статус копирования диагностики,
+автоматический захват двух пунктов с восстановлением, ручное сравнение двух
+пунктов, обработку лимита сохранённых пунктов, встроенный выбор и удаление
+строк. Реальную доступность Ozon при этом нужно проверять отдельно.
 
-## Live Ozon smoke probe
+## Проверка живого Ozon (smoke-тест)
 
-Use a separate live probe when an agent needs to prove that a real Ozon product
-page loads and the unpacked extension injects its panel:
+Отдельная живая проверка нужна, когда агенту требуется доказать, что реальная
+страница товара Ozon загружается и распакованное расширение внедряет свою
+панель:
 
 ```bash
 OZON_QA_URL="https://www.ozon.kz/product/..." npm run qa:ozon:live
 ```
 
-Fresh automated profiles can still get Ozon's 403/no-connection page. To reuse
-a trusted browser session deliberately, export Ozon cookies or Playwright
-storage state and pass it to the probe:
+Свежие автоматизированные профили браузера всё ещё могут упереться в
+403/страницу без соединения от Ozon. Чтобы намеренно переиспользовать
+доверенную сессию браузера, экспортируйте куки Ozon или storage state
+Playwright и передайте их в проверку:
 
 ```bash
 OZON_QA_URL="https://www.ozon.kz/product/..." \
@@ -162,29 +188,33 @@ OZON_QA_COOKIES="/path/to/ozon-cookies.json" \
 npm run qa:ozon:live
 ```
 
-`OZON_QA_COOKIES` accepts Cookie-Editor JSON, Playwright `storageState` JSON,
-Netscape `cookies.txt`, or a plain `Cookie:` header file. Use
-`OZON_QA_STORAGE_STATE` for a Playwright storage state file when localStorage
-should be imported too. The command reports `LIVE_OZON_OK`,
-`LIVE_OZON_BLOCKED`, or `LIVE_OZON_PANEL_MISSING` and keeps that status separate
-from fake-harness regression results.
+`OZON_QA_COOKIES` принимает JSON из Cookie-Editor, `storageState` JSON из
+Playwright, Netscape `cookies.txt` или файл с обычным заголовком `Cookie:`.
+Используйте `OZON_QA_STORAGE_STATE` для файла storage state Playwright, если
+нужно ещё и импортировать localStorage. Команда сообщает `LIVE_OZON_OK`,
+`LIVE_OZON_BLOCKED` или `LIVE_OZON_PANEL_MISSING` и держит этот статус
+отдельно от результатов регрессии на поддельном стенде.
 
-To verify the real current-PVZ capture path, enable the capture check:
+Чтобы проверить реальный путь захвата текущего ПВЗ, включите проверку
+захвата:
 
 ```bash
 OZON_QA_CAPTURE_CHECK=1 npm run qa:ozon:live
 ```
 
-That live check uses the test browser profile to save the current detected PVZ,
-clear only the captured quote, reload the product page, and assert that the
-opened PVZ price is captured again automatically.
+Эта живая проверка использует тестовый профиль браузера, чтобы сохранить
+текущий обнаруженный ПВЗ, очистить только захваченную котировку,
+перезагрузить страницу товара и убедиться, что цена открытого ПВЗ снова
+захватывается автоматически.
 
-## Recording real Ozon fixtures
+## Запись реальных фикстур Ozon
 
-For real replay data, load the current `dist/` extension in the trusted browser
-profile where Ozon works, open an Ozon product page, and use Ozon normally:
-open delivery selection, choose or view pickup points, and wait for prices. The
-Markonverter panel records relevant Ozon `composer-api`, `entrypoint-api`,
-delivery, address, pickup, and geo responses locally. Use `Copy` in the panel's
-`Ozon fixtures` row to copy the bounded fixture JSON, or `Clear` to remove the
-local capture buffer.
+Чтобы получить реальные данные для воспроизведения, загрузите текущую сборку
+`dist/` в доверенный профиль браузера, где Ozon работает, откройте страницу
+товара Ozon и пользуйтесь Ozon как обычно: открывайте выбор доставки,
+выбирайте или просматривайте пункты выдачи и дожидайтесь цен. Панель
+Markonverter локально записывает релевантные ответы Ozon `composer-api`,
+`entrypoint-api`, а также ответы про доставку, адреса, пункты выдачи и
+геолокацию. Используйте `Copy` в строке `Ozon fixtures` панели, чтобы
+скопировать ограниченный по размеру JSON фикстур, или `Clear`, чтобы очистить
+локальный буфер захвата.
