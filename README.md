@@ -1,6 +1,21 @@
+<div align="center">
+
+<img src="src/assets/icon-128.png" alt="Markonverter logo" width="112" height="112" />
+
 # Markonverter
 
-Chrome/Chromium Manifest V3 extension for comparing an Ozon product price across saved pickup points.
+**Compare an Ozon product's price across all your saved pickup points — right on the product page.**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-005BFF.svg?style=flat-square)](LICENSE.md)
+[![Manifest V3](https://img.shields.io/badge/Manifest-V3-F1117E.svg?style=flat-square)](src/entrypoints/)
+[![Platform](https://img.shields.io/badge/Chrome%20%7C%20Chromium-005BFF.svg?style=flat-square&logo=googlechrome&logoColor=white)](#load-in-chrome)
+[![TypeScript](https://img.shields.io/badge/TypeScript-005BFF.svg?style=flat-square&logo=typescript&logoColor=white)](tsconfig.json)
+
+[What it does](#what-it-does) · [Build](#build) · [Load in Chrome](#load-in-chrome) · [Pickup point setup](#pickup-point-setup)
+
+</div>
+
+---
 
 Markonverter is not affiliated with, endorsed by, or sponsored by Ozon. It uses
 Ozon product pages from the user's own browser session and may make automated
