@@ -2,7 +2,16 @@ import { buildComparisonRows, makeErrorResult, makeSuccessResult } from "../shar
 import { formatCurrency } from "../shared/currency";
 import { createTranslator, type I18nKey, type Translator } from "../shared/i18n";
 import { RuntimeRequest, RuntimeResponse } from "../shared/messages";
-import { ComparisonResult, Currency, ExtensionSettings, ManualQuote, PickupPoint, PriceQuote, ProductIdentity } from "../shared/types";
+import {
+  ComparisonResult,
+  Currency,
+  ExtensionSettings,
+  ManualQuote,
+  MAX_SAVED_OZON_PICKUP_POINTS,
+  PickupPoint,
+  PriceQuote,
+  ProductIdentity
+} from "../shared/types";
 import { manualQuoteKey } from "../shared/settings";
 import { normalizeSettings } from "../shared/validation";
 import {
@@ -14,7 +23,13 @@ import {
   OZON_FIXTURE_STORE_KEY
 } from "../shared/ozon-fixtures";
 import { createMarketplaceAdapter } from "../marketplaces/registry";
-import { fetchOzonPrivatePrice } from "../marketplaces/ozon/private-api";
+import {
+  activateOzonPickupLocationForProduct,
+  fetchOzonPrivatePrice,
+  fetchOzonSelectedLocationId,
+  isOzonProductUnavailableInRegion,
+  OZON_PRODUCT_UNAVAILABLE_IN_REGION
+} from "../marketplaces/ozon/private-api";
 import { panelCss } from "./panel/styles";
 import { extractVisibleOzonPrice } from "./page/visible-price";
 import {
@@ -65,10 +80,12 @@ let savedPickupNameSyncTimer: number | null = null;
 let pendingPanelConfirmationCancel: (() => void) | null = null;
 let suppressAssistObserverUntil = 0;
 let panelTransitionVersion = 0;
+let lastAutoCapturedCurrentLocation: { productId: string; externalLocationId: string } | null = null;
 const targetedPickupDiscoveryIds = new Set<string>();
 const autoPickupSelectorOpenKeys = new Set<string>();
 const pageActionHandlers = new WeakMap<HTMLElement, (event: Event) => void>();
 const autoCaptureInFlight = new Set<string>();
+const autoPriceCaptureInFlight = new Map<string, Promise<PickupPointComparison>>();
 let pageActionEventGuardInstalled = false;
 
 export async function boot(): Promise<void> {
@@ -158,7 +175,9 @@ async function runIfProductPage(): Promise<void> {
   if (pageChanged) {
     targetedPickupDiscoveryIds.clear();
     autoPickupSelectorOpenKeys.clear();
+    autoPriceCaptureInFlight.clear();
     detectedPickupListCollapsedOverride = null;
+    lastAutoCapturedCurrentLocation = null;
   }
   activeUrl = currentUrl;
   const panel = ensurePanel();
@@ -179,6 +198,21 @@ async function runIfProductPage(): Promise<void> {
   latestSettings = settings;
   discoverOzonPickupCandidatesFromApi(product);
   mergePickupCandidates(extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources()));
+
+  // A visible price sweep resumes across page reloads; drive it before the normal
+  // render so each pickup point is priced while its own page is actually shown.
+  const activeSweep = loadOzonSweepState();
+  if (activeSweep && activeSweep.productId !== product.productId) {
+    clearOzonSweepState();
+  } else if (activeSweep) {
+    renderPanel(panel, { state: "loading", product, settings });
+    if ((await continueOzonPriceSweep(product, settings)) === "reloading") {
+      return;
+    }
+    settings = (await getLatestSettings()) || settings;
+    latestSettings = settings;
+  }
+
   settings = await refreshSavedOzonPickupNamesOnLoad(product, settings);
   if (runId !== activeRun) {
     return;
@@ -198,13 +232,28 @@ async function runIfProductPage(): Promise<void> {
     return;
   }
 
+  if (shouldStartOzonPriceSweep(product, settings, pickupPoints)) {
+    renderPanel(panel, { state: "loading", product, settings, pickupPoints });
+    if (await startOzonPriceSweep(product, settings, pickupPoints)) {
+      return;
+    }
+    settings = (await getLatestSettings()) || settings;
+    latestSettings = settings;
+    if (runId !== activeRun) {
+      return;
+    }
+  }
+
   renderPanel(panel, { state: "loading", product, settings, pickupPoints });
   const results: ComparisonResult[] = [];
   for (const pickupPoint of pickupPoints) {
     if (runId !== activeRun) {
       return;
     }
-    results.push(compareOzonPickupPoint(product, pickupPoint, settings));
+    const comparison = await compareOzonPickupPoint(product, pickupPoint, settings);
+    results.push(comparison.result);
+    settings = comparison.settings;
+    latestSettings = settings;
   }
 
   if (runId !== activeRun) {
@@ -228,16 +277,86 @@ function getComparisonPickupPoints(settings: ExtensionSettings, allPickupPoints:
   return allPickupPoints.filter((point) => selectedIds.has(point.id));
 }
 
-function compareOzonPickupPoint(
+function currentOzonExternalLocationId(product: ProductIdentity, settings: ExtensionSettings): string | null {
+  if (lastAutoCapturedCurrentLocation?.productId === product.productId) {
+    return lastAutoCapturedCurrentLocation.externalLocationId;
+  }
+
+  const currentCandidates = currentVisibleOzonPickupCandidates();
+  const currentIds = [...new Set(currentCandidates.map((candidate) => candidate.externalLocationId).filter(Boolean))];
+  if (currentIds.length === 1) {
+    return currentIds[0];
+  }
+
+  const visibleDeliveryText = collectCurrentDeliverySummaryText();
+  if (!visibleDeliveryText) {
+    return null;
+  }
+  return findSavedPickupPointForVisibleDelivery(settings, visibleDeliveryText, currentCandidates)?.externalLocationId || null;
+}
+
+interface PickupPointComparison {
+  result: ComparisonResult;
+  settings: ExtensionSettings;
+}
+
+async function compareOzonPickupPoint(
   product: ProductIdentity,
   pickupPoint: PickupPoint,
   settings: ExtensionSettings
-): ComparisonResult {
+): Promise<PickupPointComparison> {
   const manualQuote = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
   if (manualQuote) {
-    return makeManualQuoteResult(pickupPoint.id, manualQuote, settings);
+    return { result: makeManualQuoteResult(pickupPoint.id, manualQuote, settings), settings };
   }
-  return makeErrorResult(pickupPoint.id, CURRENT_OZON_PRICE_NOT_CAPTURED);
+
+  // A sweep already visited this pickup point and confirmed the product is not
+  // delivered to its region; surface the warning without re-pricing it.
+  if (isOzonPickupSessionUnavailable(product.productId, pickupPoint.externalLocationId)) {
+    return { result: makeErrorResult(pickupPoint.id, new Error(OZON_PRODUCT_UNAVAILABLE_IN_REGION)), settings };
+  }
+
+  const lockKey = `${product.url}:${pickupPoint.id}`;
+  const inFlight = autoPriceCaptureInFlight.get(lockKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const comparisonPromise = fetchOzonPickupPointPrice(product, pickupPoint, settings);
+  autoPriceCaptureInFlight.set(lockKey, comparisonPromise);
+  try {
+    return await comparisonPromise;
+  } finally {
+    if (autoPriceCaptureInFlight.get(lockKey) === comparisonPromise) {
+      autoPriceCaptureInFlight.delete(lockKey);
+    }
+  }
+}
+
+// ponytail: read-only price only. Ozon prices a non-active pickup point only if
+// you switch your active delivery address, which the visible reload sweep now
+// does explicitly. We never mutate the session in the background here — doing so
+// silently changed the user's selected pickup point and broke Ozon's native
+// selector (it appeared to jump to the next point instead of opening the menu).
+// TODO(option 3): a guarded silent-activation path (mutate + resync the page +
+// pause while Ozon's native menu is open) could refill non-active prices without
+// reloads, if the reload sweep proves too disruptive.
+async function fetchOzonPickupPointPrice(
+  product: ProductIdentity,
+  pickupPoint: PickupPoint,
+  settings: ExtensionSettings
+): Promise<PickupPointComparison> {
+  try {
+    const quote = await requestOzonPrice({
+      productId: product.productId,
+      productUrl: product.url,
+      pickupExternalLocationId: pickupPoint.externalLocationId,
+      currencyHint: pickupPoint.currency
+    });
+    return saveFetchedQuoteResult(pickupPoint, product, quote, settings);
+  } catch (error) {
+    return { result: makeErrorResult(pickupPoint.id, error), settings };
+  }
 }
 
 function makeManualQuoteResult(pickupPointId: string, manualQuote: ManualQuote, settings: ExtensionSettings): ComparisonResult {
@@ -253,6 +372,27 @@ function makeManualQuoteResult(pickupPointId: string, manualQuote: ManualQuote, 
   );
 }
 
+async function saveFetchedQuoteResult(
+  pickupPoint: PickupPoint,
+  product: ProductIdentity,
+  quote: PriceQuote,
+  settings: ExtensionSettings
+): Promise<{ result: ComparisonResult; settings: ExtensionSettings }> {
+  const updatedSettings = await saveManualQuoteForPoint(pickupPoint, product, quote);
+  if (!updatedSettings) {
+    return {
+      result: makeSuccessResult(pickupPoint.id, quote, settings.defaultCurrency, settings),
+      settings
+    };
+  }
+
+  const manualQuote = updatedSettings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
+  return {
+    result: manualQuote ? makeManualQuoteResult(pickupPoint.id, manualQuote, updatedSettings) : makeSuccessResult(pickupPoint.id, quote, updatedSettings.defaultCurrency, updatedSettings),
+    settings: updatedSettings
+  };
+}
+
 async function requestOzonPrice(request: {
   productId: string;
   productUrl: string;
@@ -261,6 +401,363 @@ async function requestOzonPrice(request: {
   allowSessionMutatingLocationActivation?: boolean;
 }): Promise<PriceQuote> {
   return fetchOzonPrivatePrice(request);
+}
+
+// ---- Visible Ozon price sweep (option 2) --------------------------------------
+// To price a pickup point that is not currently selected, Ozon requires switching
+// the active delivery address. Instead of doing that silently in the background
+// (which desynced the page from the server and broke the native selector), the
+// sweep switches the address and reloads the product page onto each saved pickup
+// point in turn, records its confirmed price, then returns to the original point
+// (or, if the original point cannot deliver the product, to an available one).
+// State is kept in sessionStorage so it survives the reloads it triggers.
+
+const OZON_SWEEP_STATE_KEY = "markonverter.ozonSweep.v1";
+const OZON_SWEPT_SESSION_PREFIX = "markonverter.ozonSwept.v1:";
+const OZON_UNAVAILABLE_SESSION_PREFIX = "markonverter.ozonUnavailable.v1:";
+const OZON_SWEEP_PRICE_WAIT_MS = 6000;
+let ozonSweepBusy = false;
+
+interface OzonSweepState {
+  productId: string;
+  originalActive: string | null;
+  originalHref: string;
+  pending: string[];
+  priced: string[];
+  unavailable: string[];
+  // 0 = still pricing; 1 = navigated back to the original page, need to reselect;
+  // 2 = original pickup point reselected, ready to finish.
+  returnStage: 0 | 1 | 2;
+}
+
+function loadOzonSweepState(): OzonSweepState | null {
+  try {
+    const raw = sessionStorage.getItem(OZON_SWEEP_STATE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as OzonSweepState;
+    if (!parsed || typeof parsed.productId !== "string" || !Array.isArray(parsed.pending)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveOzonSweepState(state: OzonSweepState): void {
+  try {
+    sessionStorage.setItem(OZON_SWEEP_STATE_KEY, JSON.stringify(state));
+  } catch {
+    // sessionStorage may be unavailable in some privacy modes; sweeping is best-effort.
+  }
+}
+
+function clearOzonSweepState(): void {
+  try {
+    sessionStorage.removeItem(OZON_SWEEP_STATE_KEY);
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function markOzonProductSwept(productId: string): void {
+  try {
+    sessionStorage.setItem(OZON_SWEPT_SESSION_PREFIX + productId, "1");
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function isOzonProductSwept(productId: string): boolean {
+  try {
+    return sessionStorage.getItem(OZON_SWEPT_SESSION_PREFIX + productId) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function loadOzonSessionUnavailable(productId: string): string[] {
+  try {
+    const raw = sessionStorage.getItem(OZON_UNAVAILABLE_SESSION_PREFIX + productId);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistOzonSessionUnavailable(productId: string, ids: string[]): void {
+  try {
+    const merged = [...new Set([...loadOzonSessionUnavailable(productId), ...ids.filter(Boolean)])];
+    sessionStorage.setItem(OZON_UNAVAILABLE_SESSION_PREFIX + productId, JSON.stringify(merged));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function isOzonPickupSessionUnavailable(productId: string, externalLocationId: string): boolean {
+  return externalLocationId.trim() !== "" && loadOzonSessionUnavailable(productId).includes(externalLocationId);
+}
+
+function shouldStartOzonPriceSweep(
+  product: ProductIdentity,
+  settings: ExtensionSettings,
+  comparisonPoints: PickupPoint[]
+): boolean {
+  if (isPanelCollapsed || ozonSweepBusy) {
+    return false;
+  }
+  if (isOzonProductSwept(product.productId) || loadOzonSweepState()) {
+    return false;
+  }
+  // ponytail: refresh once per tab session; already-captured or known-unavailable
+  // points do not trigger another multi-reload sweep.
+  // TODO: add a freshness TTL so long-lived tabs re-sweep for updated prices.
+  return comparisonPoints.some(
+    (point) =>
+      point.externalLocationId.trim() !== "" &&
+      !settings.manualQuotes[manualQuoteKey(product.productId, point.id)] &&
+      !isOzonPickupSessionUnavailable(product.productId, point.externalLocationId)
+  );
+}
+
+async function startOzonPriceSweep(
+  product: ProductIdentity,
+  settings: ExtensionSettings,
+  comparisonPoints: PickupPoint[]
+): Promise<boolean> {
+  if (ozonSweepBusy) {
+    return true;
+  }
+  ozonSweepBusy = true;
+
+  const pointByExternalId = new Map(
+    comparisonPoints.filter((point) => point.externalLocationId.trim() !== "").map((point) => [point.externalLocationId, point])
+  );
+  const comparisonIds = [...pointByExternalId.keys()];
+  // Prefer Ozon's own selected-address id so we can return to the exact pickup
+  // point the user started on, even when it is not one of the compared points.
+  const apiSelected = await fetchOzonSelectedLocationId(product.url).catch(() => null);
+  const originalActive = apiSelected || currentOzonExternalLocationId(product, settings);
+  const originalHref = location.href;
+  const priced: string[] = [];
+  const unavailable: string[] = [];
+
+  // The currently shown point is priced from its visible page (reliable, and
+  // usually already captured by autoCaptureCurrentVisibleQuote); only switched
+  // points below need the confirmed private read. Detect an unavailable region
+  // here so the finish step can land on an available point instead.
+  const activePoint = originalActive ? pointByExternalId.get(originalActive) : undefined;
+  if (activePoint) {
+    if (isVisibleOzonRegionUnavailable()) {
+      unavailable.push(activePoint.externalLocationId);
+    } else if (settings.manualQuotes[manualQuoteKey(product.productId, activePoint.id)]) {
+      priced.push(activePoint.externalLocationId);
+    } else {
+      const quote = extractVisibleOzonPrice(activePoint.currency);
+      if (quote) {
+        await saveManualQuoteForPoint(activePoint, product, quote);
+        priced.push(activePoint.externalLocationId);
+      }
+    }
+    persistOzonSessionUnavailable(product.productId, unavailable);
+  }
+
+  const pending = comparisonIds.filter((id) => id !== originalActive);
+  const state: OzonSweepState = {
+    productId: product.productId,
+    originalActive,
+    originalHref,
+    pending,
+    priced,
+    unavailable,
+    returnStage: 0
+  };
+  if (pending.length === 0) {
+    saveOzonSweepState(state);
+    return (await beginOzonSweepReturn(product, state, originalActive)) === "reloading";
+  }
+
+  saveOzonSweepState(state);
+  await activateOzonAddressAndReload(product, pending[0]);
+  return true;
+}
+
+async function continueOzonPriceSweep(product: ProductIdentity, settings: ExtensionSettings): Promise<"reloading" | "done"> {
+  if (ozonSweepBusy) {
+    return "reloading";
+  }
+  ozonSweepBusy = true;
+
+  const state = loadOzonSweepState();
+  if (!state || state.productId !== product.productId) {
+    // The product changed — most likely Ozon redirected across domains while we
+    // were returning. Nothing safe left to do; stop rather than reload again.
+    clearOzonSweepState();
+    ozonSweepBusy = false;
+    return "done";
+  }
+
+  // We navigated back to the original page; now reselect the original pickup point.
+  if (state.returnStage === 1) {
+    if (state.originalActive) {
+      state.returnStage = 2;
+      saveOzonSweepState(state);
+      await activateOzonAddressAndReload(product, state.originalActive);
+      return "reloading";
+    }
+    finalizeOzonSweep(product, state);
+    ozonSweepBusy = false;
+    return "done";
+  }
+  if (state.returnStage === 2) {
+    finalizeOzonSweep(product, state);
+    ozonSweepBusy = false;
+    return "done";
+  }
+
+  const captureTarget = state.pending[0];
+  const point = captureTarget ? settings.pickupPoints.find((item) => item.externalLocationId === captureTarget) : undefined;
+  if (point) {
+    await captureOzonSweepStop(product, point, state.priced, state.unavailable);
+    persistOzonSessionUnavailable(product.productId, state.unavailable);
+  }
+
+  state.pending = state.pending.slice(1);
+  if (state.pending.length > 0) {
+    saveOzonSweepState(state);
+    await activateOzonAddressAndReload(product, state.pending[0]);
+    return "reloading";
+  }
+
+  return beginOzonSweepReturn(product, state, captureTarget);
+}
+
+// Drive the page back to where the sweep started. When the original pickup point
+// is still available we return to it (navigating back across an Ozon domain flip
+// first if one happened, since the private API can only switch same-origin); when
+// the original point cannot deliver the product we instead land on an available
+// one so the product is shown as available.
+async function beginOzonSweepReturn(
+  product: ProductIdentity,
+  state: OzonSweepState,
+  currentActive: string | null
+): Promise<"reloading" | "done"> {
+  const finishTarget = chooseOzonSweepFinishTarget(state.originalActive, state.priced, state.unavailable);
+  if (!finishTarget || finishTarget === currentActive) {
+    finalizeOzonSweep(product, state);
+    ozonSweepBusy = false;
+    return "done";
+  }
+
+  const returningToOriginal = finishTarget === state.originalActive;
+  if (returningToOriginal && state.originalHref && ozonHrefOrigin(location.href) !== ozonHrefOrigin(state.originalHref)) {
+    state.returnStage = 1;
+    saveOzonSweepState(state);
+    location.href = state.originalHref;
+    return "reloading";
+  }
+
+  state.returnStage = 2;
+  saveOzonSweepState(state);
+  await activateOzonAddressAndReload(product, finishTarget);
+  return "reloading";
+}
+
+function ozonHrefOrigin(href: string): string {
+  try {
+    return new URL(href).origin;
+  } catch {
+    return "";
+  }
+}
+
+function finalizeOzonSweep(product: ProductIdentity, state: OzonSweepState): void {
+  persistOzonSessionUnavailable(product.productId, state.unavailable);
+  markOzonProductSwept(product.productId);
+  clearOzonSweepState();
+}
+
+function chooseOzonSweepFinishTarget(originalActive: string | null, priced: string[], unavailable: string[]): string | null {
+  // Return to where the user was, unless that point cannot deliver the product —
+  // then land on an available one so the product is actually shown as available.
+  if (originalActive && !unavailable.includes(originalActive)) {
+    return originalActive;
+  }
+  return priced[0] ?? originalActive ?? null;
+}
+
+async function captureOzonSweepStop(
+  product: ProductIdentity,
+  point: PickupPoint,
+  priced: string[],
+  unavailable: string[]
+): Promise<void> {
+  await waitForVisibleOzonPriceOrUnavailable(point.currency);
+
+  if (isVisibleOzonRegionUnavailable()) {
+    if (!unavailable.includes(point.externalLocationId)) {
+      unavailable.push(point.externalLocationId);
+    }
+    return;
+  }
+
+  // Confirm the page actually switched to this point before recording a price:
+  // the private read (no session mutation) only returns a confirmed price for the
+  // currently active address, so a reused/ignored switch simply yields no capture.
+  try {
+    const quote = await requestOzonPrice({
+      productId: product.productId,
+      productUrl: product.url,
+      pickupExternalLocationId: point.externalLocationId,
+      currencyHint: point.currency
+    });
+    await saveManualQuoteForPoint(point, product, quote);
+    if (!priced.includes(point.externalLocationId)) {
+      priced.push(point.externalLocationId);
+    }
+    captureStatus = { tone: "normal", message: t("panelAutoCapturedCurrentPrice", { name: ozonPickupDisplayName(point) }) };
+  } catch (error) {
+    if (isOzonProductUnavailableInRegion(error) && !unavailable.includes(point.externalLocationId)) {
+      unavailable.push(point.externalLocationId);
+    }
+    // Otherwise the switch likely did not take effect; leave this point uncaptured.
+  }
+}
+
+async function waitForVisibleOzonPriceOrUnavailable(currency: Currency): Promise<void> {
+  const deadline = Date.now() + OZON_SWEEP_PRICE_WAIT_MS;
+  while (Date.now() < deadline) {
+    if (isVisibleOzonRegionUnavailable() || extractVisibleOzonPrice(currency)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+}
+
+function isVisibleOzonRegionUnavailable(): boolean {
+  const selectors = ['[data-widget="webPrice"]', '[data-widget*="webPrice" i]', '[data-widget*="price" i]'];
+  for (const selector of selectors) {
+    for (const element of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
+      const text = element.innerText || element.textContent || "";
+      if (/товар\s+не\s+доставляется\s+в\s+ваш\s+регион/i.test(text)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+async function activateOzonAddressAndReload(product: ProductIdentity, externalLocationId: string): Promise<void> {
+  try {
+    await activateOzonPickupLocationForProduct(product.url, externalLocationId);
+  } catch {
+    // Reload regardless: a switch that did not take effect is caught when we try
+    // to capture the (unconfirmed) price on the reloaded page.
+  }
+  location.reload();
 }
 
 function getCurrentProduct(): ProductIdentity | null {
@@ -709,7 +1206,13 @@ async function savePickupCandidate(candidate: OzonPickupCandidate, product: Prod
   const response = await runtimeRequest({ type: "UPSERT_PICKUP_POINT", pickupPoint });
   if (response.ok && "settings" in response) {
     latestSettings = response.settings;
-    markSavedPickupCandidateInPage(candidate);
+    if (
+      response.settings.pickupPoints.some(
+        (point) => point.marketplace === "ozon" && point.externalLocationId === candidate.externalLocationId
+      )
+    ) {
+      markSavedPickupCandidateInPage(candidate);
+    }
     scheduleOzonDeliveryAssistSync();
   }
   return response;
@@ -787,6 +1290,7 @@ async function autoCaptureCurrentVisibleQuote(product: ProductIdentity, settings
 
   const existing = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
   if (existing && quoteMatchesManualQuote(existing, quote)) {
+    lastAutoCapturedCurrentLocation = { productId: product.productId, externalLocationId: pickupPoint.externalLocationId };
     return settings;
   }
 
@@ -801,6 +1305,7 @@ async function autoCaptureCurrentVisibleQuote(product: ProductIdentity, settings
     if (!updatedSettings) {
       return settings;
     }
+    lastAutoCapturedCurrentLocation = { productId: product.productId, externalLocationId: pickupPoint.externalLocationId };
     captureStatus = { tone: "normal", message: t("panelAutoCapturedCurrentPrice", { name: ozonPickupDisplayName(pickupPoint) }) };
     return updatedSettings;
   } finally {
@@ -821,6 +1326,9 @@ function scheduleCurrentVisibleQuoteCapture(): void {
 async function captureCurrentVisibleQuoteFromLatestSettings(): Promise<void> {
   const product = getCurrentProduct();
   if (!product || isPanelCollapsed) {
+    return;
+  }
+  if (ozonSweepBusy || loadOzonSweepState()) {
     return;
   }
 
@@ -2593,7 +3101,10 @@ function renderPickupRows(rows: PanelComparisonRow[], product: ProductIdentity, 
 
   for (const row of rows) {
     const item = document.createElement("div");
-    item.className = `row${row.isCheapest ? " cheapest" : ""}${row.result?.status === "error" ? " failed" : ""}${
+    const isRegionUnavailableWarning = row.result?.status === "error" && isOzonProductUnavailableInRegion(row.result.error);
+    item.className = `row${row.isCheapest ? " cheapest" : ""}${
+      row.result?.status === "error" ? (isRegionUnavailableWarning ? " warning" : " failed") : ""
+    }${
       row.isSelected ? "" : " unselected"
     }`;
 
@@ -2649,19 +3160,11 @@ function renderPickupRows(rows: PanelComparisonRow[], product: ProductIdentity, 
       const error = row.result.error;
       value.title = error;
       const unavailable = document.createElement("strong");
-      unavailable.textContent = i18n.t("panelUnavailable");
+      unavailable.textContent = isRegionUnavailableWarning ? i18n.t("panelRegionUnavailable") : i18n.t("panelUnavailable");
       const reason = document.createElement("span");
       reason.textContent = readableResultError(error, i18n);
       const actions = document.createElement("div");
       actions.className = "failureActions";
-      const captureButton = document.createElement("button");
-      captureButton.type = "button";
-      captureButton.className = "saveSmallButton";
-      captureButton.textContent = i18n.t("panelCaptureCurrent");
-      captureButton.title = i18n.t("panelCaptureCurrentTitle");
-      captureButton.addEventListener("click", () => {
-        void captureCurrentPriceForPickupPoint(row.pickupPoint, product);
-      });
       const detailsButton = document.createElement("button");
       detailsButton.type = "button";
       detailsButton.className = "detailsButton";
@@ -2670,11 +3173,24 @@ function renderPickupRows(rows: PanelComparisonRow[], product: ProductIdentity, 
       detailsButton.addEventListener("click", () => {
         void copyFailureDiagnostics(row.pickupPoint, error, product);
       });
-      actions.append(captureButton);
+      if (!isRegionUnavailableWarning) {
+        const captureButton = document.createElement("button");
+        captureButton.type = "button";
+        captureButton.className = "saveSmallButton";
+        captureButton.textContent = i18n.t("panelCaptureCurrent");
+        captureButton.title = i18n.t("panelCaptureCurrentTitle");
+        captureButton.addEventListener("click", () => {
+          void captureCurrentPriceForPickupPoint(row.pickupPoint, product);
+        });
+        actions.append(captureButton);
+      }
       if (settings.debug) {
         actions.append(detailsButton);
       }
-      value.append(unavailable, reason, actions);
+      value.append(unavailable, reason);
+      if (actions.childNodes.length > 0) {
+        value.append(actions);
+      }
     }
 
     item.append(meta, value);
@@ -2797,8 +3313,14 @@ async function saveDetectedPickupCandidate(candidate: OzonPickupCandidate, produ
   const savedPoint = response.settings.pickupPoints.find(
     (point) => point.marketplace === "ozon" && point.externalLocationId === candidate.externalLocationId
   );
+  if (!savedPoint) {
+    captureStatus = { tone: "error", message: t("panelPickupLimitReached", { count: MAX_SAVED_OZON_PICKUP_POINTS }) };
+    renderLastPanel();
+    await syncCurrentOzonDeliveryMenuAssist();
+    return;
+  }
   const quoteCaptured =
-    savedPoint && isCurrentVisibleOzonPickupCandidate(candidate)
+    isCurrentVisibleOzonPickupCandidate(candidate)
       ? await saveCurrentVisibleQuoteForPoint(savedPoint, product, { requireConfirmation: false })
       : false;
   captureStatus = {
@@ -2840,6 +3362,9 @@ function openOptionsPage(): void {
 function readableResultError(error: string, i18n: Translator = currentI18n()): string {
   if (error === CURRENT_OZON_PRICE_NOT_CAPTURED) {
     return i18n.t("panelCurrentPriceNotCaptured");
+  }
+  if (isOzonProductUnavailableInRegion(error)) {
+    return i18n.t("panelRegionUnavailableHint");
   }
   if (error.includes("response did not confirm requested pickup point")) {
     return i18n.t("panelOzonDidNotConfirm");

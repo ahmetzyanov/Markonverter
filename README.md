@@ -6,7 +6,7 @@ Chrome/Chromium Manifest V3 extension for comparing an Ozon product price across
 
 - Injects a compact comparison panel on Ozon product pages.
 - Opens the product-page panel automatically and remembers whether it is expanded or collapsed.
-- Shows captured prices for configured Ozon pickup points when a product page opens.
+- Captures verified product prices for configured Ozon pickup points when a product page opens.
 - Saves the currently selected Ozon delivery point from the product page panel.
 - Lets you choose and delete saved pickup points directly in the product-page panel.
 - Shows pickup points detected from Ozon page/network data when Ozon loads them.
@@ -14,6 +14,8 @@ Chrome/Chromium Manifest V3 extension for comparing an Ozon product price across
 - Uses product-specific captured prices for saved Ozon pickup points.
 - Automatically captures the visible product price when the current Ozon delivery
   point or selected delivery row clearly matches a saved Markonverter point.
+- Tries read-only Ozon price requests first, then falls back to guarded
+  sequential pickup activation and restores the originally selected point.
 - Copies per-point diagnostics for failed Ozon API attempts.
 - Converts prices between RUB and KZT.
 - Uses RUB as the default comparison currency.
@@ -53,9 +55,19 @@ Recommended flow:
 3. Press `Add` next to the exact pickup point in the Ozon selector, or use `Save` in Markonverter's detected pickup list.
 4. Rows already stored in Markonverter show `Saved` instead of another add action.
 
-When `Add current` appears in the Markonverter panel, it saves the detected current point and also captures the visible product price for that product and point. Saved rows do not switch Ozon to other pickup points. If a row still says `Unavailable`, select/open that point in Ozon, wait for the visible product price, and Markonverter will try to capture it for the matching saved point. Use `Capture current` on the row as the manual fallback. Captured prices are shown with a timestamp and are only reused for the same product and saved point.
+Markonverter keeps up to 4 saved Ozon pickup points. When a product page opens,
+each selected saved row first tries a verified Ozon price request that does not
+change the current delivery point. If Ozon only prices the active delivery
+point, Markonverter checks saved points sequentially through Ozon's address
+activation flow, saves product-specific captured quotes, and then asks Ozon to
+restore the point that was selected when the page opened. If Ozon does not
+confirm a requested point, the row stays `Unavailable` instead of reusing another
+point's price.
+If Ozon confirms the pickup point but says the product is not delivered to that
+region, Markonverter shows an orange warning on that pickup-point row and keeps
+the page on a pickup point where the product is available when one was found.
 
-The settings page still allows manual editing. Each pickup point stores:
+Each pickup point stores:
 
 - name
 - marketplace
@@ -63,8 +75,10 @@ The settings page still allows manual editing. Each pickup point stores:
 - currency
 - Ozon location id
 
-The extension does not switch through saved Ozon delivery points while showing comparison rows. It only captures the visible product price for the currently selected/opened Ozon point when that point can be matched safely.
-Current-point matching also watches Ozon's compact address bar, because live product pages may show the opened pickup point as only a short street/house label rather than a full delivery card.
+Current-point matching also watches Ozon's compact address bar, because live
+product pages may show the opened pickup point as only a short street/house
+label rather than a full delivery card. Use `Capture current` on a row as the
+manual fallback when automatic capture cannot be verified.
 
 Use the checkbox in each product-page row to choose which saved Markonverter points are compared. The same panel shows new detected pickup points when Ozon exposes them through the visible page or network responses. Those detected points can be saved into Markonverter from their own rows.
 
@@ -72,7 +86,11 @@ When Ozon's delivery selector is open, Markonverter shows selector-level status 
 
 ## Ozon API note
 
-The extension records relevant Ozon same-origin JSON payloads from the trusted page session for debugging and replay fixtures. Product-page comparison does not use Ozon addressbook selection endpoints to activate saved points.
+The extension records relevant Ozon same-origin JSON payloads from the trusted
+page session for debugging and replay fixtures. Product-page comparison tries
+non-mutating price requests first. Addressbook selection endpoints are used only
+as a guarded fallback for saved rows, and the original selected point is restored
+after the sequence when Markonverter can identify it.
 
 Current-price capture remains strict: request echoes, URLs, and tracking/debug fields are not enough to match a point. If Markonverter cannot match the visible Ozon point to a saved point, it leaves the row `Unavailable` instead of reusing the current address price for another row. Use `Capture current` when automatic current-point capture cannot be verified, and `Copy details` when debugging a failed point.
 
@@ -100,7 +118,8 @@ The harness loads `dist/` as an unpacked MV3 extension in Chromium, serves a
 fake `https://www.ozon.kz/product/fake-product-2229282395/` page, and intercepts
 `https://*.ozon.kz/api/**` before the network. It verifies the panel, detected
 pickup saving, visible current-point auto-capture, manual capture fallback,
-diagnostic copy status, manual two-point comparison, inline selection, and row
+diagnostic copy status, automatic two-point capture with restoration, manual
+two-point comparison, saved-point limit handling, inline selection, and row
 deletion. Live Ozon reachability should be reported separately when checked.
 
 ## Live Ozon smoke probe

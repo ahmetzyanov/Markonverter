@@ -106,6 +106,8 @@ export const SUPPORTED_CURRENCIES: Currency[] = ["RUB", "KZT"];
 
 export const SUPPORTED_CURRENCY_RATE_PROVIDERS: CurrencyRateProvider[] = ["manual", "cbr", "nbk", "exchangeRateApi"];
 
+export const MAX_SAVED_OZON_PICKUP_POINTS = 4;
+
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   language: DEFAULT_LANGUAGE_PREFERENCE,
   debug: false,

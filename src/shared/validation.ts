@@ -4,6 +4,7 @@ import {
   DEFAULT_SETTINGS,
   ExtensionSettings,
   ManualQuote,
+  MAX_SAVED_OZON_PICKUP_POINTS,
   PickupPoint,
   PriceQuote,
   SUPPORTED_CURRENCIES,
@@ -16,7 +17,7 @@ const MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
 export function normalizeSettings(value: unknown): ExtensionSettings {
   const candidate = value as Partial<ExtensionSettings> | undefined;
   const pickupPoints = Array.isArray(candidate?.pickupPoints)
-    ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint)
+    ? limitOzonPickupPoints(candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint))
     : [];
   return {
     language: normalizeLanguagePreference(candidate?.language),
@@ -97,6 +98,17 @@ function normalizePickupPoint(pickupPoint: PickupPoint): PickupPoint {
     externalLocationId: pickupPoint.externalLocationId || "",
     comment: pickupPoint.comment || ""
   };
+}
+
+function limitOzonPickupPoints(pickupPoints: PickupPoint[]): PickupPoint[] {
+  let ozonCount = 0;
+  return pickupPoints.filter((point) => {
+    if (point.marketplace !== "ozon") {
+      return true;
+    }
+    ozonCount += 1;
+    return ozonCount <= MAX_SAVED_OZON_PICKUP_POINTS;
+  });
 }
 
 function normalizeComparisonPickupPointIds(value: unknown, pickupPoints: PickupPoint[]): string[] | null {

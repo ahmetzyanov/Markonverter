@@ -195,3 +195,33 @@ updates, and non-trivial implementation changes.
   page-probe network fixture storage.
 - Changed product-panel collapse so the header remains the same, including the
   settings and collapse controls, while only the body content is hidden.
+- Reintroduced automatic saved-PVZ price capture under a stricter contract:
+  Markonverter first tries a verified non-mutating Ozon price request, then
+  falls back to sequential `select_address` activation only when needed, saves
+  product-specific captured quotes, and restores the originally selected Ozon
+  point when it can identify it. Saved Ozon pickup points are capped at 4 to
+  bound the activation/restore loop.
+- Replaced that background `select_address` activation with a visible price
+  sweep. Pricing a non-active PVZ silently changed the user's active Ozon
+  delivery address, desyncing the page from the server so the native PVZ button
+  jumped to the next point instead of opening the picker. The sweep now switches
+  the address and reloads the product page onto each saved point in turn (state
+  in `sessionStorage`), records its confirmed price, then reloads back to the
+  original point — or, when the original point cannot deliver the product, to an
+  available one. Comparison pricing no longer mutates the session at all, so the
+  native selector behaves normally. The sweep runs once per tab session per
+  product; a guarded silent-activation path is left as a TODO (option 3).
+- Made the sweep return to the exact pickup point it started on. The original
+  point is read from Ozon's own selected-address state (`fetchOzonSelectedLocationId`)
+  rather than guessed from the DOM, and the original page URL is remembered. When
+  visiting a pickup point flips the Ozon domain (e.g. an `ozon.ru` Kazan product
+  to `ozon.kz`), the return first navigates back to the original URL and then
+  reselects the original point there, since the private API can only switch the
+  active address same-origin.
+- Fixed product-panel width inside wide Ozon price cards by removing the
+  ordinary-panel 398px cap; that cap now applies only to floating fallback
+  panels.
+- Added an orange saved-PVZ warning for Ozon responses that confirm a pickup
+  point but say `Товар не доставляется в ваш регион`. That state no longer
+  offers `Capture current`, and the lookup flow restores an available pickup
+  point when one was priced successfully.

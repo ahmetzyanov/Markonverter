@@ -87,14 +87,18 @@ dashboard look.
   their own pointer, click, and keyboard events before Ozon row handlers see
   them. Saved badges still intercept clicks so a click on the badge does not
   select a pickup point or reload the Ozon page.
-- Product-page price rows must not activate saved Ozon pickup points through
-  session-mutating addressbook endpoints. Saved rows should display only
-  product-specific captured quotes or remain unavailable with current-page
-  capture guidance. Do not reintroduce automatic saved-PVZ price lookup without
-  fresh live fixtures and an explicit user decision.
+- Product-page price rows first try verified non-mutating Ozon product-price
+  requests for saved points. If Ozon only prices the active delivery point,
+  saved rows may fall back to sequential `select_address` activation, but only
+  with strict response confirmation and a best-effort activation back to the
+  originally selected Ozon point afterward.
+- If Ozon confirms the requested pickup point but returns `Товар не доставляется
+  в ваш регион`, render that row as a warning, not a failed capture prompt. Do
+  not show `Capture current` for this state, and prefer restoring the page to a
+  pickup point where the product was successfully priced.
 - The injected product-page panel is nested under Ozon's price widget and must
-  fit inside that price-card container. Prefer container-width CSS over widening
-  Ozon's own layout.
+  fill the available width inside that price-card container. Prefer
+  container-width CSS over widening Ozon's own layout.
 - When Ozon already shows a selected delivery point and visible product price,
   or the delivery selector exposes a selected/current PVZ row, Markonverter may
   auto-save that visible price for the single saved point whose id/name evidence
@@ -124,9 +128,14 @@ dashboard look.
   ignore it for this pairing. If Ozon appends extra non-PVZ address ids, match
   by visible Ozon point number where possible and only fall back to prefix order
   for the remaining clearly numbered PVZ labels.
-- Keep session-mutating Ozon address activation out of the product-page price
-  row flow. Request echoes, URL params, hrefs, debug fields, and tracking data
-  are not confirmation for current-price capture.
+- Request echoes, URL params, hrefs, debug fields, and tracking data are not
+  confirmation for saved-row or current-price capture. Session-mutating Ozon
+  address activation is allowed only as the guarded fallback after a read-only
+  price request fails, and rows must remain unavailable if Ozon confirms a
+  different point.
+- Keep the number of simultaneously saved Ozon pickup points capped at 4. The
+  cap bounds the activation/restore loop and avoids a long, fragile sequence of
+  Ozon delivery-point changes.
 - Some Ozon product responses confirm an internal selected-address id instead of
   the saved `select_address` id. Accept those aliases only if the activation
   response also confirms the saved id; never trust aliases that appear only in

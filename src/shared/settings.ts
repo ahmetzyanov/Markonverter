@@ -1,4 +1,4 @@
-import { ExtensionSettings, ManualQuote, PickupPoint } from "./types";
+import { ExtensionSettings, ManualQuote, MAX_SAVED_OZON_PICKUP_POINTS, PickupPoint } from "./types";
 import { normalizeSettings } from "./validation";
 
 export function manualQuoteKey(productId: string, pickupPointId: string): string {
@@ -26,6 +26,8 @@ export function upsertPickupPoint(settings: ExtensionSettings, pickupPoint: Pick
       ...nextPoint,
       id: nextPickupPoints[existingIndex].id
     };
+  } else if (nextPoint.marketplace === "ozon" && countOzonPickupPoints(nextPickupPoints) >= MAX_SAVED_OZON_PICKUP_POINTS) {
+    return normalized;
   } else {
     nextPickupPoints.push(nextPoint);
   }
@@ -68,4 +70,8 @@ export function upsertManualQuote(settings: ExtensionSettings, manualQuote: Manu
       [manualQuoteKey(manualQuote.productId, manualQuote.pickupPointId)]: manualQuote
     }
   });
+}
+
+function countOzonPickupPoints(pickupPoints: PickupPoint[]): number {
+  return pickupPoints.filter((point) => point.marketplace === "ozon").length;
 }

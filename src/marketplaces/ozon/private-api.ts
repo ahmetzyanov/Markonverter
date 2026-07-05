@@ -16,6 +16,8 @@ interface EndpointCandidate {
   body?: string;
 }
 
+export const OZON_PRODUCT_UNAVAILABLE_IN_REGION = "Ozon product is not delivered to this pickup point region";
+
 export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): Promise<PriceQuote> {
   const productUrl = new URL(request.productUrl);
   const pathWithSearch = `${productUrl.pathname}${productUrl.search}`;
@@ -55,6 +57,10 @@ export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): P
 
       const price = extractOzonPrice(json, request.currencyHint);
       if (!price) {
+        if (responseContainsProductUnavailableInRegion(json)) {
+          errors.push(`${candidate.label}: ${OZON_PRODUCT_UNAVAILABLE_IN_REGION}`);
+          continue;
+        }
         errors.push(`${candidate.label}: no unambiguous product price in response`);
         continue;
       }
@@ -66,6 +72,64 @@ export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): P
   }
 
   throw new Error(`Ozon private API did not return a verified product price. ${errors.join("; ")}`);
+}
+
+export function isOzonProductUnavailableInRegion(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  return text.includes(OZON_PRODUCT_UNAVAILABLE_IN_REGION) || /товар\s+не\s+доставляется\s+в\s+ваш\s+регион/i.test(text);
+}
+
+export async function activateOzonPickupLocationForProduct(productUrl: string, pickupExternalLocationId: string): Promise<boolean> {
+  const url = new URL(productUrl);
+  const pathWithSearch = `${url.pathname}${url.search}`;
+  const activation = await activateOzonPickupLocation(pathWithSearch, pickupExternalLocationId);
+  return activation.confirmed;
+}
+
+// Read the pickup point Ozon currently considers selected (its own ground truth),
+// so a sweep can reliably return there afterwards even if the visible page does
+// not expose a parseable id. Non-mutating.
+export async function fetchOzonSelectedLocationId(productUrl: string): Promise<string | null> {
+  const url = new URL(productUrl);
+  const pathWithSearch = `${url.pathname}${url.search}`;
+  const candidates = buildEndpointCandidates(pathWithSearch, []);
+  for (const candidate of candidates) {
+    try {
+      const response = await fetch(candidate.url, {
+        method: candidate.method,
+        credentials: "include",
+        headers: candidate.headers,
+        body: candidate.body
+      });
+      if (!response.ok) {
+        continue;
+      }
+      const selected = extractSelectedOzonLocationId(await response.json());
+      if (selected) {
+        return selected;
+      }
+    } catch {
+      // Best effort: fall through to the next endpoint / null.
+    }
+  }
+  return null;
+}
+
+export function extractSelectedOzonLocationId(json: unknown): string | null {
+  let found: string | null = null;
+  walk(json, [], (path, value) => {
+    if (found || (typeof value !== "string" && typeof value !== "number")) {
+      return;
+    }
+    if (!isSelectedLocationPath(path.join(".").toLowerCase())) {
+      return;
+    }
+    const text = String(value).trim();
+    if (isLocationAlias(text)) {
+      found = text;
+    }
+  });
+  return found;
 }
 
 interface OzonPickupActivationResult {
@@ -507,6 +571,18 @@ export function extractOzonDeliveryText(json: unknown): string | null {
 
   candidates.sort((a, b) => b.score - a.score || a.text.length - b.text.length);
   return candidates[0]?.text || null;
+}
+
+function responseContainsProductUnavailableInRegion(json: unknown): boolean {
+  let found = false;
+  walk(json, [], (_path, value) => {
+    if (found || typeof value !== "string") {
+      return;
+    }
+    const text = compactText(value);
+    found = /товар\s+не\s+доставляется\s+в\s+ваш\s+регион/i.test(text);
+  });
+  return found;
 }
 
 function preferredPricePaths(json: unknown): Array<[string, unknown]> {

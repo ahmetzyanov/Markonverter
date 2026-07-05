@@ -84,6 +84,8 @@
     panelCapturedTitle: "\u0417\u0430\u043F\u0438\u0441\u0430\u043D\u043E {time}",
     panelBest: "\u043B\u0443\u0447\u0448\u0435\u0435",
     panelUnavailable: "\u041D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E",
+    panelRegionUnavailable: "\u041D\u0435\u0442 \u0432 \u0440\u0435\u0433\u0438\u043E\u043D\u0435",
+    panelRegionUnavailableHint: "\u0422\u043E\u0432\u0430\u0440 \u043D\u0435 \u0434\u043E\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u0432 \u0440\u0435\u0433\u0438\u043E\u043D \u044D\u0442\u043E\u0433\u043E \u041F\u0412\u0417.",
     panelCaptureCurrent: "\u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0443\u044E",
     panelCaptureCurrentTitle: "\u041F\u043E\u0441\u043B\u0435 \u0432\u044B\u0431\u043E\u0440\u0430 \u044D\u0442\u043E\u0433\u043E \u041F\u0412\u0417 \u0432 Ozon \u0437\u0430\u043F\u0438\u0448\u0438\u0442\u0435 \u0432\u0438\u0434\u0438\u043C\u0443\u044E \u0446\u0435\u043D\u0443 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u044B \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0442\u043E\u0432\u0430\u0440\u0430.",
     panelCopyDetails: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u0435\u0442\u0430\u043B\u0438",
@@ -97,6 +99,7 @@
     panelSave: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C",
     panelSaving: "\u0421\u043E\u0445\u0440\u0430\u043D\u044F\u044E: {name}",
     panelPickupNotSaved: "\u041F\u0412\u0417 \u043D\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D",
+    panelPickupLimitReached: "\u041C\u043E\u0436\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u043D\u0435 \u0431\u043E\u043B\u044C\u0448\u0435 {count} \u041F\u0412\u0417 Ozon. \u0423\u0434\u0430\u043B\u0438\u0442\u0435 \u043B\u0438\u0448\u043D\u0438\u0439 \u041F\u0412\u0417, \u0447\u0442\u043E\u0431\u044B \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043D\u043E\u0432\u044B\u0439.",
     panelSaved: "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E: {name}",
     panelSavedAndCaptured: "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E \u0438 \u0437\u0430\u043F\u0438\u0441\u0430\u043D\u0430 \u0442\u0435\u043A\u0443\u0449\u0430\u044F \u0446\u0435\u043D\u0430: {name}",
     panelCaptureVisibleTitle: "\u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0432\u0438\u0434\u0438\u043C\u0443\u044E \u0446\u0435\u043D\u0443?",
@@ -114,6 +117,7 @@
     panelDeletePickupConfirm: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u041F\u0412\u0417",
     panelDeleted: "\u0423\u0434\u0430\u043B\u0435\u043D\u043E: {name}",
     panelPickupNotDeleted: "\u041F\u0412\u0417 \u043D\u0435 \u0443\u0434\u0430\u043B\u0435\u043D",
+    panelOriginalPickupRestoreFailed: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0438\u0441\u0445\u043E\u0434\u043D\u044B\u0439 \u041F\u0412\u0417 Ozon. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u0443\u044E \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0443 \u043D\u0430 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0435.",
     panelCurrentPriceNotCaptured: "\u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0438\u043B\u0438 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u044D\u0442\u043E\u0442 \u041F\u0412\u0417 \u0432 Ozon, \u0434\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u0446\u0435\u043D\u044B, \u0437\u0430\u0442\u0435\u043C \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0443\u044E.",
     panelOzonDidNotConfirm: "Ozon \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043B \u044D\u0442\u043E\u0442 \u041F\u0412\u0417, \u043F\u043E\u044D\u0442\u043E\u043C\u0443 \u043C\u043E\u0433\u043B\u0430 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C\u0441\u044F \u0442\u0435\u043A\u0443\u0449\u0430\u044F \u0442\u043E\u0447\u043A\u0430 \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0438.",
     panelCapturedFromPage: "\u0441\u043E \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u044B",
@@ -221,6 +225,8 @@
     panelCapturedTitle: "Captured {time}",
     panelBest: "best",
     panelUnavailable: "Unavailable",
+    panelRegionUnavailable: "Not in region",
+    panelRegionUnavailableHint: "This product is not delivered to this pickup point region.",
     panelCaptureCurrent: "Capture current",
     panelCaptureCurrentTitle: "After selecting this pickup point in Ozon, capture the visible page price for this product.",
     panelCopyDetails: "Copy details",
@@ -234,6 +240,7 @@
     panelSave: "Save",
     panelSaving: "Saving: {name}",
     panelPickupNotSaved: "Pickup point was not saved",
+    panelPickupLimitReached: "You can save up to {count} Ozon pickup points. Delete one before adding another.",
     panelSaved: "Saved: {name}",
     panelSavedAndCaptured: "Saved and captured current price: {name}",
     panelCaptureVisibleTitle: "Capture visible price?",
@@ -251,6 +258,7 @@
     panelDeletePickupConfirm: "Delete point",
     panelDeleted: "Deleted: {name}",
     panelPickupNotDeleted: "Pickup point was not deleted",
+    panelOriginalPickupRestoreFailed: "Could not restore the original Ozon pickup point. Check the selected delivery point on the page.",
     panelCurrentPriceNotCaptured: "Open or select this pickup point in Ozon, wait for the price, then use Capture current.",
     panelOzonDidNotConfirm: "Ozon did not confirm this pickup point, so the current address may have been reused.",
     panelCapturedFromPage: "from page",
@@ -323,6 +331,7 @@
   // src/shared/types.ts
   var SUPPORTED_CURRENCIES = ["RUB", "KZT"];
   var SUPPORTED_CURRENCY_RATE_PROVIDERS = ["manual", "cbr", "nbk", "exchangeRateApi"];
+  var MAX_SAVED_OZON_PICKUP_POINTS = 4;
   var DEFAULT_SETTINGS = {
     language: DEFAULT_LANGUAGE_PREFERENCE,
     debug: false,
@@ -341,7 +350,7 @@
   var MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
   function normalizeSettings(value) {
     const candidate = value;
-    const pickupPoints = Array.isArray(candidate?.pickupPoints) ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint) : [];
+    const pickupPoints = Array.isArray(candidate?.pickupPoints) ? limitOzonPickupPoints(candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint)) : [];
     return {
       language: normalizeLanguagePreference(candidate?.language),
       debug: candidate?.debug === true,
@@ -386,6 +395,16 @@
       externalLocationId: pickupPoint.externalLocationId || "",
       comment: pickupPoint.comment || ""
     };
+  }
+  function limitOzonPickupPoints(pickupPoints) {
+    let ozonCount = 0;
+    return pickupPoints.filter((point) => {
+      if (point.marketplace !== "ozon") {
+        return true;
+      }
+      ozonCount += 1;
+      return ozonCount <= MAX_SAVED_OZON_PICKUP_POINTS;
+    });
   }
   function normalizeComparisonPickupPointIds(value, pickupPoints) {
     if (!Array.isArray(value)) {

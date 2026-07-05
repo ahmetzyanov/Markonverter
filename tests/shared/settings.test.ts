@@ -1,5 +1,5 @@
 import { deletePickupPoint, manualQuoteKey, setComparisonPickupPointIds, upsertManualQuote, upsertPickupPoint } from "../../src/shared/settings";
-import { DEFAULT_SETTINGS } from "../../src/shared/types";
+import { DEFAULT_SETTINGS, MAX_SAVED_OZON_PICKUP_POINTS, PickupPoint } from "../../src/shared/types";
 
 describe("settings helpers", () => {
   it("updates an existing pickup point with the same marketplace location id", () => {
@@ -25,6 +25,65 @@ describe("settings helpers", () => {
       id: "first",
       name: "New name",
       externalLocationId: "ru-pvz-1"
+    });
+  });
+
+  it("keeps at most four saved Ozon pickup points", () => {
+    const existingPoints = Array.from({ length: MAX_SAVED_OZON_PICKUP_POINTS }, (_, index): PickupPoint => ({
+      id: `ozon-${index}`,
+      name: `Ozon ${index}`,
+      marketplace: "ozon",
+      country: "RU",
+      currency: "RUB",
+      externalLocationId: `ru-pvz-${index}`
+    }));
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      pickupPoints: existingPoints
+    };
+
+    const unchanged = upsertPickupPoint(settings, {
+      id: "extra",
+      name: "Extra",
+      marketplace: "ozon",
+      country: "RU",
+      currency: "RUB",
+      externalLocationId: "ru-pvz-extra"
+    });
+
+    expect(unchanged.pickupPoints).toHaveLength(MAX_SAVED_OZON_PICKUP_POINTS);
+    expect(unchanged.pickupPoints.some((point) => point.id === "extra")).toBe(false);
+  });
+
+  it("still updates an existing Ozon pickup point when the limit is reached", () => {
+    const existingPoints = Array.from({ length: MAX_SAVED_OZON_PICKUP_POINTS }, (_, index): PickupPoint => ({
+      id: `ozon-${index}`,
+      name: `Ozon ${index}`,
+      marketplace: "ozon",
+      country: "RU",
+      currency: "RUB",
+      externalLocationId: `ru-pvz-${index}`
+    }));
+
+    const updated = upsertPickupPoint(
+      {
+        ...DEFAULT_SETTINGS,
+        pickupPoints: existingPoints
+      },
+      {
+        id: "replacement-id",
+        name: "Updated Ozon",
+        marketplace: "ozon",
+        country: "RU",
+        currency: "RUB",
+        externalLocationId: "ru-pvz-2"
+      }
+    );
+
+    expect(updated.pickupPoints).toHaveLength(MAX_SAVED_OZON_PICKUP_POINTS);
+    expect(updated.pickupPoints[2]).toMatchObject({
+      id: "ozon-2",
+      name: "Updated Ozon"
     });
   });
 

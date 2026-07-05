@@ -1,4 +1,5 @@
 import { normalizeSettings, validatePickupPoint } from "../../src/shared/validation";
+import { DEFAULT_SETTINGS, MAX_SAVED_OZON_PICKUP_POINTS, PickupPoint } from "../../src/shared/types";
 
 describe("pickup point validation", () => {
   it("requires Ozon external location id", () => {
@@ -43,5 +44,36 @@ describe("settings normalization", () => {
 
   it("replaces implausible saved KZT to RUB rates with the default", () => {
     expect(normalizeSettings({ ratesToRub: { RUB: 1, KZT: 53.96 } }).ratesToRub.KZT).toBe(0.17);
+  });
+
+  it("normalizes stored Ozon pickup points to the saved limit", () => {
+    const pickupPoints = Array.from({ length: MAX_SAVED_OZON_PICKUP_POINTS + 1 }, (_, index): PickupPoint => ({
+      id: `ozon-${index}`,
+      name: `Ozon ${index}`,
+      marketplace: "ozon",
+      country: "RU",
+      currency: "RUB",
+      externalLocationId: `ru-pvz-${index}`
+    }));
+
+    const settings = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      pickupPoints,
+      comparisonPickupPointIds: pickupPoints.map((point) => point.id),
+      manualQuotes: {
+        "2229282395:ozon-4": {
+          productId: "2229282395",
+          productUrl: "https://ozon.ru/product/example-2229282395/",
+          pickupPointId: "ozon-4",
+          quote: { amount: 1000, currency: "RUB" },
+          capturedAt: "2026-07-04T10:00:00.000Z"
+        }
+      }
+    });
+
+    expect(settings.pickupPoints).toHaveLength(MAX_SAVED_OZON_PICKUP_POINTS);
+    expect(settings.pickupPoints.map((point) => point.id)).toEqual(["ozon-0", "ozon-1", "ozon-2", "ozon-3"]);
+    expect(settings.comparisonPickupPointIds).toEqual(["ozon-0", "ozon-1", "ozon-2", "ozon-3"]);
+    expect(settings.manualQuotes).toEqual({});
   });
 });

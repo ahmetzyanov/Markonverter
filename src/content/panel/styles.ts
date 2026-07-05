@@ -37,7 +37,7 @@ export function panelCss(): string {
     }
     .panel {
       width: 100%;
-      max-width: min(398px, calc(100vw - 24px));
+      max-width: 100%;
       min-width: 0;
       margin: 12px 0;
       border: 1px solid var(--mk-border);
@@ -59,6 +59,7 @@ export function panelCss(): string {
       position: fixed;
       top: 84px;
       right: 16px;
+      max-width: min(398px, calc(100vw - 24px));
       box-shadow: 0 8px 28px rgba(23, 35, 60, 0.14);
     }
     .header {
@@ -99,7 +100,7 @@ export function panelCss(): string {
       overflow-wrap: anywhere;
     }
     .headerTitle > span:last-child {
-      max-width: 210px;
+      max-width: 100%;
       white-space: nowrap;
       text-overflow: ellipsis;
       overflow: hidden;
@@ -477,6 +478,9 @@ export function panelCss(): string {
     .row.failed {
       background: var(--mk-surface);
     }
+    .row.warning {
+      background: var(--mk-surface);
+    }
     .row.unselected {
       opacity: 0.72;
     }
@@ -501,6 +505,16 @@ export function panelCss(): string {
       border: 1px solid rgba(229, 72, 77, 0.24);
       border-radius: 8px;
       background: var(--mk-danger-soft);
+    }
+    .row.warning .value {
+      max-width: 230px;
+      padding: 8px;
+      border: 1px solid rgba(245, 159, 0, 0.34);
+      border-radius: 8px;
+      background: var(--mk-warning-soft);
+    }
+    .row.warning .value strong {
+      color: #875600;
     }
     .failureActions {
       display: flex;

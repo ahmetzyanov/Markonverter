@@ -9,6 +9,7 @@ function normalizeLanguagePreference(value) {
 // src/shared/types.ts
 var SUPPORTED_CURRENCIES = ["RUB", "KZT"];
 var SUPPORTED_CURRENCY_RATE_PROVIDERS = ["manual", "cbr", "nbk", "exchangeRateApi"];
+var MAX_SAVED_OZON_PICKUP_POINTS = 4;
 var DEFAULT_SETTINGS = {
   language: DEFAULT_LANGUAGE_PREFERENCE,
   debug: false,
@@ -27,7 +28,7 @@ var DEFAULT_SETTINGS = {
 var MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
 function normalizeSettings(value) {
   const candidate = value;
-  const pickupPoints = Array.isArray(candidate?.pickupPoints) ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint) : [];
+  const pickupPoints = Array.isArray(candidate?.pickupPoints) ? limitOzonPickupPoints(candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint)) : [];
   return {
     language: normalizeLanguagePreference(candidate?.language),
     debug: candidate?.debug === true,
@@ -72,6 +73,16 @@ function normalizePickupPoint(pickupPoint) {
     externalLocationId: pickupPoint.externalLocationId || "",
     comment: pickupPoint.comment || ""
   };
+}
+function limitOzonPickupPoints(pickupPoints) {
+  let ozonCount = 0;
+  return pickupPoints.filter((point) => {
+    if (point.marketplace !== "ozon") {
+      return true;
+    }
+    ozonCount += 1;
+    return ozonCount <= MAX_SAVED_OZON_PICKUP_POINTS;
+  });
 }
 function normalizeComparisonPickupPointIds(value, pickupPoints) {
   if (!Array.isArray(value)) {
@@ -309,6 +320,8 @@ function upsertPickupPoint(settings, pickupPoint) {
       ...nextPoint,
       id: nextPickupPoints[existingIndex].id
     };
+  } else if (nextPoint.marketplace === "ozon" && countOzonPickupPoints(nextPickupPoints) >= MAX_SAVED_OZON_PICKUP_POINTS) {
+    return normalized;
   } else {
     nextPickupPoints.push(nextPoint);
   }
@@ -347,6 +360,9 @@ function upsertManualQuote(settings, manualQuote) {
       [manualQuoteKey(manualQuote.productId, manualQuote.pickupPointId)]: manualQuote
     }
   });
+}
+function countOzonPickupPoints(pickupPoints) {
+  return pickupPoints.filter((point) => point.marketplace === "ozon").length;
 }
 
 // src/entrypoints/background.ts

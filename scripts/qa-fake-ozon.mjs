@@ -40,7 +40,8 @@ const fakePoints = {
 };
 
 const routeState = {
-  scenario: "empty"
+  scenario: "empty",
+  selectedLocationId: fakePoints.kz.externalLocationId
 };
 const routeStats = {
   apiHits: 0,
@@ -82,13 +83,17 @@ try {
   await page.goto("data:text/html,<h1>Non-Ozon QA page</h1>");
   await assertNoPanel(page, "non-Ozon page");
 
+  await verifyWidePriceCardPanelLayout(page, worker);
   await verifyDetectedPickupSave(page, worker);
   await verifyUnsavedPickupListDisclosure(page, worker);
+  await verifySavedPickupLimit(page, worker);
   await verifyCurrentAddressReuseRegression(page, worker);
   await verifyCorruptedEditNameRecovery(page, worker);
   await verifyStreetOnlyCurrentSummaryCapture(page, worker);
   await verifySelectorIdsOnlyNameResolution(page, worker);
   await verifyGenericUuidNameResolution(page, worker);
+  await verifyAutomaticTwoPointCaptureAndRestore(page, worker);
+  await verifyRegionUnavailableWarningAndRestore(page, worker);
   await verifyManualTwoPointSuccess(page, worker, extensionId);
 
   console.log("BROWSER_QA_OK fake Ozon regression harness passed");
@@ -170,7 +175,7 @@ async function verifyUnsavedPickupListDisclosure(page, worker) {
   const candidateText = /Пункт Ozon № 440-129|Пункт Ozon № 469-716/;
 
   routeState.scenario = "empty";
-  await seedStorage(worker, settingsWithPickupPoints(savedOnlyPoints));
+  await seedStorage(worker, settingsWithPickupPoints(savedOnlyPoints, manualQuotesForPoints(savedOnlyPoints)));
   await openFakeProduct(page, "unsaved-candidates-collapsed");
   await waitForPanelText(page, /Saved RU pickup/, "saved pickup rows before unsaved candidates");
   await waitForPanelText(page, /Не добавленные ПВЗ/, "unsaved pickup list header");
@@ -185,10 +190,35 @@ async function verifyUnsavedPickupListDisclosure(page, worker) {
   await waitForPanelText(page, candidateText, "expanded unsaved pickup candidates");
 
   routeState.scenario = "empty";
-  await seedStorage(worker, settingsWithPickupPoints([savedOnlyPoints[0]]));
+  await seedStorage(worker, settingsWithPickupPoints([savedOnlyPoints[0]], manualQuotesForPoints([savedOnlyPoints[0]])));
   await openFakeProduct(page, "unsaved-candidates-expanded");
   await waitForPanelText(page, /Не добавленные ПВЗ/, "unsaved pickup list header with one saved point");
   await waitForPanelText(page, candidateText, "unsaved pickup candidates expanded before two saved points");
+}
+
+async function verifySavedPickupLimit(page, worker) {
+  const savedPoints = Array.from({ length: 4 }, (_, index) => ({
+    ...fakePoints.ru,
+    id: `limit-${index}`,
+    externalLocationId: `saved-limit-${index}`,
+    name: `Saved limit ${index}`
+  }));
+
+  routeState.scenario = "empty";
+  await seedStorage(worker, settingsWithPickupPoints(savedPoints, manualQuotesForPoints(savedPoints)));
+  await openFakeProduct(page, "saved-pickup-limit");
+  await waitForPanelText(page, /Не добавленные ПВЗ/, "unsaved pickup list at saved limit");
+  await clickPanelIconButton(page, "Показать не добавленные ПВЗ");
+  await waitForPanelText(page, /Пункт Ozon № 440-129|Пункт Ozon № 469-716/, "unsaved pickup candidates at saved limit");
+  await clickPanelButton(page, "Сохранить");
+  await waitForPanelText(page, /Можно сохранить не больше 4 ПВЗ Ozon/, "saved pickup limit message");
+
+  const settings = await readSettings(worker);
+  assert(settings.pickupPoints.length === 4, `saved pickup limit should keep four points, got ${settings.pickupPoints.length}`);
+  assert(
+    !settings.pickupPoints.some((point) => point.externalLocationId === fakePoints.kz.externalLocationId),
+    "saved pickup limit should not add a fifth Ozon point"
+  );
 }
 
 async function verifyCurrentAddressReuseRegression(page, worker) {
@@ -200,12 +230,11 @@ async function verifyCurrentAddressReuseRegression(page, worker) {
   await waitForPanelText(page, /Moscow pickup/, "Moscow row");
   await waitForPanelText(page, /Astana pickup/, "Astana row");
   await waitForPanelText(page, rub17000Text, "current KZ point auto-captured from visible page");
-  await waitForPanelText(page, /Текущая цена автоматически записана|Записано /, "auto capture status");
   await waitForPanelText(page, /Недоступно/, "unavailable row before manual capture");
-  await waitForPanelText(page, /Откройте или выберите этот ПВЗ.*Записать текущую/i, "current PVZ capture guidance");
+  await waitForPanelText(page, /Ozon не подтвердил этот ПВЗ.*Записать текущую/i, "guarded activation failure guidance");
   assert(
-    routeStats.locationSelectionRequests === locationSelectionRequestsBefore,
-    `saved-row comparison sent Ozon location-selection requests: ${JSON.stringify(routeStats.lastLocationSelectionUrls)}`
+    routeStats.locationSelectionRequests > locationSelectionRequestsBefore,
+    `saved-row comparison did not try the guarded activation fallback: ${JSON.stringify(routeStats.lastLocationSelectionUrls)}`
   );
 
   let settings = await readSettings(worker);
@@ -234,13 +263,11 @@ async function verifyCurrentAddressReuseRegression(page, worker) {
 
 async function verifyCorruptedEditNameRecovery(page, worker) {
   routeState.scenario = "reuse";
-  await seedStorage(
-    worker,
-    settingsWithPickupPoints([
-      { ...fakePoints.ru, name: "Редактировать" },
-      { ...fakePoints.kz, name: "Редактировать" }
-    ])
-  );
+  const editNamePoints = [
+    { ...fakePoints.ru, name: "Редактировать" },
+    { ...fakePoints.kz, name: "Редактировать" }
+  ];
+  await seedStorage(worker, settingsWithPickupPoints(editNamePoints, manualQuotesForPoints(editNamePoints)));
   await openFakeProduct(page, "edit-name-recovery");
 
   await waitForPanelText(page, rub17000Text, "auto capture after edit-name repair");
@@ -268,13 +295,11 @@ async function verifyStreetOnlyCurrentSummaryCapture(page, worker) {
 
 async function verifySelectorIdsOnlyNameResolution(page, worker) {
   routeState.scenario = "selector-ids-only";
-  await seedStorage(
-    worker,
-    settingsWithPickupPoints([
-      { ...fakePoints.ru, name: `Ozon pickup ${fakePoints.ru.externalLocationId}` },
-      { ...fakePoints.kz, name: `Ozon pickup ${fakePoints.kz.externalLocationId}` }
-    ])
-  );
+  const selectorIdPoints = [
+    { ...fakePoints.ru, name: `Ozon pickup ${fakePoints.ru.externalLocationId}` },
+    { ...fakePoints.kz, name: `Ozon pickup ${fakePoints.kz.externalLocationId}` }
+  ];
+  await seedStorage(worker, settingsWithPickupPoints(selectorIdPoints, manualQuotesForPoints(selectorIdPoints)));
   await openFakeProduct(page, "selector-ids-only");
 
   await waitForPanelText(page, /Буинск, ул\. Вахитова, 174Б/, "RU selector id auto-resolved from common addressbook row");
@@ -303,12 +328,8 @@ async function verifySelectorIdsOnlyNameResolution(page, worker) {
 
 async function verifyGenericUuidNameResolution(page, worker) {
   routeState.scenario = "reuse";
-  await seedStorage(
-    worker,
-    settingsWithPickupPoints([
-      { ...fakePoints.kz, name: `Ozon pickup ${fakePoints.kz.externalLocationId}` }
-    ])
-  );
+  const genericUuidPoints = [{ ...fakePoints.kz, name: `Ozon pickup ${fakePoints.kz.externalLocationId}` }];
+  await seedStorage(worker, settingsWithPickupPoints(genericUuidPoints, manualQuotesForPoints(genericUuidPoints)));
   await openFakeProduct(page, "generic-name-resolution");
 
   await waitForPanelText(page, /Астана|Astana pickup/, "generic UUID pickup name resolved to an address label");
@@ -323,6 +344,56 @@ async function verifyGenericUuidNameResolution(page, worker) {
   assert(
     settings.pickupPoints.some((point) => point.externalLocationId === fakePoints.kz.externalLocationId && !point.name.startsWith("Ozon pickup ")),
     "generic saved pickup name was not repaired"
+  );
+}
+
+async function verifyAutomaticTwoPointCaptureAndRestore(page, worker) {
+  routeState.scenario = "success";
+  await seedStorage(worker, settingsWithPickupPoints([fakePoints.ru, fakePoints.kz]));
+  const locationSelectionRequestsBefore = routeStats.locationSelectionRequests;
+  await openFakeProduct(page, "automatic-two-point-capture");
+
+  await waitForPanelText(page, /Moscow pickup/, "Moscow automatic row");
+  await waitForPanelText(page, /Astana pickup/, "Astana automatic row");
+  await waitForPanelText(page, rub9000Text, "Moscow automatically captured price");
+  await waitForPanelText(page, rub17000Text, "Astana automatically captured converted price");
+  await waitForSettingsCondition(
+    worker,
+    (settings) => Boolean(settings.manualQuotes["2229282395:ru"] && settings.manualQuotes["2229282395:kz"]),
+    "automatic quotes saved for both pickup points"
+  );
+  assert(
+    routeStats.locationSelectionRequests > locationSelectionRequestsBefore,
+    `automatic two-point capture did not use activation fallback: ${JSON.stringify(routeStats.lastLocationSelectionUrls)}`
+  );
+  assert(
+    routeStats.lastLocationSelectionUrls.some((url) => url.includes("select_address%3Dkz-456")),
+    `automatic two-point capture did not restore the originally selected KZ pickup point: ${JSON.stringify(
+      routeStats.lastLocationSelectionUrls
+    )}`
+  );
+  assert(
+    routeState.selectedLocationId === fakePoints.kz.externalLocationId,
+    `fake Ozon state was not restored to the original KZ pickup point: ${routeState.selectedLocationId}`
+  );
+}
+
+async function verifyRegionUnavailableWarningAndRestore(page, worker) {
+  routeState.scenario = "region-unavailable";
+  await seedStorage(worker, settingsWithPickupPoints([fakePoints.ru, fakePoints.kz]));
+  await openFakeProduct(page, "region-unavailable");
+
+  await waitForPanelText(page, /Moscow pickup/, "region-unavailable Moscow row");
+  await waitForPanelText(page, /Astana pickup/, "region-unavailable Astana row");
+  await waitForPanelText(page, /Нет в регионе/, "regional warning title");
+  await waitForPanelText(page, /Товар не доставляется в регион этого ПВЗ/, "regional warning text");
+  await waitForPanelText(page, rub17000Text, "available KZ price after unavailable RU region");
+
+  const text = await panelText(page);
+  assert(!/Нет в регионе[\s\S]*Записать текущую/.test(text), `region-unavailable warning should not offer manual capture:\n${text}`);
+  assert(
+    routeState.selectedLocationId === fakePoints.kz.externalLocationId,
+    `region-unavailable scenario should restore an available KZ pickup point, got ${routeState.selectedLocationId}`
   );
 }
 
@@ -348,6 +419,8 @@ async function verifyManualTwoPointSuccess(page, worker, extensionId) {
 }
 
 async function openFakeProduct(page, label) {
+  await clearSweepSessionState(page);
+  routeState.selectedLocationId = initialSelectedLocationId();
   const url = `${productUrl}?qa=${encodeURIComponent(label)}&t=${Date.now()}`;
   const response = await page.goto(url, {
     waitUntil: "domcontentloaded"
@@ -358,12 +431,86 @@ async function openFakeProduct(page, label) {
     status: response?.status() ?? null
   };
   await page.locator("#markonverter-panel-root").waitFor({ state: "attached", timeout: timeoutMs });
+  await waitForOzonSweepSettled(page);
+  await page.locator("#markonverter-panel-root").waitFor({ state: "attached", timeout: timeoutMs });
   await assertPanelFitsPriceCard(page, label);
+}
+
+// The visible price sweep reloads the page a few times; wait until it has finished
+// so scenario assertions do not race against a navigation.
+async function waitForOzonSweepSettled(page) {
+  const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
+  let clearStreak = 0;
+  while (Date.now() < deadline) {
+    let active = true;
+    try {
+      active = await page.evaluate(() => Boolean(sessionStorage.getItem("markonverter.ozonSweep.v1")));
+    } catch {
+      active = true; // A sweep reload is navigating the page; keep waiting.
+    }
+    if (active) {
+      clearStreak = 0;
+    } else if (++clearStreak >= 3 && Date.now() - startedAt > 700) {
+      return;
+    }
+    await page.waitForTimeout(150);
+  }
+}
+
+function initialSelectedLocationId() {
+  return routeState.scenario === "region-unavailable" ? fakePoints.ru.externalLocationId : fakePoints.kz.externalLocationId;
+}
+
+// The visible reload sweep persists progress in sessionStorage, which survives the
+// same-origin navigations between scenarios. Clear it so each scenario starts clean
+// (sweep-internal reloads are not affected because they never call openFakeProduct).
+async function clearSweepSessionState(page) {
+  try {
+    await page.evaluate(() => {
+      Object.keys(sessionStorage)
+        .filter((key) => key.startsWith("markonverter.ozon"))
+        .forEach((key) => sessionStorage.removeItem(key));
+    });
+  } catch {
+    // A fresh/blank page has nothing to clear.
+  }
+}
+
+// Suppress the auto price sweep for scenarios that only exercise panel/name UI by
+// pre-seeding a captured quote for every saved point.
+function manualQuotesForPoints(points) {
+  const capturedAt = "2026-07-01T08:00:00.000Z";
+  const quotes = {};
+  for (const point of points) {
+    quotes[`2229282395:${point.id}`] = {
+      productId: "2229282395",
+      productUrl,
+      pickupPointId: point.id,
+      quote: {
+        amount: point.currency === "KZT" ? 100000 : 9000,
+        currency: point.currency,
+        rawText: point.priceText || "",
+        source: "manual",
+        capturedAt
+      },
+      capturedAt
+    };
+  }
+  return quotes;
 }
 
 async function assertNoPanel(page, label) {
   const hasPanel = await page.locator("#markonverter-panel-root").count();
   assert(hasPanel === 0, `${label} unexpectedly has a Markonverter panel`);
+}
+
+async function verifyWidePriceCardPanelLayout(page, worker) {
+  routeState.scenario = "wide-price-card";
+  await seedStorage(worker, settingsWithPickupPoints([fakePoints.ru, fakePoints.kz], manualQuotesForFakePoints()));
+  await openFakeProduct(page, "wide-price-card");
+  await waitForPanelText(page, /Moscow pickup/, "wide price-card panel row");
+  await assertPanelFitsPriceCard(page, "wide-price-card");
 }
 
 async function waitForPanelText(page, matcher, label) {
@@ -414,9 +561,13 @@ async function waitForPageText(page, matcher, label) {
 }
 
 async function panelText(page) {
-  return page
-    .locator("#markonverter-panel-root")
-    .evaluate((host) => host.shadowRoot?.querySelector(".panel")?.textContent || "");
+  try {
+    return await page
+      .locator("#markonverter-panel-root")
+      .evaluate((host) => host.shadowRoot?.querySelector(".panel")?.textContent || "");
+  } catch {
+    return ""; // The panel may be mid-reload during a price sweep.
+  }
 }
 
 async function assertPanelFitsPriceCard(page, label) {
@@ -438,6 +589,7 @@ async function assertPanelFitsPriceCard(page, label) {
   assert(metrics.hasPanel && metrics.panel, `${label} has no rendered Markonverter panel`);
   assert(metrics.hasCard && metrics.card, `${label} panel was not nested in the fake price card`);
   assert(metrics.host.width <= metrics.card.width + 0.5, `${label} panel host overflowed price card: ${JSON.stringify(metrics)}`);
+  assert(metrics.panel.width >= metrics.host.width - 1, `${label} panel did not fill panel host width: ${JSON.stringify(metrics)}`);
   assert(
     metrics.panel.left >= metrics.card.left - 0.5 && metrics.panel.right <= metrics.card.right + 0.5,
     `${label} panel overflowed price card: ${JSON.stringify(metrics)}`
@@ -844,8 +996,12 @@ function fakeOzonApiResponse(request) {
   }
 
   const requested = requestedLocationFromRequest(request);
+  if ((routeState.scenario === "success" || routeState.scenario === "region-unavailable") && requestSelectsAddress(request) && pointByExternalLocationId(requested)) {
+    routeState.selectedLocationId = requested;
+  }
   const selected = selectedLocationForRequest(requested);
   const point = pointByExternalLocationId(selected) || fakePoints.kz;
+  const unavailableInRegion = routeState.scenario === "region-unavailable" && selected === fakePoints.ru.externalLocationId;
 
   return {
     requestEcho: {
@@ -882,7 +1038,7 @@ function fakeOzonApiResponse(request) {
       }))
     },
     widgetStates: {
-      webPrice: JSON.stringify({ price: point.priceText }),
+      webPrice: JSON.stringify(unavailableInRegion ? { title: "Товар не доставляется в ваш регион" } : { price: point.priceText }),
       addressbook: JSON.stringify({
         addresses: Object.values(fakePoints).map((item) => ({
           deliveryAddressOid: item.externalLocationId,
@@ -936,11 +1092,11 @@ function fakeAddressbookSetSmResponse() {
 }
 
 function selectedLocationForRequest(requested) {
-  if (routeState.scenario === "success" && pointByExternalLocationId(requested)) {
+  if ((routeState.scenario === "success" || routeState.scenario === "region-unavailable") && pointByExternalLocationId(requested)) {
     return requested;
   }
-  if (routeState.scenario === "success" && !requested) {
-    return fakePoints.ru.externalLocationId;
+  if (routeState.scenario === "success" || routeState.scenario === "region-unavailable") {
+    return routeState.selectedLocationId || fakePoints.kz.externalLocationId;
   }
   return fakePoints.kz.externalLocationId;
 }
@@ -978,10 +1134,31 @@ function requestedLocationFromRequest(request) {
   return null;
 }
 
+function requestSelectsAddress(request) {
+  const rawBody = request.postData() || "";
+  const chunks = [request.url(), rawBody];
+
+  try {
+    const parsed = JSON.parse(rawBody);
+    if (typeof parsed.url === "string") {
+      chunks.push(parsed.url);
+    }
+  } catch {
+    // Fall back to textual matching below.
+  }
+
+  return chunks.flatMap((value) => [value, safeDecodeURIComponent(value)]).some((value) => /\/modal\/addressbook\?[^"'\s]*select_address=/i.test(value));
+}
+
 function fakeProductHtml() {
   const selectorIdsOnly = routeState.scenario === "selector-ids-only";
   const streetOnlyCurrentSummary = routeState.scenario === "street-only-current-summary";
+  const widePriceCard = routeState.scenario === "wide-price-card";
   const includeDeliveryDialog = !selectorIdsOnly && !streetOnlyCurrentSummary;
+  const currentPoint = pointByExternalLocationId(routeState.selectedLocationId) || fakePoints.kz;
+  const currentUnavailableInRegion = routeState.scenario === "region-unavailable" && currentPoint.externalLocationId === fakePoints.ru.externalLocationId;
+  const priceCardWidth = widePriceCard ? 680 : 288;
+  const mainWidth = widePriceCard ? 1080 : 920;
   const deliveryDialogHtml = `<div class="delivery-dialog" data-widget="deliveryDialog" role="dialog" aria-label="Delivery selector">
         <h2>Выберите пункт выдачи</h2>
         ${Object.values(fakePoints)
@@ -1005,8 +1182,8 @@ function fakeProductHtml() {
                 fullAddress: fakePoints.kz.name
               }
             : {
-                deliveryAddressOid: fakePoints.kz.externalLocationId,
-                fullAddress: fakePoints.kz.name
+                deliveryAddressOid: currentPoint.externalLocationId,
+                fullAddress: currentPoint.name
               },
           items: selectorIdsOnly
             ? []
@@ -1025,9 +1202,9 @@ function fakeProductHtml() {
     <title>Fake Ozon product</title>
     <style>
       body { margin: 0; padding: 32px; font-family: Arial, sans-serif; color: #111827; background: #f5f6f8; }
-      main { max-width: 920px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; }
-      .product-layout { display: grid; grid-template-columns: minmax(0, 1fr) 288px; gap: 24px; align-items: start; }
-      .price-card { box-sizing: border-box; width: 288px; max-width: 100%; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
+      main { max-width: ${mainWidth}px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; }
+      .product-layout { display: grid; grid-template-columns: minmax(0, 1fr) ${priceCardWidth}px; gap: 24px; align-items: start; }
+      .price-card { box-sizing: border-box; width: ${priceCardWidth}px; max-width: 100%; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
       [data-widget="webPrice"] { width: 100%; min-height: 56px; margin: 0 0 16px; font-size: 32px; font-weight: 700; }
       [data-widget="webDelivery"] { width: 520px; min-height: 76px; margin: 16px 0; padding: 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
       [data-widget="addressBookBarWeb"] { width: 180px; min-height: 20px; margin: 12px 0; font-size: 14px; }
@@ -1055,7 +1232,7 @@ function fakeProductHtml() {
               ? '<div data-widget="addressBookBarWeb">ул. Вахитова, 174б</div>'
               : `<div data-widget="webDelivery">
                   <strong>Доставка и возврат</strong>
-                  <div>Пункт Ozon № 440-129 ${fakePoints.kz.name}, Астана, пр-кт Улы Дала, 31</div>
+                  <div>${visibleSelectorLabel(currentPoint)} ${addressbookLabel(currentPoint)}</div>
                   <div>Пункты выдачи Ozon · С 19 июля</div>
                   <button type="button" onclick="window.__openFakeDeliverySelector()">Редактировать</button>
                 </div>`
@@ -1063,7 +1240,7 @@ function fakeProductHtml() {
           ${includeDeliveryDialog ? deliveryDialogHtml : ""}
         </section>
         <aside class="price-card">
-          <div data-widget="webPrice"><span>100 000 ₸</span></div>
+          <div data-widget="webPrice"><span>${currentUnavailableInRegion ? "Товар не доставляется в ваш регион" : currentPoint.priceText}</span></div>
         </aside>
       </div>
     </main>

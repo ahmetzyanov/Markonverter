@@ -141,6 +141,8 @@
     panelCapturedTitle: "\u0417\u0430\u043F\u0438\u0441\u0430\u043D\u043E {time}",
     panelBest: "\u043B\u0443\u0447\u0448\u0435\u0435",
     panelUnavailable: "\u041D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E",
+    panelRegionUnavailable: "\u041D\u0435\u0442 \u0432 \u0440\u0435\u0433\u0438\u043E\u043D\u0435",
+    panelRegionUnavailableHint: "\u0422\u043E\u0432\u0430\u0440 \u043D\u0435 \u0434\u043E\u0441\u0442\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u0432 \u0440\u0435\u0433\u0438\u043E\u043D \u044D\u0442\u043E\u0433\u043E \u041F\u0412\u0417.",
     panelCaptureCurrent: "\u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0443\u044E",
     panelCaptureCurrentTitle: "\u041F\u043E\u0441\u043B\u0435 \u0432\u044B\u0431\u043E\u0440\u0430 \u044D\u0442\u043E\u0433\u043E \u041F\u0412\u0417 \u0432 Ozon \u0437\u0430\u043F\u0438\u0448\u0438\u0442\u0435 \u0432\u0438\u0434\u0438\u043C\u0443\u044E \u0446\u0435\u043D\u0443 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u044B \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0442\u043E\u0432\u0430\u0440\u0430.",
     panelCopyDetails: "\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0434\u0435\u0442\u0430\u043B\u0438",
@@ -154,6 +156,7 @@
     panelSave: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C",
     panelSaving: "\u0421\u043E\u0445\u0440\u0430\u043D\u044F\u044E: {name}",
     panelPickupNotSaved: "\u041F\u0412\u0417 \u043D\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D",
+    panelPickupLimitReached: "\u041C\u043E\u0436\u043D\u043E \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u043D\u0435 \u0431\u043E\u043B\u044C\u0448\u0435 {count} \u041F\u0412\u0417 Ozon. \u0423\u0434\u0430\u043B\u0438\u0442\u0435 \u043B\u0438\u0448\u043D\u0438\u0439 \u041F\u0412\u0417, \u0447\u0442\u043E\u0431\u044B \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043D\u043E\u0432\u044B\u0439.",
     panelSaved: "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E: {name}",
     panelSavedAndCaptured: "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E \u0438 \u0437\u0430\u043F\u0438\u0441\u0430\u043D\u0430 \u0442\u0435\u043A\u0443\u0449\u0430\u044F \u0446\u0435\u043D\u0430: {name}",
     panelCaptureVisibleTitle: "\u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0432\u0438\u0434\u0438\u043C\u0443\u044E \u0446\u0435\u043D\u0443?",
@@ -171,6 +174,7 @@
     panelDeletePickupConfirm: "\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u041F\u0412\u0417",
     panelDeleted: "\u0423\u0434\u0430\u043B\u0435\u043D\u043E: {name}",
     panelPickupNotDeleted: "\u041F\u0412\u0417 \u043D\u0435 \u0443\u0434\u0430\u043B\u0435\u043D",
+    panelOriginalPickupRestoreFailed: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0438\u0441\u0445\u043E\u0434\u043D\u044B\u0439 \u041F\u0412\u0417 Ozon. \u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u0443\u044E \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0443 \u043D\u0430 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0435.",
     panelCurrentPriceNotCaptured: "\u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0438\u043B\u0438 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u044D\u0442\u043E\u0442 \u041F\u0412\u0417 \u0432 Ozon, \u0434\u043E\u0436\u0434\u0438\u0442\u0435\u0441\u044C \u0446\u0435\u043D\u044B, \u0437\u0430\u0442\u0435\u043C \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \u0417\u0430\u043F\u0438\u0441\u0430\u0442\u044C \u0442\u0435\u043A\u0443\u0449\u0443\u044E.",
     panelOzonDidNotConfirm: "Ozon \u043D\u0435 \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043B \u044D\u0442\u043E\u0442 \u041F\u0412\u0417, \u043F\u043E\u044D\u0442\u043E\u043C\u0443 \u043C\u043E\u0433\u043B\u0430 \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C\u0441\u044F \u0442\u0435\u043A\u0443\u0449\u0430\u044F \u0442\u043E\u0447\u043A\u0430 \u0434\u043E\u0441\u0442\u0430\u0432\u043A\u0438.",
     panelCapturedFromPage: "\u0441\u043E \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u044B",
@@ -278,6 +282,8 @@
     panelCapturedTitle: "Captured {time}",
     panelBest: "best",
     panelUnavailable: "Unavailable",
+    panelRegionUnavailable: "Not in region",
+    panelRegionUnavailableHint: "This product is not delivered to this pickup point region.",
     panelCaptureCurrent: "Capture current",
     panelCaptureCurrentTitle: "After selecting this pickup point in Ozon, capture the visible page price for this product.",
     panelCopyDetails: "Copy details",
@@ -291,6 +297,7 @@
     panelSave: "Save",
     panelSaving: "Saving: {name}",
     panelPickupNotSaved: "Pickup point was not saved",
+    panelPickupLimitReached: "You can save up to {count} Ozon pickup points. Delete one before adding another.",
     panelSaved: "Saved: {name}",
     panelSavedAndCaptured: "Saved and captured current price: {name}",
     panelCaptureVisibleTitle: "Capture visible price?",
@@ -308,6 +315,7 @@
     panelDeletePickupConfirm: "Delete point",
     panelDeleted: "Deleted: {name}",
     panelPickupNotDeleted: "Pickup point was not deleted",
+    panelOriginalPickupRestoreFailed: "Could not restore the original Ozon pickup point. Check the selected delivery point on the page.",
     panelCurrentPriceNotCaptured: "Open or select this pickup point in Ozon, wait for the price, then use Capture current.",
     panelOzonDidNotConfirm: "Ozon did not confirm this pickup point, so the current address may have been reused.",
     panelCapturedFromPage: "from page",
@@ -377,6 +385,7 @@
   // src/shared/types.ts
   var SUPPORTED_CURRENCIES = ["RUB", "KZT"];
   var SUPPORTED_CURRENCY_RATE_PROVIDERS = ["manual", "cbr", "nbk", "exchangeRateApi"];
+  var MAX_SAVED_OZON_PICKUP_POINTS = 4;
   var DEFAULT_SETTINGS = {
     language: DEFAULT_LANGUAGE_PREFERENCE,
     debug: false,
@@ -395,7 +404,7 @@
   var MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
   function normalizeSettings(value) {
     const candidate = value;
-    const pickupPoints = Array.isArray(candidate?.pickupPoints) ? candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint) : [];
+    const pickupPoints = Array.isArray(candidate?.pickupPoints) ? limitOzonPickupPoints(candidate.pickupPoints.filter(isPickupPointLike).map(normalizePickupPoint)) : [];
     return {
       language: normalizeLanguagePreference(candidate?.language),
       debug: candidate?.debug === true,
@@ -440,6 +449,16 @@
       externalLocationId: pickupPoint.externalLocationId || "",
       comment: pickupPoint.comment || ""
     };
+  }
+  function limitOzonPickupPoints(pickupPoints) {
+    let ozonCount = 0;
+    return pickupPoints.filter((point) => {
+      if (point.marketplace !== "ozon") {
+        return true;
+      }
+      ozonCount += 1;
+      return ozonCount <= MAX_SAVED_OZON_PICKUP_POINTS;
+    });
   }
   function normalizeComparisonPickupPointIds(value, pickupPoints) {
     if (!Array.isArray(value)) {
@@ -695,6 +714,7 @@
   }
 
   // src/marketplaces/ozon/private-api.ts
+  var OZON_PRODUCT_UNAVAILABLE_IN_REGION = "Ozon product is not delivered to this pickup point region";
   async function fetchOzonPrivatePrice(request) {
     const productUrl = new URL(request.productUrl);
     const pathWithSearch = `${productUrl.pathname}${productUrl.search}`;
@@ -729,6 +749,10 @@
         }
         const price = extractOzonPrice(json, request.currencyHint);
         if (!price) {
+          if (responseContainsProductUnavailableInRegion(json)) {
+            errors.push(`${candidate.label}: ${OZON_PRODUCT_UNAVAILABLE_IN_REGION}`);
+            continue;
+          }
           errors.push(`${candidate.label}: no unambiguous product price in response`);
           continue;
         }
@@ -738,6 +762,56 @@
       }
     }
     throw new Error(`Ozon private API did not return a verified product price. ${errors.join("; ")}`);
+  }
+  function isOzonProductUnavailableInRegion(error) {
+    const text = error instanceof Error ? error.message : String(error);
+    return text.includes(OZON_PRODUCT_UNAVAILABLE_IN_REGION) || /товар\s+не\s+доставляется\s+в\s+ваш\s+регион/i.test(text);
+  }
+  async function activateOzonPickupLocationForProduct(productUrl, pickupExternalLocationId) {
+    const url = new URL(productUrl);
+    const pathWithSearch = `${url.pathname}${url.search}`;
+    const activation = await activateOzonPickupLocation(pathWithSearch, pickupExternalLocationId);
+    return activation.confirmed;
+  }
+  async function fetchOzonSelectedLocationId(productUrl) {
+    const url = new URL(productUrl);
+    const pathWithSearch = `${url.pathname}${url.search}`;
+    const candidates = buildEndpointCandidates(pathWithSearch, []);
+    for (const candidate of candidates) {
+      try {
+        const response = await fetch(candidate.url, {
+          method: candidate.method,
+          credentials: "include",
+          headers: candidate.headers,
+          body: candidate.body
+        });
+        if (!response.ok) {
+          continue;
+        }
+        const selected = extractSelectedOzonLocationId(await response.json());
+        if (selected) {
+          return selected;
+        }
+      } catch {
+      }
+    }
+    return null;
+  }
+  function extractSelectedOzonLocationId(json) {
+    let found = null;
+    walk(json, [], (path, value) => {
+      if (found || typeof value !== "string" && typeof value !== "number") {
+        return;
+      }
+      if (!isSelectedLocationPath(path.join(".").toLowerCase())) {
+        return;
+      }
+      const text = String(value).trim();
+      if (isLocationAlias(text)) {
+        found = text;
+      }
+    });
+    return found;
   }
   async function activateOzonPickupLocation(pathWithSearch, pickupExternalLocationId) {
     const candidates = buildLocationActivationCandidates(pathWithSearch, pickupExternalLocationId);
@@ -1090,6 +1164,17 @@
     candidates.sort((a, b) => b.score - a.score || a.text.length - b.text.length);
     return candidates[0]?.text || null;
   }
+  function responseContainsProductUnavailableInRegion(json) {
+    let found = false;
+    walk(json, [], (_path, value) => {
+      if (found || typeof value !== "string") {
+        return;
+      }
+      const text = compactText(value);
+      found = /товар\s+не\s+доставляется\s+в\s+ваш\s+регион/i.test(text);
+    });
+    return found;
+  }
   function preferredPricePaths(json) {
     const roots = findWidgetStates(json);
     const candidates = [];
@@ -1293,7 +1378,7 @@
     }
     .panel {
       width: 100%;
-      max-width: min(398px, calc(100vw - 24px));
+      max-width: 100%;
       min-width: 0;
       margin: 12px 0;
       border: 1px solid var(--mk-border);
@@ -1315,6 +1400,7 @@
       position: fixed;
       top: 84px;
       right: 16px;
+      max-width: min(398px, calc(100vw - 24px));
       box-shadow: 0 8px 28px rgba(23, 35, 60, 0.14);
     }
     .header {
@@ -1355,7 +1441,7 @@
       overflow-wrap: anywhere;
     }
     .headerTitle > span:last-child {
-      max-width: 210px;
+      max-width: 100%;
       white-space: nowrap;
       text-overflow: ellipsis;
       overflow: hidden;
@@ -1733,6 +1819,9 @@
     .row.failed {
       background: var(--mk-surface);
     }
+    .row.warning {
+      background: var(--mk-surface);
+    }
     .row.unselected {
       opacity: 0.72;
     }
@@ -1757,6 +1846,16 @@
       border: 1px solid rgba(229, 72, 77, 0.24);
       border-radius: 8px;
       background: var(--mk-danger-soft);
+    }
+    .row.warning .value {
+      max-width: 230px;
+      padding: 8px;
+      border: 1px solid rgba(245, 159, 0, 0.34);
+      border-radius: 8px;
+      background: var(--mk-warning-soft);
+    }
+    .row.warning .value strong {
+      color: #875600;
     }
     .failureActions {
       display: flex;
@@ -2669,10 +2768,12 @@
   var pendingPanelConfirmationCancel = null;
   var suppressAssistObserverUntil = 0;
   var panelTransitionVersion = 0;
+  var lastAutoCapturedCurrentLocation = null;
   var targetedPickupDiscoveryIds = /* @__PURE__ */ new Set();
   var autoPickupSelectorOpenKeys = /* @__PURE__ */ new Set();
   var pageActionHandlers = /* @__PURE__ */ new WeakMap();
   var autoCaptureInFlight = /* @__PURE__ */ new Set();
+  var autoPriceCaptureInFlight = /* @__PURE__ */ new Map();
   var pageActionEventGuardInstalled = false;
   async function boot() {
     document.addEventListener(PICKUP_CANDIDATES_EVENT, handlePickupCandidatesEvent);
@@ -2753,7 +2854,9 @@
     if (pageChanged) {
       targetedPickupDiscoveryIds.clear();
       autoPickupSelectorOpenKeys.clear();
+      autoPriceCaptureInFlight.clear();
       detectedPickupListCollapsedOverride = null;
+      lastAutoCapturedCurrentLocation = null;
     }
     activeUrl = currentUrl;
     const panel = ensurePanel();
@@ -2772,6 +2875,17 @@
     latestSettings = settings;
     discoverOzonPickupCandidatesFromApi(product);
     mergePickupCandidates(extractOzonPickupCandidatesFromSources(collectFallbackCaptureSources()));
+    const activeSweep = loadOzonSweepState();
+    if (activeSweep && activeSweep.productId !== product.productId) {
+      clearOzonSweepState();
+    } else if (activeSweep) {
+      renderPanel(panel, { state: "loading", product, settings });
+      if (await continueOzonPriceSweep(product, settings) === "reloading") {
+        return;
+      }
+      settings = await getLatestSettings() || settings;
+      latestSettings = settings;
+    }
     settings = await refreshSavedOzonPickupNamesOnLoad(product, settings);
     if (runId !== activeRun) {
       return;
@@ -2789,13 +2903,27 @@
       renderPanel(panel, { state: "noSelection", product, settings, allPickupPoints });
       return;
     }
+    if (shouldStartOzonPriceSweep(product, settings, pickupPoints)) {
+      renderPanel(panel, { state: "loading", product, settings, pickupPoints });
+      if (await startOzonPriceSweep(product, settings, pickupPoints)) {
+        return;
+      }
+      settings = await getLatestSettings() || settings;
+      latestSettings = settings;
+      if (runId !== activeRun) {
+        return;
+      }
+    }
     renderPanel(panel, { state: "loading", product, settings, pickupPoints });
     const results = [];
     for (const pickupPoint of pickupPoints) {
       if (runId !== activeRun) {
         return;
       }
-      results.push(compareOzonPickupPoint(product, pickupPoint, settings));
+      const comparison = await compareOzonPickupPoint(product, pickupPoint, settings);
+      results.push(comparison.result);
+      settings = comparison.settings;
+      latestSettings = settings;
     }
     if (runId !== activeRun) {
       return;
@@ -2815,12 +2943,56 @@
     const selectedIds = new Set(settings.comparisonPickupPointIds);
     return allPickupPoints.filter((point) => selectedIds.has(point.id));
   }
-  function compareOzonPickupPoint(product, pickupPoint, settings) {
+  function currentOzonExternalLocationId(product, settings) {
+    if (lastAutoCapturedCurrentLocation?.productId === product.productId) {
+      return lastAutoCapturedCurrentLocation.externalLocationId;
+    }
+    const currentCandidates = currentVisibleOzonPickupCandidates();
+    const currentIds = [...new Set(currentCandidates.map((candidate) => candidate.externalLocationId).filter(Boolean))];
+    if (currentIds.length === 1) {
+      return currentIds[0];
+    }
+    const visibleDeliveryText = collectCurrentDeliverySummaryText();
+    if (!visibleDeliveryText) {
+      return null;
+    }
+    return findSavedPickupPointForVisibleDelivery(settings, visibleDeliveryText, currentCandidates)?.externalLocationId || null;
+  }
+  async function compareOzonPickupPoint(product, pickupPoint, settings) {
     const manualQuote = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
     if (manualQuote) {
-      return makeManualQuoteResult(pickupPoint.id, manualQuote, settings);
+      return { result: makeManualQuoteResult(pickupPoint.id, manualQuote, settings), settings };
     }
-    return makeErrorResult(pickupPoint.id, CURRENT_OZON_PRICE_NOT_CAPTURED);
+    if (isOzonPickupSessionUnavailable(product.productId, pickupPoint.externalLocationId)) {
+      return { result: makeErrorResult(pickupPoint.id, new Error(OZON_PRODUCT_UNAVAILABLE_IN_REGION)), settings };
+    }
+    const lockKey = `${product.url}:${pickupPoint.id}`;
+    const inFlight = autoPriceCaptureInFlight.get(lockKey);
+    if (inFlight) {
+      return inFlight;
+    }
+    const comparisonPromise = fetchOzonPickupPointPrice(product, pickupPoint, settings);
+    autoPriceCaptureInFlight.set(lockKey, comparisonPromise);
+    try {
+      return await comparisonPromise;
+    } finally {
+      if (autoPriceCaptureInFlight.get(lockKey) === comparisonPromise) {
+        autoPriceCaptureInFlight.delete(lockKey);
+      }
+    }
+  }
+  async function fetchOzonPickupPointPrice(product, pickupPoint, settings) {
+    try {
+      const quote = await requestOzonPrice({
+        productId: product.productId,
+        productUrl: product.url,
+        pickupExternalLocationId: pickupPoint.externalLocationId,
+        currencyHint: pickupPoint.currency
+      });
+      return saveFetchedQuoteResult(pickupPoint, product, quote, settings);
+    } catch (error) {
+      return { result: makeErrorResult(pickupPoint.id, error), settings };
+    }
   }
   function makeManualQuoteResult(pickupPointId, manualQuote, settings) {
     return makeSuccessResult(
@@ -2834,8 +3006,276 @@
       settings
     );
   }
+  async function saveFetchedQuoteResult(pickupPoint, product, quote, settings) {
+    const updatedSettings = await saveManualQuoteForPoint(pickupPoint, product, quote);
+    if (!updatedSettings) {
+      return {
+        result: makeSuccessResult(pickupPoint.id, quote, settings.defaultCurrency, settings),
+        settings
+      };
+    }
+    const manualQuote = updatedSettings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
+    return {
+      result: manualQuote ? makeManualQuoteResult(pickupPoint.id, manualQuote, updatedSettings) : makeSuccessResult(pickupPoint.id, quote, updatedSettings.defaultCurrency, updatedSettings),
+      settings: updatedSettings
+    };
+  }
   async function requestOzonPrice(request) {
     return fetchOzonPrivatePrice(request);
+  }
+  var OZON_SWEEP_STATE_KEY = "markonverter.ozonSweep.v1";
+  var OZON_SWEPT_SESSION_PREFIX = "markonverter.ozonSwept.v1:";
+  var OZON_UNAVAILABLE_SESSION_PREFIX = "markonverter.ozonUnavailable.v1:";
+  var OZON_SWEEP_PRICE_WAIT_MS = 6e3;
+  var ozonSweepBusy = false;
+  function loadOzonSweepState() {
+    try {
+      const raw = sessionStorage.getItem(OZON_SWEEP_STATE_KEY);
+      if (!raw) {
+        return null;
+      }
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed.productId !== "string" || !Array.isArray(parsed.pending)) {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+  function saveOzonSweepState(state) {
+    try {
+      sessionStorage.setItem(OZON_SWEEP_STATE_KEY, JSON.stringify(state));
+    } catch {
+    }
+  }
+  function clearOzonSweepState() {
+    try {
+      sessionStorage.removeItem(OZON_SWEEP_STATE_KEY);
+    } catch {
+    }
+  }
+  function markOzonProductSwept(productId) {
+    try {
+      sessionStorage.setItem(OZON_SWEPT_SESSION_PREFIX + productId, "1");
+    } catch {
+    }
+  }
+  function isOzonProductSwept(productId) {
+    try {
+      return sessionStorage.getItem(OZON_SWEPT_SESSION_PREFIX + productId) === "1";
+    } catch {
+      return false;
+    }
+  }
+  function loadOzonSessionUnavailable(productId) {
+    try {
+      const raw = sessionStorage.getItem(OZON_UNAVAILABLE_SESSION_PREFIX + productId);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+  function persistOzonSessionUnavailable(productId, ids) {
+    try {
+      const merged = [.../* @__PURE__ */ new Set([...loadOzonSessionUnavailable(productId), ...ids.filter(Boolean)])];
+      sessionStorage.setItem(OZON_UNAVAILABLE_SESSION_PREFIX + productId, JSON.stringify(merged));
+    } catch {
+    }
+  }
+  function isOzonPickupSessionUnavailable(productId, externalLocationId) {
+    return externalLocationId.trim() !== "" && loadOzonSessionUnavailable(productId).includes(externalLocationId);
+  }
+  function shouldStartOzonPriceSweep(product, settings, comparisonPoints) {
+    if (isPanelCollapsed || ozonSweepBusy) {
+      return false;
+    }
+    if (isOzonProductSwept(product.productId) || loadOzonSweepState()) {
+      return false;
+    }
+    return comparisonPoints.some(
+      (point) => point.externalLocationId.trim() !== "" && !settings.manualQuotes[manualQuoteKey(product.productId, point.id)] && !isOzonPickupSessionUnavailable(product.productId, point.externalLocationId)
+    );
+  }
+  async function startOzonPriceSweep(product, settings, comparisonPoints) {
+    if (ozonSweepBusy) {
+      return true;
+    }
+    ozonSweepBusy = true;
+    const pointByExternalId = new Map(
+      comparisonPoints.filter((point) => point.externalLocationId.trim() !== "").map((point) => [point.externalLocationId, point])
+    );
+    const comparisonIds = [...pointByExternalId.keys()];
+    const apiSelected = await fetchOzonSelectedLocationId(product.url).catch(() => null);
+    const originalActive = apiSelected || currentOzonExternalLocationId(product, settings);
+    const originalHref = location.href;
+    const priced = [];
+    const unavailable = [];
+    const activePoint = originalActive ? pointByExternalId.get(originalActive) : void 0;
+    if (activePoint) {
+      if (isVisibleOzonRegionUnavailable()) {
+        unavailable.push(activePoint.externalLocationId);
+      } else if (settings.manualQuotes[manualQuoteKey(product.productId, activePoint.id)]) {
+        priced.push(activePoint.externalLocationId);
+      } else {
+        const quote = extractVisibleOzonPrice(activePoint.currency);
+        if (quote) {
+          await saveManualQuoteForPoint(activePoint, product, quote);
+          priced.push(activePoint.externalLocationId);
+        }
+      }
+      persistOzonSessionUnavailable(product.productId, unavailable);
+    }
+    const pending = comparisonIds.filter((id) => id !== originalActive);
+    const state = {
+      productId: product.productId,
+      originalActive,
+      originalHref,
+      pending,
+      priced,
+      unavailable,
+      returnStage: 0
+    };
+    if (pending.length === 0) {
+      saveOzonSweepState(state);
+      return await beginOzonSweepReturn(product, state, originalActive) === "reloading";
+    }
+    saveOzonSweepState(state);
+    await activateOzonAddressAndReload(product, pending[0]);
+    return true;
+  }
+  async function continueOzonPriceSweep(product, settings) {
+    if (ozonSweepBusy) {
+      return "reloading";
+    }
+    ozonSweepBusy = true;
+    const state = loadOzonSweepState();
+    if (!state || state.productId !== product.productId) {
+      clearOzonSweepState();
+      ozonSweepBusy = false;
+      return "done";
+    }
+    if (state.returnStage === 1) {
+      if (state.originalActive) {
+        state.returnStage = 2;
+        saveOzonSweepState(state);
+        await activateOzonAddressAndReload(product, state.originalActive);
+        return "reloading";
+      }
+      finalizeOzonSweep(product, state);
+      ozonSweepBusy = false;
+      return "done";
+    }
+    if (state.returnStage === 2) {
+      finalizeOzonSweep(product, state);
+      ozonSweepBusy = false;
+      return "done";
+    }
+    const captureTarget = state.pending[0];
+    const point = captureTarget ? settings.pickupPoints.find((item) => item.externalLocationId === captureTarget) : void 0;
+    if (point) {
+      await captureOzonSweepStop(product, point, state.priced, state.unavailable);
+      persistOzonSessionUnavailable(product.productId, state.unavailable);
+    }
+    state.pending = state.pending.slice(1);
+    if (state.pending.length > 0) {
+      saveOzonSweepState(state);
+      await activateOzonAddressAndReload(product, state.pending[0]);
+      return "reloading";
+    }
+    return beginOzonSweepReturn(product, state, captureTarget);
+  }
+  async function beginOzonSweepReturn(product, state, currentActive) {
+    const finishTarget = chooseOzonSweepFinishTarget(state.originalActive, state.priced, state.unavailable);
+    if (!finishTarget || finishTarget === currentActive) {
+      finalizeOzonSweep(product, state);
+      ozonSweepBusy = false;
+      return "done";
+    }
+    const returningToOriginal = finishTarget === state.originalActive;
+    if (returningToOriginal && state.originalHref && ozonHrefOrigin(location.href) !== ozonHrefOrigin(state.originalHref)) {
+      state.returnStage = 1;
+      saveOzonSweepState(state);
+      location.href = state.originalHref;
+      return "reloading";
+    }
+    state.returnStage = 2;
+    saveOzonSweepState(state);
+    await activateOzonAddressAndReload(product, finishTarget);
+    return "reloading";
+  }
+  function ozonHrefOrigin(href) {
+    try {
+      return new URL(href).origin;
+    } catch {
+      return "";
+    }
+  }
+  function finalizeOzonSweep(product, state) {
+    persistOzonSessionUnavailable(product.productId, state.unavailable);
+    markOzonProductSwept(product.productId);
+    clearOzonSweepState();
+  }
+  function chooseOzonSweepFinishTarget(originalActive, priced, unavailable) {
+    if (originalActive && !unavailable.includes(originalActive)) {
+      return originalActive;
+    }
+    return priced[0] ?? originalActive ?? null;
+  }
+  async function captureOzonSweepStop(product, point, priced, unavailable) {
+    await waitForVisibleOzonPriceOrUnavailable(point.currency);
+    if (isVisibleOzonRegionUnavailable()) {
+      if (!unavailable.includes(point.externalLocationId)) {
+        unavailable.push(point.externalLocationId);
+      }
+      return;
+    }
+    try {
+      const quote = await requestOzonPrice({
+        productId: product.productId,
+        productUrl: product.url,
+        pickupExternalLocationId: point.externalLocationId,
+        currencyHint: point.currency
+      });
+      await saveManualQuoteForPoint(point, product, quote);
+      if (!priced.includes(point.externalLocationId)) {
+        priced.push(point.externalLocationId);
+      }
+      captureStatus = { tone: "normal", message: t("panelAutoCapturedCurrentPrice", { name: ozonPickupDisplayName(point) }) };
+    } catch (error) {
+      if (isOzonProductUnavailableInRegion(error) && !unavailable.includes(point.externalLocationId)) {
+        unavailable.push(point.externalLocationId);
+      }
+    }
+  }
+  async function waitForVisibleOzonPriceOrUnavailable(currency) {
+    const deadline = Date.now() + OZON_SWEEP_PRICE_WAIT_MS;
+    while (Date.now() < deadline) {
+      if (isVisibleOzonRegionUnavailable() || extractVisibleOzonPrice(currency)) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+  }
+  function isVisibleOzonRegionUnavailable() {
+    const selectors = ['[data-widget="webPrice"]', '[data-widget*="webPrice" i]', '[data-widget*="price" i]'];
+    for (const selector of selectors) {
+      for (const element of Array.from(document.querySelectorAll(selector))) {
+        const text = element.innerText || element.textContent || "";
+        if (/товар\s+не\s+доставляется\s+в\s+ваш\s+регион/i.test(text)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  async function activateOzonAddressAndReload(product, externalLocationId) {
+    try {
+      await activateOzonPickupLocationForProduct(product.url, externalLocationId);
+    } catch {
+    }
+    location.reload();
   }
   function getCurrentProduct() {
     const adapter = createMarketplaceAdapter("ozon", { requestOzonPrice });
@@ -3202,7 +3642,11 @@
     const response = await runtimeRequest({ type: "UPSERT_PICKUP_POINT", pickupPoint });
     if (response.ok && "settings" in response) {
       latestSettings = response.settings;
-      markSavedPickupCandidateInPage(candidate);
+      if (response.settings.pickupPoints.some(
+        (point) => point.marketplace === "ozon" && point.externalLocationId === candidate.externalLocationId
+      )) {
+        markSavedPickupCandidateInPage(candidate);
+      }
       scheduleOzonDeliveryAssistSync();
     }
     return response;
@@ -3268,6 +3712,7 @@
     }
     const existing = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
     if (existing && quoteMatchesManualQuote(existing, quote)) {
+      lastAutoCapturedCurrentLocation = { productId: product.productId, externalLocationId: pickupPoint.externalLocationId };
       return settings;
     }
     const lockKey = `${product.productId}:${pickupPoint.id}:${quote.amount}:${quote.currency}:${quote.rawText || ""}`;
@@ -3280,6 +3725,7 @@
       if (!updatedSettings) {
         return settings;
       }
+      lastAutoCapturedCurrentLocation = { productId: product.productId, externalLocationId: pickupPoint.externalLocationId };
       captureStatus = { tone: "normal", message: t("panelAutoCapturedCurrentPrice", { name: ozonPickupDisplayName(pickupPoint) }) };
       return updatedSettings;
     } finally {
@@ -3298,6 +3744,9 @@
   async function captureCurrentVisibleQuoteFromLatestSettings() {
     const product = getCurrentProduct();
     if (!product || isPanelCollapsed) {
+      return;
+    }
+    if (ozonSweepBusy || loadOzonSweepState()) {
       return;
     }
     const settings = await getLatestSettings();
@@ -4765,7 +5214,8 @@
     list.className = "rows";
     for (const row of rows) {
       const item = document.createElement("div");
-      item.className = `row${row.isCheapest ? " cheapest" : ""}${row.result?.status === "error" ? " failed" : ""}${row.isSelected ? "" : " unselected"}`;
+      const isRegionUnavailableWarning = row.result?.status === "error" && isOzonProductUnavailableInRegion(row.result.error);
+      item.className = `row${row.isCheapest ? " cheapest" : ""}${row.result?.status === "error" ? isRegionUnavailableWarning ? " warning" : " failed" : ""}${row.isSelected ? "" : " unselected"}`;
       const meta = document.createElement("div");
       meta.className = "meta";
       const metaHead = document.createElement("div");
@@ -4807,19 +5257,11 @@
         const error = row.result.error;
         value.title = error;
         const unavailable = document.createElement("strong");
-        unavailable.textContent = i18n.t("panelUnavailable");
+        unavailable.textContent = isRegionUnavailableWarning ? i18n.t("panelRegionUnavailable") : i18n.t("panelUnavailable");
         const reason = document.createElement("span");
         reason.textContent = readableResultError(error, i18n);
         const actions = document.createElement("div");
         actions.className = "failureActions";
-        const captureButton = document.createElement("button");
-        captureButton.type = "button";
-        captureButton.className = "saveSmallButton";
-        captureButton.textContent = i18n.t("panelCaptureCurrent");
-        captureButton.title = i18n.t("panelCaptureCurrentTitle");
-        captureButton.addEventListener("click", () => {
-          void captureCurrentPriceForPickupPoint(row.pickupPoint, product);
-        });
         const detailsButton = document.createElement("button");
         detailsButton.type = "button";
         detailsButton.className = "detailsButton";
@@ -4828,11 +5270,24 @@
         detailsButton.addEventListener("click", () => {
           void copyFailureDiagnostics(row.pickupPoint, error, product);
         });
-        actions.append(captureButton);
+        if (!isRegionUnavailableWarning) {
+          const captureButton = document.createElement("button");
+          captureButton.type = "button";
+          captureButton.className = "saveSmallButton";
+          captureButton.textContent = i18n.t("panelCaptureCurrent");
+          captureButton.title = i18n.t("panelCaptureCurrentTitle");
+          captureButton.addEventListener("click", () => {
+            void captureCurrentPriceForPickupPoint(row.pickupPoint, product);
+          });
+          actions.append(captureButton);
+        }
         if (settings.debug) {
           actions.append(detailsButton);
         }
-        value.append(unavailable, reason, actions);
+        value.append(unavailable, reason);
+        if (actions.childNodes.length > 0) {
+          value.append(actions);
+        }
       }
       item.append(meta, value);
       list.append(item);
@@ -4932,7 +5387,13 @@
     const savedPoint = response.settings.pickupPoints.find(
       (point) => point.marketplace === "ozon" && point.externalLocationId === candidate.externalLocationId
     );
-    const quoteCaptured = savedPoint && isCurrentVisibleOzonPickupCandidate(candidate) ? await saveCurrentVisibleQuoteForPoint(savedPoint, product, { requireConfirmation: false }) : false;
+    if (!savedPoint) {
+      captureStatus = { tone: "error", message: t("panelPickupLimitReached", { count: MAX_SAVED_OZON_PICKUP_POINTS }) };
+      renderLastPanel();
+      await syncCurrentOzonDeliveryMenuAssist();
+      return;
+    }
+    const quoteCaptured = isCurrentVisibleOzonPickupCandidate(candidate) ? await saveCurrentVisibleQuoteForPoint(savedPoint, product, { requireConfirmation: false }) : false;
     captureStatus = {
       tone: "normal",
       message: quoteCaptured ? t("panelSavedAndCaptured", { name: candidateName }) : t("panelSaved", { name: candidateName })
@@ -4966,6 +5427,9 @@
   function readableResultError(error, i18n = currentI18n()) {
     if (error === CURRENT_OZON_PRICE_NOT_CAPTURED) {
       return i18n.t("panelCurrentPriceNotCaptured");
+    }
+    if (isOzonProductUnavailableInRegion(error)) {
+      return i18n.t("panelRegionUnavailableHint");
     }
     if (error.includes("response did not confirm requested pickup point")) {
       return i18n.t("panelOzonDidNotConfirm");

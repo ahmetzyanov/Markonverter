@@ -1,8 +1,11 @@
 import {
+  activateOzonPickupLocationForProduct,
   buildLocationActivationCandidates,
   fetchOzonPrivatePrice,
   extractOzonDeliveryText,
   extractOzonPrice,
+  extractSelectedOzonLocationId,
+  isOzonProductUnavailableInRegion,
   responseContainsLocation
 } from "../../../src/marketplaces/ozon/private-api";
 
@@ -216,6 +219,44 @@ describe("Ozon private API parsing", () => {
       rawText: "100 000 ₸",
       deliveryText: "Tomorrow"
     });
+  });
+
+  it("classifies a confirmed pickup point where the product is not delivered to that region", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            delivery: {
+              selectedAddressOid: "ru-123"
+            },
+            widgetStates: {
+              webPrice: JSON.stringify({
+                title: "Товар не доставляется в ваш регион"
+              })
+            }
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        );
+      })
+    );
+
+    try {
+      await fetchOzonPrivatePrice({
+        productId: "2229282395",
+        productUrl: "https://ozon.kz/product/fake-product-2229282395/",
+        pickupExternalLocationId: "ru-123",
+        currencyHint: "RUB"
+      });
+      throw new Error("expected unavailable-region response to reject");
+    } catch (error) {
+      expect(isOzonProductUnavailableInRegion(error)).toBe(true);
+    }
   });
 
   it("does not call session-mutating address selection endpoints by default", async () => {
@@ -636,5 +677,52 @@ describe("Ozon private API parsing", () => {
       referer: productPath
     });
     expect(candidates.some((candidate) => candidate.label === "entrypoint-select-address-legacy")).toBe(true);
+  });
+
+  it("can activate a pickup point for restoring the originally selected Ozon location", async () => {
+    const calls: Array<{ url: string; body?: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, body: typeof init?.body === "string" ? init.body : undefined });
+        return new Response(
+          JSON.stringify({
+            delivery: {
+              selectedAddressOid: "kz-456"
+            }
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        );
+      })
+    );
+
+    await expect(
+      activateOzonPickupLocationForProduct("https://ozon.kz/product/fake-product-2229282395/?at=token", "kz-456")
+    ).resolves.toBe(true);
+    expect(calls[0]?.url).toContain("select_address%3Dkz-456");
+    expect(calls[0]?.url).toContain("src_main%3D%252Fproduct%252Ffake-product-2229282395%252F%253Fat%253Dtoken");
+  });
+
+  it("reads the currently selected pickup point id from a selected-location path", () => {
+    expect(
+      extractSelectedOzonLocationId({
+        delivery: { selectedAddressOid: "kazan-ru-777", deliveryTime: "Today" },
+        addressBook: { items: [{ deliveryAddressOid: "kz-456" }] }
+      })
+    ).toBe("kazan-ru-777");
+  });
+
+  it("ignores request/query echoes when reading the selected pickup point id", () => {
+    expect(
+      extractSelectedOzonLocationId({
+        requestEcho: { selectedAddressOid: "from-url-999", url: "/api?select_location=from-url-999" },
+        addressBook: { items: [{ deliveryAddressOid: "kz-456" }] }
+      })
+    ).toBeNull();
   });
 });
