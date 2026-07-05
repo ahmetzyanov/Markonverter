@@ -2,6 +2,12 @@
 
 Chrome/Chromium Manifest V3 extension for comparing an Ozon product price across saved pickup points.
 
+Markonverter is not affiliated with, endorsed by, or sponsored by Ozon. It uses
+Ozon product pages from the user's own browser session and may make automated
+pickup-point price requests to Ozon's undocumented internal APIs. Those requests
+can hit Ozon anti-bot checks or rate limits on the user's own account; that is a
+Terms of Use risk of this approach, not an extension malfunction.
+
 ## What it does
 
 - Injects a compact comparison panel on Ozon product pages.
@@ -43,7 +49,7 @@ The loadable extension is written to `dist/`.
 1. Open `chrome://extensions`.
 2. Enable Developer mode.
 3. Click Load unpacked.
-4. Select `/Users/gogla/PycharmProjects/markonverter/dist`.
+4. Select the generated `dist/` directory.
 5. Open an Ozon product page and add pickup points from Ozon's delivery selector or the Markonverter panel.
 
 ## Pickup point setup
