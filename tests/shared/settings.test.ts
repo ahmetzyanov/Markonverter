@@ -11,7 +11,7 @@ describe("settings helpers", () => {
       currency: "RUB",
       externalLocationId: "ru-pvz-1"
     });
-    const second = upsertPickupPoint(first, {
+    const second = upsertPickupPoint(first.settings, {
       id: "second",
       name: "New name",
       marketplace: "ozon",
@@ -20,8 +20,9 @@ describe("settings helpers", () => {
       externalLocationId: "ru-pvz-1"
     });
 
-    expect(second.pickupPoints).toHaveLength(1);
-    expect(second.pickupPoints[0]).toMatchObject({
+    expect(second.saved).toBe(true);
+    expect(second.settings.pickupPoints).toHaveLength(1);
+    expect(second.settings.pickupPoints[0]).toMatchObject({
       id: "first",
       name: "New name",
       externalLocationId: "ru-pvz-1"
@@ -42,7 +43,7 @@ describe("settings helpers", () => {
       pickupPoints: existingPoints
     };
 
-    const unchanged = upsertPickupPoint(settings, {
+    const result = upsertPickupPoint(settings, {
       id: "extra",
       name: "Extra",
       marketplace: "ozon",
@@ -51,8 +52,9 @@ describe("settings helpers", () => {
       externalLocationId: "ru-pvz-extra"
     });
 
-    expect(unchanged.pickupPoints).toHaveLength(MAX_SAVED_OZON_PICKUP_POINTS);
-    expect(unchanged.pickupPoints.some((point) => point.id === "extra")).toBe(false);
+    expect(result).toMatchObject({ saved: false, reason: "limit" });
+    expect(result.settings.pickupPoints).toHaveLength(MAX_SAVED_OZON_PICKUP_POINTS);
+    expect(result.settings.pickupPoints.some((point) => point.id === "extra")).toBe(false);
   });
 
   it("still updates an existing Ozon pickup point when the limit is reached", () => {
@@ -80,8 +82,9 @@ describe("settings helpers", () => {
       }
     );
 
-    expect(updated.pickupPoints).toHaveLength(MAX_SAVED_OZON_PICKUP_POINTS);
-    expect(updated.pickupPoints[2]).toMatchObject({
+    expect(updated.saved).toBe(true);
+    expect(updated.settings.pickupPoints).toHaveLength(MAX_SAVED_OZON_PICKUP_POINTS);
+    expect(updated.settings.pickupPoints[2]).toMatchObject({
       id: "ozon-2",
       name: "Updated Ozon"
     });
@@ -118,7 +121,7 @@ describe("settings helpers", () => {
   });
 
   it("removes deleted pickup points from captured product quotes", () => {
-    const settings = upsertManualQuote(
+    const { saved, settings } = upsertManualQuote(
       {
         ...DEFAULT_SETTINGS,
         pickupPoints: [
@@ -141,8 +144,22 @@ describe("settings helpers", () => {
       }
     );
 
+    expect(saved).toBe(true);
     expect(settings.manualQuotes[manualQuoteKey("2229282395", "ru")]).toBeDefined();
     expect(deletePickupPoint(settings, "ru").manualQuotes).toEqual({});
+  });
+
+  it("rejects manual quotes for unknown pickup points instead of silently dropping them", () => {
+    const result = upsertManualQuote(DEFAULT_SETTINGS, {
+      productId: "2229282395",
+      productUrl: "https://ozon.ru/product/example-2229282395/",
+      pickupPointId: "missing",
+      quote: { amount: 1000, currency: "RUB", source: "manual", capturedAt: "2026-06-29T21:00:00.000Z" },
+      capturedAt: "2026-06-29T21:00:00.000Z"
+    });
+
+    expect(result).toMatchObject({ saved: false, reason: "invalid" });
+    expect(result.settings.manualQuotes).toEqual({});
   });
 
   it("stores null comparison selection as all saved pickup points", () => {

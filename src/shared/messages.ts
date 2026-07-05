@@ -1,4 +1,5 @@
 import { CurrencyRateProvider, CurrencyRateRefreshResult, ExtensionSettings, ManualQuote, PickupPoint } from "./types";
+import { SettingsWriteRejection } from "./settings";
 
 export type RuntimeRequest =
   | { type: "GET_SETTINGS" }
@@ -13,4 +14,4 @@ export type RuntimeRequest =
 export type RuntimeResponse =
   | { ok: true; settings: ExtensionSettings; rateResult?: CurrencyRateRefreshResult }
   | { ok: true }
-  | { ok: false; error: string };
+  | { ok: false; error: string; reason?: SettingsWriteRejection };

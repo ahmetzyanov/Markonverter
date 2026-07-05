@@ -40,7 +40,10 @@ const STRONG_ID_KEYS = new Set([
   "pointId"
 ]);
 
-const WEAK_ID_KEYS = new Set(["locationId", "cityId", "geoId", "regionId"]);
+const WEAK_ID_KEYS = new Set(["locationId"]);
+// A city/geo/region id matches nearly every response for that city, so a point
+// saved under it would "verify" against non-pickup locations. Never emit them.
+const GEO_ID_KEY_RE = /^(?:city|geo|region)[_-]?(?:o?id|uid)$/i;
 const RELEVANCE_RE = /(delivery|address|pickup|pickpoint|pvz|пвз|пункт|получ|достав|location|geo|city|region)/i;
 const BAD_ID_RE = /(product|sku|item|seller|brand|category|image|price|cart|widget|layout|session|fingerprint|analytics|banner)/i;
 const SERVICE_LABEL_RE =
@@ -444,6 +447,9 @@ function pickupIdPatterns(): RegExp[] {
 }
 
 function scoreIdKey(key: string): number {
+  if (GEO_ID_KEY_RE.test(key)) {
+    return 0;
+  }
   if (STRONG_ID_KEYS.has(key)) {
     return 60;
   }

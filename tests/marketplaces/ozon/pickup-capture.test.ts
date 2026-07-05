@@ -30,6 +30,25 @@ describe("Ozon pickup capture", () => {
     });
   });
 
+  it("does not emit candidates for weak city/geo/region ids", () => {
+    const candidates = extractOzonPickupCandidatesFromSources([
+      {
+        source: "network.https://www.ozon.ru/api/composer-api.bx/page/json/v2?url=%2Fmodal%2Faddressbook",
+        urlHint: "https://www.ozon.ru/product/example",
+        value: {
+          delivery: {
+            cityId: 12345678,
+            geoId: "98765432",
+            regionId: 54321,
+            region_id: "77001"
+          }
+        }
+      }
+    ]);
+
+    expect(candidates).toEqual([]);
+  });
+
   it("does not treat product ids as pickup point ids", () => {
     const candidates = extractOzonPickupCandidatesFromSources([
       {

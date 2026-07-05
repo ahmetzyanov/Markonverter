@@ -219,6 +219,31 @@ updates, and non-trivial implementation changes.
   reselects the original point there, since the private API can only switch the
   active address same-origin.
 
+## 2026-07-06
+
+- Ozon pickup capture no longer emits candidates keyed by weak city/region ids
+  (`cityId`, `geoId`, `regionId`, plus `_`/`oid`/`uid` variants) — a point
+  saved under such an id "verifies" against nearly every response for the
+  city. `locationId` stays as a weak key.
+- `upsertPickupPoint` / `upsertManualQuote` now return a discriminated
+  `SettingsWriteResult` (`saved: true` | `saved: false, reason:
+  "invalid"|"limit"`). Background maps dropped writes to
+  `{ok: false, reason}` instead of replying `{ok: true}` with unchanged
+  settings; the content panel shows the localized limit / not-saved message.
+- app.ts split, step 1 of 3: extracted the pure pickup-matching string logic
+  (~250 lines: `findSavedPickupPointForVisibleDelivery`,
+  `scoreVisiblePickupMatch`, `pickupMatchTokens`,
+  `matchDetectedPickupCandidateToRow`, label/display-name helpers) into
+  `src/marketplaces/ozon/pickup-matching.ts`. No behavior change; the
+  `latestPickupCandidates` global is now passed as a parameter at the three
+  call sites. New unit tests pin the matching behavior. Remaining steps:
+  delivery-menu assist, then the sweep state machine.
+- TODO decision still open: the positional `labels[i] -> entries[i]`
+  counts-differ pairing fallback in pickup-capture is covered by a test
+  ("pairs visible selector labels when Ozon appends a non-PVZ address id after
+  pickup rows"), so dropping it regresses an intended scenario; guarding it
+  needs a design call.
+
 ## 2026-07-05
 
 - Hid the secondary original-price label in saved-PVZ product rows when the

@@ -7,11 +7,17 @@ export function manualQuoteKey(productId: string, pickupPointId: string): string
   return `${productId}:${pickupPointId}`;
 }
 
-export function upsertPickupPoint(settings: ExtensionSettings, pickupPoint: PickupPoint): ExtensionSettings {
+export type SettingsWriteRejection = "invalid" | "limit";
+
+export type SettingsWriteResult =
+  | { saved: true; settings: ExtensionSettings }
+  | { saved: false; reason: SettingsWriteRejection; settings: ExtensionSettings };
+
+export function upsertPickupPoint(settings: ExtensionSettings, pickupPoint: PickupPoint): SettingsWriteResult {
   const normalized = normalizeSettings(settings);
   const nextPoint = normalizeSettings({ ...normalized, pickupPoints: [pickupPoint] }).pickupPoints[0];
   if (!nextPoint) {
-    return normalized;
+    return { saved: false, reason: "invalid", settings: normalized };
   }
 
   const nextPickupPoints = [...normalized.pickupPoints];
@@ -29,15 +35,18 @@ export function upsertPickupPoint(settings: ExtensionSettings, pickupPoint: Pick
       id: nextPickupPoints[existingIndex].id
     };
   } else if (nextPoint.marketplace === "ozon" && countOzonPickupPoints(nextPickupPoints) >= MAX_SAVED_OZON_PICKUP_POINTS) {
-    return normalized;
+    return { saved: false, reason: "limit", settings: normalized };
   } else {
     nextPickupPoints.push(nextPoint);
   }
 
-  return normalizeSettings({
-    ...normalized,
-    pickupPoints: nextPickupPoints
-  });
+  return {
+    saved: true,
+    settings: normalizeSettings({
+      ...normalized,
+      pickupPoints: nextPickupPoints
+    })
+  };
 }
 
 export function deletePickupPoint(settings: ExtensionSettings, pickupPointId: string): ExtensionSettings {
@@ -63,15 +72,21 @@ export function setComparisonPickupPointIds(settings: ExtensionSettings, pickupP
   });
 }
 
-export function upsertManualQuote(settings: ExtensionSettings, manualQuote: ManualQuote): ExtensionSettings {
+export function upsertManualQuote(settings: ExtensionSettings, manualQuote: ManualQuote): SettingsWriteResult {
   const normalized = normalizeSettings(settings);
-  return normalizeSettings({
+  const key = manualQuoteKey(manualQuote.productId, manualQuote.pickupPointId);
+  const next = normalizeSettings({
     ...normalized,
     manualQuotes: {
       ...normalized.manualQuotes,
-      [manualQuoteKey(manualQuote.productId, manualQuote.pickupPointId)]: manualQuote
+      [key]: manualQuote
     }
   });
+  // normalizeSettings drops quotes with an unknown pickupPointId or invalid price.
+  if (!(key in next.manualQuotes)) {
+    return { saved: false, reason: "invalid", settings: normalized };
+  }
+  return { saved: true, settings: next };
 }
 
 function countOzonPickupPoints(pickupPoints: PickupPoint[]): number {

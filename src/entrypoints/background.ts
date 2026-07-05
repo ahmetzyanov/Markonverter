@@ -1,7 +1,14 @@
 import { RuntimeRequest, RuntimeResponse } from "../shared/messages";
 import { CurrencyRateProvider, CurrencyRateRefreshResult, DEFAULT_SETTINGS, ExtensionSettings } from "../shared/types";
 import { applyCurrencyRateResult, fetchCurrencyRates, isCurrencyRateCacheFresh } from "../shared/exchange-rates";
-import { deletePickupPoint, SETTINGS_KEY, setComparisonPickupPointIds, upsertManualQuote, upsertPickupPoint } from "../shared/settings";
+import {
+  deletePickupPoint,
+  SETTINGS_KEY,
+  setComparisonPickupPointIds,
+  SettingsWriteResult,
+  upsertManualQuote,
+  upsertPickupPoint
+} from "../shared/settings";
 import { normalizeSettings } from "../shared/validation";
 let staleRateRefresh: Promise<ExtensionSettings> | null = null;
 
@@ -34,7 +41,7 @@ async function handleRequest(request: RuntimeRequest): Promise<RuntimeResponse> 
     return { ok: true, settings, rateResult: result };
   }
   if (request.type === "UPSERT_PICKUP_POINT") {
-    return { ok: true, settings: await mutateSettings((settings) => upsertPickupPoint(settings, request.pickupPoint)) };
+    return applySettingsWrite((settings) => upsertPickupPoint(settings, request.pickupPoint));
   }
   if (request.type === "DELETE_PICKUP_POINT") {
     return { ok: true, settings: await mutateSettings((settings) => deletePickupPoint(settings, request.pickupPointId)) };
@@ -46,7 +53,7 @@ async function handleRequest(request: RuntimeRequest): Promise<RuntimeResponse> 
     };
   }
   if (request.type === "SAVE_MANUAL_QUOTE") {
-    return { ok: true, settings: await mutateSettings((settings) => upsertManualQuote(settings, request.manualQuote)) };
+    return applySettingsWrite((settings) => upsertManualQuote(settings, request.manualQuote));
   }
   if (request.type === "OPEN_OPTIONS") {
     await openOptionsPage();
@@ -89,6 +96,25 @@ function mutateSettings(mutate: (settings: ExtensionSettings) => ExtensionSettin
   });
   settingsWriteQueue = task.catch(() => undefined);
   return task;
+}
+
+const SETTINGS_WRITE_ERRORS = {
+  invalid: "The write was rejected by validation",
+  limit: "Saved Ozon pickup point limit reached"
+} as const;
+
+// A dropped write must not reply {ok: true}: the UI would report "saved" for a
+// write that never happened.
+async function applySettingsWrite(write: (settings: ExtensionSettings) => SettingsWriteResult): Promise<RuntimeResponse> {
+  let outcome: SettingsWriteResult | undefined;
+  const settings = await mutateSettings((current) => {
+    outcome = write(current);
+    return outcome.settings;
+  });
+  if (outcome && !outcome.saved) {
+    return { ok: false, error: SETTINGS_WRITE_ERRORS[outcome.reason], reason: outcome.reason };
+  }
+  return { ok: true, settings };
 }
 
 async function getSettingsWithFreshRates(): Promise<ExtensionSettings> {
