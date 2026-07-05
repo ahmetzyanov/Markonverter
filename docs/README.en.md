@@ -11,7 +11,7 @@
 [![Platform](https://img.shields.io/badge/Chrome%20%7C%20Chromium-005BFF.svg?style=flat-square&logo=googlechrome&logoColor=white)](#load-in-chrome)
 [![TypeScript](https://img.shields.io/badge/TypeScript-005BFF.svg?style=flat-square&logo=typescript&logoColor=white)](../tsconfig.json)
 
-[What it does](#what-it-does) · [Build](#build) · [Load in Chrome](#load-in-chrome) · [Pickup point setup](#pickup-point-setup)
+[What it does](#what-it-does) · [Build](#build) · [Load in Chrome](#load-in-chrome)
 
 Русская версия: [README.md](../README.md)
 
@@ -27,22 +27,22 @@ Terms of Use risk of this approach, not an extension malfunction.
 
 ## What it does
 
-- Injects a compact comparison panel on Ozon product pages.
-- Opens the product-page panel automatically and remembers whether it is expanded or collapsed.
-- Captures verified product prices for configured Ozon pickup points when a product page opens.
-- Saves the currently selected Ozon delivery point from the product page panel.
-- Lets you choose and delete saved pickup points directly in the product-page panel.
-- Shows pickup points detected from Ozon page/network data when Ozon loads them.
-- Adds Markonverter save controls near Ozon's delivery selection UI when it is visible.
-- Uses product-specific captured prices for saved Ozon pickup points.
-- Automatically captures the visible product price when the current Ozon delivery
-  point or selected delivery row clearly matches a saved Markonverter point.
-- Tries read-only Ozon price requests first, then falls back to guarded
-  sequential pickup activation and restores the originally selected point.
-- Copies per-point diagnostics for failed Ozon API attempts.
-- Converts prices between RUB and KZT.
-- Uses RUB as the default comparison currency.
-- Keeps marketplace support behind adapters so Wildberries can be added later.
+The Markonverter panel drops right into Ozon's price card on the product page
+and shows the price for every saved pickup point at once, with automatic
+RUB/KZT conversion.
+
+<p align="center">
+<img src="screenshots/panel-comparison.png" alt="Comparing pickup-point prices right on Ozon's price card" width="300" />
+</p>
+
+The panel captures the active pickup point's price on its own, and for the
+other saved points it carefully switches the delivery address one at a time
+and restores the original selection afterward. Marketplace support sits
+behind adapters (Ozon today, Wildberries could be added later).
+
+KZT/RUB rates can come from the Bank of Russia, the National Bank of
+Kazakhstan, or ExchangeRate-API (with automatic fallback between them), or be
+set manually in the options page.
 
 ## Build
 
@@ -68,44 +68,6 @@ The loadable extension is written to `dist/`.
 3. Click Load unpacked.
 4. Select the generated `dist/` directory.
 5. Open an Ozon product page and add pickup points from Ozon's delivery selector or the Markonverter panel.
-
-## Pickup point setup
-
-Recommended flow:
-
-1. Open an Ozon product page.
-2. Open Ozon's delivery selector so Ozon loads pickup-point rows.
-3. Press `Add` next to the exact pickup point in the Ozon selector, or use `Save` in Markonverter's detected pickup list.
-4. Rows already stored in Markonverter show `Saved` instead of another add action.
-
-Markonverter keeps up to 4 saved Ozon pickup points. When a product page opens,
-each selected saved row first tries a verified Ozon price request that does not
-change the current delivery point. If Ozon only prices the active delivery
-point, Markonverter checks saved points sequentially through Ozon's address
-activation flow, saves product-specific captured quotes, and then asks Ozon to
-restore the point that was selected when the page opened. If Ozon does not
-confirm a requested point, the row stays `Unavailable` instead of reusing another
-point's price.
-If Ozon confirms the pickup point but says the product is not delivered to that
-region, Markonverter shows an orange warning on that pickup-point row and keeps
-the page on a pickup point where the product is available when one was found.
-
-Each pickup point stores:
-
-- name
-- marketplace
-- country
-- currency
-- Ozon location id
-
-Current-point matching also watches Ozon's compact address bar, because live
-product pages may show the opened pickup point as only a short street/house
-label rather than a full delivery card. Use `Capture current` on a row as the
-manual fallback when automatic capture cannot be verified.
-
-Use the checkbox in each product-page row to choose which saved Markonverter points are compared. The same panel shows new detected pickup points when Ozon exposes them through the visible page or network responses. Those detected points can be saved into Markonverter from their own rows.
-
-When Ozon's delivery selector is open, Markonverter shows selector-level status and adds `Add` / `Saved` controls next to visible pickup-point rows. Use row-level `Delete` buttons in Markonverter to remove stale or wrong pickup points without opening the settings page.
 
 ## Ozon API note
 
@@ -180,13 +142,3 @@ OZON_QA_CAPTURE_CHECK=1 npm run qa:ozon:live
 That live check uses the test browser profile to save the current detected PVZ,
 clear only the captured quote, reload the product page, and assert that the
 opened PVZ price is captured again automatically.
-
-## Recording real Ozon fixtures
-
-For real replay data, load the current `dist/` extension in the trusted browser
-profile where Ozon works, open an Ozon product page, and use Ozon normally:
-open delivery selection, choose or view pickup points, and wait for prices. The
-Markonverter panel records relevant Ozon `composer-api`, `entrypoint-api`,
-delivery, address, pickup, and geo responses locally. Use `Copy` in the panel's
-`Ozon fixtures` row to copy the bounded fixture JSON, or `Clear` to remove the
-local capture buffer.
