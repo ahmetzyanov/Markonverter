@@ -32,7 +32,7 @@ and shows the price for every saved pickup point at once, with automatic
 RUB/KZT conversion.
 
 <p align="center">
-<img src="screenshots/panel-comparison.png" alt="Comparing pickup-point prices right on Ozon's price card" width="300" />
+<img src="screenshots/panel-comparison.png" alt="Comparing pickup-point prices right on Ozon's price card" />
 </p>
 
 The panel captures the active pickup point's price on its own, and for the
