@@ -408,6 +408,7 @@ async function verifyManualTwoPointSuccess(page, worker, extensionId) {
   await waitForPanelText(page, rub17000Text, "Astana captured converted price");
   const text = await panelText(page);
   assert(!/Unavailable|Недоступно/.test(text), "manual quote scenario should not show unavailable rows");
+  await assertNoDuplicateSameCurrencyPrice(page);
   await assertPanelRowChrome(page);
   await verifyPanelCollapseAnimation(page);
   await deleteFirstPanelPickupPoint(page, worker);
@@ -645,6 +646,20 @@ async function assertPanelRowChrome(page) {
     }
     if (/Captured |Записано |Today, 18:00-20:00|Tomorrow, 10:00-18:00/i.test(rowText)) {
       throw new Error(`Product panel still shows captured metadata or delivery text under prices:\n${rowText}`);
+    }
+  });
+}
+
+async function assertNoDuplicateSameCurrencyPrice(page) {
+  await page.locator("#markonverter-panel-root").evaluate(() => {
+    const host = document.querySelector("#markonverter-panel-root");
+    const shadow = host?.shadowRoot;
+    const rows = Array.from(shadow?.querySelectorAll(".row") || []);
+    const moscowRow = rows.find((row) => /Moscow pickup/.test(row.textContent || ""));
+    const text = moscowRow?.textContent || "";
+    const rub9000Matches = text.match(/(?:9[\s\u00a0]*000,00[\s\u00a0]*₽|RUB[\s\u00a0]*9,000\.00)/g) || [];
+    if (rub9000Matches.length !== 1) {
+      throw new Error(`Moscow RUB row should show its same-currency price once, got ${rub9000Matches.length}:\n${text}`);
     }
   });
 }

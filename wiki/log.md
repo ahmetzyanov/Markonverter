@@ -218,6 +218,13 @@ updates, and non-trivial implementation changes.
   to `ozon.kz`), the return first navigates back to the original URL and then
   reselects the original point there, since the private API can only switch the
   active address same-origin.
+
+## 2026-07-05
+
+- Hid the secondary original-price label in saved-PVZ product rows when the
+  original pickup-point currency already matches the default comparison
+  currency. Cross-currency rows still show both the converted comparison price
+  and the source-currency price.
 - Fixed product-panel width inside wide Ozon price cards by removing the
   ordinary-panel 398px cap; that cap now applies only to floating fallback
   panels.

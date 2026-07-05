@@ -5249,10 +5249,14 @@
         const converted = formatCurrency(row.result.convertedAmount, row.result.convertedCurrency, i18n.locale);
         const capturedTitle = row.result.originalPrice.source === "manual" ? i18n.t("panelCapturedTitle", { time: formatCapturedAt(row.result.originalPrice.capturedAt, i18n) }) : "";
         const delta = row.deltaFromCheapest && row.deltaFromCheapest > 0 ? `+${formatCurrency(row.deltaFromCheapest, row.result.convertedCurrency, i18n.locale)}` : row.isCheapest ? i18n.t("panelBest") : "";
+        const details = [
+          row.result.originalPrice.currency === row.result.convertedCurrency ? "" : original,
+          delta
+        ].filter(Boolean);
         if (capturedTitle) {
           value.title = capturedTitle;
         }
-        value.innerHTML = `<strong>${converted}</strong><span class="original">${escapeHtml([original, delta].filter(Boolean).join(" "))}</span>`;
+        value.innerHTML = `<strong>${converted}</strong>${details.length > 0 ? `<span class="original">${escapeHtml(details.join(" "))}</span>` : ""}`;
       } else {
         const error = row.result.error;
         value.title = error;
