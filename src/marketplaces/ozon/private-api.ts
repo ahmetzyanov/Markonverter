@@ -365,7 +365,7 @@ function inspectResponseLocation(json: unknown, pickupExternalLocationIds: strin
       return;
     }
 
-    if (acceptedIds.some((id) => text.includes(id))) {
+    if (acceptedIds.some((id) => textContainsLocationId(text, id))) {
       hasAcceptedExplicitLocation = true;
       return;
     }
@@ -391,7 +391,7 @@ function inspectActivationResponse(json: unknown, pickupExternalLocationId: stri
     }
 
     const text = String(value).trim();
-    if (!text.includes(pickupExternalLocationId)) {
+    if (!textContainsLocationId(text, pickupExternalLocationId)) {
       return;
     }
 
@@ -412,7 +412,7 @@ function inspectActivationResponse(json: unknown, pickupExternalLocationId: stri
     const localConfirmationValues = Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
       scalarLocationValues([...path, key], child)
     );
-    if (!localConfirmationValues.some((item) => item.includes(pickupExternalLocationId))) {
+    if (!localConfirmationValues.some((item) => textContainsLocationId(item, pickupExternalLocationId))) {
       return;
     }
 
@@ -471,9 +471,26 @@ export function responseContainsLocation(json: unknown, pickupExternalLocationId
     if (!locationConfirmationPathScore(path)) {
       return;
     }
-    found = String(value).includes(needle);
+    found = textContainsLocationId(String(value), needle);
   });
   return found;
+}
+
+// Substring containment is not enough: id "12345" must not be confirmed by a
+// response that only mentions "123456". Require non-alphanumeric boundaries.
+function textContainsLocationId(text: string, id: string): boolean {
+  const isBoundary = (char: string | undefined) => char === undefined || !/[a-z0-9]/i.test(char);
+  let from = 0;
+  while (true) {
+    const index = text.indexOf(id, from);
+    if (index === -1) {
+      return false;
+    }
+    if (isBoundary(text[index - 1]) && isBoundary(text[index + id.length])) {
+      return true;
+    }
+    from = index + 1;
+  }
 }
 
 export function extractOzonPrice(json: unknown, currencyHint: Currency): PriceQuote | null {
@@ -525,11 +542,11 @@ export function extractOzonPrice(json: unknown, currencyHint: Currency): PriceQu
 
   const unique = dedupeCandidates(candidates);
   unique.sort((a, b) => b.score - a.score);
-  const [best, second] = unique;
+  const [best] = unique;
   if (!best) {
     return null;
   }
-  if (second && best.score === second.score && best.amount !== second.amount) {
+  if (unique.some((candidate) => candidate !== best && candidate.score === best.score && candidate.amount !== best.amount)) {
     return null;
   }
   const deliveryText = extractOzonDeliveryText(json);
@@ -757,6 +774,11 @@ function parsePrice(value: unknown, currencyHint: Currency): PriceQuote | null {
 
   const text = value.trim();
   if (/^[a-z]+(?:_[a-z]+)*_\d+$/i.test(text)) {
+    return null;
+  }
+  // Serialized JSON blobs would have every digit group concatenated into one
+  // bogus amount; real price strings never contain braces/brackets or quotes.
+  if (/[{}[\]"]/.test(text)) {
     return null;
   }
 

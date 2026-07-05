@@ -6,3 +6,4 @@ npm-debug.log*
 .env.*
 !.env.example
 .secrets/
+.claude/scheduled_tasks.lock

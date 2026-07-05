@@ -12,7 +12,7 @@ import {
   PriceQuote,
   ProductIdentity
 } from "../shared/types";
-import { manualQuoteKey } from "../shared/settings";
+import { manualQuoteKey, SETTINGS_KEY } from "../shared/settings";
 import { normalizeSettings } from "../shared/validation";
 import {
   appendOzonFixtureRecords,
@@ -22,7 +22,7 @@ import {
   OzonNetworkFixtureInput,
   OZON_FIXTURE_STORE_KEY
 } from "../shared/ozon-fixtures";
-import { createMarketplaceAdapter } from "../marketplaces/registry";
+import { getOzonProductIdentity, isOzonProductPage } from "../marketplaces/ozon";
 import {
   activateOzonPickupLocationForProduct,
   fetchOzonPrivatePrice,
@@ -50,13 +50,10 @@ const PAGE_ACTION_SELECTOR = "[data-markonverter-page-action]";
 const COLLECT_PICKUP_EVENT = "markonverter:collect-ozon-pickup";
 const PICKUP_CANDIDATES_EVENT = "markonverter:ozon-pickup-candidates";
 const NETWORK_FIXTURE_EVENT = "markonverter:ozon-network-fixture";
-const SETTINGS_KEY = "markonverter.settings";
 const PANEL_STATE_KEY = "markonverter.panelState";
 const DETECTED_PICKUP_LIST_ID = "markonverter-detected-pickup-list";
 const PANEL_COLLAPSE_DURATION_MS = 220;
 const PANEL_EXPAND_DURATION_MS = 240;
-const CURRENT_OZON_PRICE_NOT_CAPTURED =
-  "Open or select this pickup point in Ozon, wait for the visible product price, then use Capture current if Markonverter does not capture it automatically.";
 
 let activeUrl = "";
 let activeRun = 0;
@@ -100,7 +97,11 @@ export async function boot(): Promise<void> {
   installOzonDeliveryMenuAssist();
   installPanelRecovery();
   await runIfProductPage();
-  setInterval(() => {
+  const recheckTimer = setInterval(() => {
+    if (isExtensionContextGone()) {
+      clearInterval(recheckTimer);
+      return;
+    }
     if (location.href !== activeUrl || shouldRestoreProductPanel()) {
       void runIfProductPage();
     }
@@ -145,27 +146,28 @@ function shouldRestoreProductPanel(): boolean {
     return false;
   }
   try {
-    const adapter = createMarketplaceAdapter("ozon", { requestOzonPrice });
-    return adapter.isProductPage(new URL(location.href));
+    return isOzonProductPage(new URL(location.href));
   } catch {
     return false;
   }
 }
 
 async function runIfProductPage(): Promise<void> {
+  if (isExtensionContextGone()) {
+    return;
+  }
   const currentUrl = location.href;
   const pageChanged = currentUrl !== activeUrl;
   const runId = ++activeRun;
-  const adapter = createMarketplaceAdapter("ozon", { requestOzonPrice });
   const url = new URL(currentUrl);
 
-  if (!adapter.isProductPage(url)) {
+  if (!isOzonProductPage(url)) {
     activeUrl = currentUrl;
     removePanel();
     return;
   }
 
-  const product = adapter.getProductIdentity(url, document);
+  const product = getOzonProductIdentity(url, document);
   if (!product) {
     activeUrl = "";
     removePanel();
@@ -446,6 +448,18 @@ function loadOzonSweepState(): OzonSweepState | null {
   }
 }
 
+function canPersistOzonSweepState(): boolean {
+  const probeKey = OZON_SWEEP_STATE_KEY + ".probe";
+  try {
+    sessionStorage.setItem(probeKey, "1");
+    const persisted = sessionStorage.getItem(probeKey) === "1";
+    sessionStorage.removeItem(probeKey);
+    return persisted;
+  } catch {
+    return false;
+  }
+}
+
 function saveOzonSweepState(state: OzonSweepState): void {
   try {
     sessionStorage.setItem(OZON_SWEEP_STATE_KEY, JSON.stringify(state));
@@ -507,6 +521,12 @@ function shouldStartOzonPriceSweep(
   comparisonPoints: PickupPoint[]
 ): boolean {
   if (isPanelCollapsed || ozonSweepBusy) {
+    return false;
+  }
+  // The sweep survives reloads only through sessionStorage. If it cannot
+  // persist state, every reload would look like a fresh start — an infinite
+  // reload loop. Never start in that case.
+  if (!canPersistOzonSweepState()) {
     return false;
   }
   if (isOzonProductSwept(product.productId) || loadOzonSweepState()) {
@@ -761,9 +781,8 @@ async function activateOzonAddressAndReload(product: ProductIdentity, externalLo
 }
 
 function getCurrentProduct(): ProductIdentity | null {
-  const adapter = createMarketplaceAdapter("ozon", { requestOzonPrice });
   const url = new URL(location.href);
-  return adapter.isProductPage(url) ? adapter.getProductIdentity(url, document) : null;
+  return isOzonProductPage(url) ? getOzonProductIdentity(url, document) : null;
 }
 
 function handlePickupCandidatesEvent(event: Event): void {
@@ -1689,7 +1708,19 @@ function installOzonDeliveryMenuAssist(): void {
   };
 
   sync();
-  new MutationObserver(sync).observe(document.body, {
+  // Coalesce mutation bursts: Ozon mutates the body constantly, and sync does
+  // layout-forcing DOM scans, so running it per-mutation-batch janks the page.
+  let syncTimer: number | null = null;
+  const scheduleSync = () => {
+    if (syncTimer !== null) {
+      return;
+    }
+    syncTimer = window.setTimeout(() => {
+      syncTimer = null;
+      sync();
+    }, 100);
+  };
+  new MutationObserver(scheduleSync).observe(document.body, {
     childList: true,
     subtree: true
   });
@@ -2631,7 +2662,12 @@ function panelDebugEnabled(model: PanelModel): boolean {
 function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   const i18n = panelI18n(model);
   lastPanelModel = model;
-  cancelPendingPanelConfirmation();
+  // Background re-renders (candidate events, name sync, storage changes) must
+  // not wipe an open confirmation dialog mid-click; defer them until answered.
+  if (pendingPanelConfirmationCancel) {
+    panelRenderDeferredByConfirmation = true;
+    return;
+  }
   shadow.innerHTML = "";
   const style = document.createElement("style");
   style.textContent = panelCss();
@@ -2728,6 +2764,8 @@ interface PanelConfirmationOptions {
   danger?: boolean;
 }
 
+let panelRenderDeferredByConfirmation = false;
+
 function cancelPendingPanelConfirmation(): void {
   if (!pendingPanelConfirmationCancel) {
     return;
@@ -2735,6 +2773,14 @@ function cancelPendingPanelConfirmation(): void {
   const cancel = pendingPanelConfirmationCancel;
   pendingPanelConfirmationCancel = null;
   cancel();
+}
+
+function flushDeferredPanelRender(): void {
+  if (!panelRenderDeferredByConfirmation) {
+    return;
+  }
+  panelRenderDeferredByConfirmation = false;
+  renderLastPanel();
 }
 
 async function requestPanelConfirmation(options: PanelConfirmationOptions): Promise<boolean> {
@@ -2785,6 +2831,7 @@ async function requestPanelConfirmation(options: PanelConfirmationOptions): Prom
       if (pendingPanelConfirmationCancel === cancelCurrent) {
         pendingPanelConfirmationCancel = null;
       }
+      flushDeferredPanelRender();
       resolve(confirmed);
     };
     const cancelCurrent = (): void => finish(false);
@@ -3354,21 +3401,12 @@ function messageNode(text: string, tone: "normal" | "error" = "normal"): HTMLEle
 }
 
 function openOptionsPage(): void {
-  void runtimeRequest({ type: "OPEN_OPTIONS" })
-    .then((response) => {
-      if (!response.ok) {
-        window.open(chrome.runtime.getURL("options.html"), "_blank", "noopener");
-      }
-    })
-    .catch(() => {
-      window.open(chrome.runtime.getURL("options.html"), "_blank", "noopener");
-    });
+  // No window.open fallback: options.html is not web-accessible, so a page
+  // context can never navigate to it — the fallback only opened a dead tab.
+  void runtimeRequest({ type: "OPEN_OPTIONS" }).catch(() => undefined);
 }
 
 function readableResultError(error: string, i18n: Translator = currentI18n()): string {
-  if (error === CURRENT_OZON_PRICE_NOT_CAPTURED) {
-    return i18n.t("panelCurrentPriceNotCaptured");
-  }
   if (isOzonProductUnavailableInRegion(error)) {
     return i18n.t("panelRegionUnavailableHint");
   }
@@ -3429,7 +3467,24 @@ async function copyFailureDiagnostics(pickupPoint: PickupPoint, error: string, p
 }
 
 async function runtimeRequest(request: RuntimeRequest): Promise<RuntimeResponse> {
-  return chrome.runtime.sendMessage(request);
+  try {
+    return await chrome.runtime.sendMessage(request);
+  } catch (error) {
+    isExtensionContextGone();
+    throw error;
+  }
+}
+
+// After an extension reload/update, orphaned content scripts keep running but
+// every runtime call throws. Latch the condition so timers/observers go quiet
+// instead of spamming errors once per second in every open Ozon tab.
+let extensionContextGone = false;
+
+function isExtensionContextGone(): boolean {
+  if (!extensionContextGone && !chrome.runtime?.id) {
+    extensionContextGone = true;
+  }
+  return extensionContextGone;
 }
 
 function escapeHtml(value: string): string {

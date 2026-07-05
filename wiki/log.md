@@ -232,3 +232,42 @@ updates, and non-trivial implementation changes.
   point but say `Товар не доставляется в ваш регион`. That state no longer
   offers `Capture current`, and the lookup flow restores an available pickup
   point when one was priced successfully.
+
+- Full-project review pass (bug fixes + structure cleanup):
+  - Pickup-id confirmation in `private-api.ts` now requires token boundaries
+    (`textContainsLocationId`); a response mentioning id `123456` no longer
+    confirms requested id `12345`. Price ambiguity guard now compares the best
+    candidate against every tied-score candidate, not just the second one, and
+    `parsePrice` rejects JSON-looking strings so serialized widget blobs cannot
+    concatenate into a bogus "verified" amount.
+  - `background.ts` serializes all settings writes through a promise queue
+    (`mutateSettings`); concurrent tab/sweep saves no longer lose updates.
+    Currency-rate refresh re-reads current settings before writing.
+  - Options page listens to `storage.onChanged` and refreshes its snapshot, so
+    "Save" there no longer clobbers quotes/points captured by content scripts
+    while the page was open. `SETTINGS_KEY` moved to `shared/settings.ts`.
+  - `exchange-rates.ts` keeps the fetch timeout armed through the body read;
+    a provider that stalls after headers can no longer hang `GET_SETTINGS`
+    (and thus the product panel) forever.
+  - Ozon sweep refuses to start when `sessionStorage` cannot persist state
+    (probe write/read/remove), preventing an infinite reload loop in privacy
+    modes. Page probe clones only relevant fetch responses and skips
+    `xhr.responseText` for non-text `responseType`. Content script latches
+    "extension context invalidated" and stops its 1s recheck timer instead of
+    throwing forever after an extension reload.
+  - Panel confirmations are no longer dismissed by background re-renders;
+    renders are deferred until the user answers. Delivery-assist
+    MutationObserver is debounced (100 ms) instead of syncing per mutation.
+  - Removed the speculative marketplace registry, the unreachable Wildberries
+    placeholder adapter, and the unused `fetchPrice`/`formatError` adapter
+    surface; `content/app.ts` now imports `isOzonProductPage` /
+    `getOzonProductIdentity` directly from `marketplaces/ozon`. The
+    `MarketplaceId` union and stored-data handling for `wildberries` points
+    stay for data compatibility.
+  - `ratesToRub.RUB` is pinned to 1 (it is the base of the rate table; any
+    other value silently rescaled all conversions). The "1 RUB in RUB" input
+    was removed from options — divergence from the previous options layout is
+    deliberate: the field could only hold one valid value.
+  - `qa-live-ozon.mjs --keep-open` no longer deletes the temporary profile out
+    from under the still-running browser. Fixture records keep their stored
+    `responseTruncated` flag across storage round-trips.

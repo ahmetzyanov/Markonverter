@@ -1,0 +1,97 @@
+# Publishes Markonverter to the Chrome Web Store when a `v*` tag is pushed
+# (or when run manually via workflow_dispatch).
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions),
+# must be added before the first run:
+#   CHROME_EXTENSION_ID
+#   CHROME_CLIENT_ID
+#   CHROME_CLIENT_SECRET
+#   CHROME_REFRESH_TOKEN
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+# Least-privilege default. Overridden to `contents: write` at the job level
+# below, only because that job also creates a GitHub Release for the tag.
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # needed by the "Create GitHub release" step only
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (safety gate)
+        run: npm run typecheck
+
+      - name: Test (safety gate)
+        run: npm test
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Package extension zip
+        # Zip the *contents* of dist/, not the dist/ folder itself, so that
+        # manifest.json ends up at the zip root as the Chrome Web Store requires.
+        run: |
+          cd dist
+          zip -r ../markonverter.zip .
+          cd ..
+
+      - name: Upload new version to Chrome Web Store
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        # Pinned to the last 3.x release: 4.0.0 dropped the --client-id /
+        # --client-secret / --refresh-token flags in favor of env-var-only auth.
+        run: |
+          npx --yes chrome-webstore-upload-cli@3.5.0 upload \
+            --source markonverter.zip \
+            --extension-id "$CHROME_EXTENSION_ID" \
+            --client-id "$CHROME_CLIENT_ID" \
+            --client-secret "$CHROME_CLIENT_SECRET" \
+            --refresh-token "$CHROME_REFRESH_TOKEN"
+
+      - name: Publish uploaded version to Chrome Web Store
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        # Kept as a separate call (rather than a single upload --auto-publish)
+        # so a future maintainer can split upload and publish across time,
+        # e.g. to require manual approval before going live.
+        run: |
+          npx --yes chrome-webstore-upload-cli@3.5.0 publish \
+            --extension-id "$CHROME_EXTENSION_ID" \
+            --client-id "$CHROME_CLIENT_ID" \
+            --client-secret "$CHROME_CLIENT_SECRET" \
+            --refresh-token "$CHROME_REFRESH_TOKEN"
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" markonverter.zip \
+            --title "${{ github.ref_name }}" \
+            --generate-notes

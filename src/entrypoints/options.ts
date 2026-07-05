@@ -6,6 +6,7 @@ import {
   SUPPORTED_CURRENCY_RATE_PROVIDERS
 } from "../shared/types";
 import { normalizeSettings } from "../shared/validation";
+import { SETTINGS_KEY } from "../shared/settings";
 import {
   createTranslator,
   type I18nKey,
@@ -27,7 +28,6 @@ const elements = {
   saveDebug: mustGet<HTMLButtonElement>("saveDebug"),
   rateProvider: mustGet<HTMLSelectElement>("rateProvider"),
   defaultCurrency: mustGet<HTMLSelectElement>("defaultCurrency"),
-  rateRub: mustGet<HTMLInputElement>("rateRub"),
   rateKzt: mustGet<HTMLInputElement>("rateKzt"),
   saveCurrency: mustGet<HTMLButtonElement>("saveCurrency"),
   refreshCurrency: mustGet<HTMLButtonElement>("refreshCurrency"),
@@ -48,6 +48,20 @@ async function init(): Promise<void> {
   }
   render();
   bindEvents();
+  installExternalChangeListener();
+}
+
+// Content scripts save quotes and pickup points while this page is open.
+// Without refreshing the snapshot, the next "Save" here would overwrite the
+// whole settings object with stale data and silently drop their writes.
+function installExternalChangeListener(): void {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "local" || !changes[SETTINGS_KEY]) {
+      return;
+    }
+    settings = normalizeSettings(changes[SETTINGS_KEY].newValue);
+    render();
+  });
 }
 
 function bindEvents(): void {
@@ -84,7 +98,7 @@ function bindEvents(): void {
             : undefined,
       defaultCurrency: elements.defaultCurrency.value,
       ratesToRub: {
-        RUB: Number(elements.rateRub.value),
+        RUB: 1,
         KZT: Number(elements.rateKzt.value)
       }
     });
@@ -106,7 +120,6 @@ function render(): void {
   elements.debug.checked = settings.debug;
   elements.rateProvider.value = settings.currencyRateProvider;
   elements.defaultCurrency.value = settings.defaultCurrency;
-  elements.rateRub.value = String(settings.ratesToRub.RUB);
   elements.rateKzt.value = String(settings.ratesToRub.KZT);
   renderCurrencyRateInfo();
   updateRateControls();

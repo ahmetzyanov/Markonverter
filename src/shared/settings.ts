@@ -1,6 +1,8 @@
 import { ExtensionSettings, ManualQuote, MAX_SAVED_OZON_PICKUP_POINTS, PickupPoint } from "./types";
 import { normalizeSettings } from "./validation";
 
+export const SETTINGS_KEY = "markonverter.settings";
+
 export function manualQuoteKey(productId: string, pickupPointId: string): string {
   return `${productId}:${pickupPointId}`;
 }

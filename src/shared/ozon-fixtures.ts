@@ -108,7 +108,7 @@ function normalizeOzonFixtureRecord(value: unknown): OzonNetworkFixtureRecord | 
   if (!candidate || typeof candidate.responseText !== "string" || typeof candidate.url !== "string") {
     return null;
   }
-  return createOzonFixtureRecord(
+  const record = createOzonFixtureRecord(
     {
       source: candidate.source || "network",
       method: candidate.method || "GET",
@@ -122,6 +122,12 @@ function normalizeOzonFixtureRecord(value: unknown): OzonNetworkFixtureRecord | 
     },
     parseDate(candidate.capturedAt) || new Date()
   );
+  if (!record) {
+    return null;
+  }
+  // The stored text is already truncated, so re-deriving the flag from it
+  // would silently flip truncated records back to "complete" on reload.
+  return candidate.responseTruncated === true ? { ...record, responseTruncated: true } : record;
 }
 
 function isRelevantOzonFixtureUrl(url: string): boolean {

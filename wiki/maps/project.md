@@ -13,7 +13,7 @@ a browser extension panel.
 - `src/content/panel/`: product-page panel presentation assets.
 - `src/content/page/`: product-page parsing helpers, such as visible price extraction.
 - `src/entrypoints/options.ts` and `src/entrypoints/options.html`: extension settings UI.
-- `src/marketplaces/`: marketplace registry and per-marketplace implementation folders.
+- `src/marketplaces/`: per-marketplace implementation folders (currently Ozon only; the speculative registry/Wildberries stub was removed 2026-07-05).
 - `src/marketplaces/ozon/`: Ozon adapter, private product-price API, and pickup-point capture logic.
 - `src/shared/`: shared types, settings, comparison, validation, currency, and
   exchange-rate helpers.

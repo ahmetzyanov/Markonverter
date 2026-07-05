@@ -97,7 +97,11 @@ function patchFetch(): void {
   window.fetch = async (...args) => {
     const response = await originalFetch(...args);
     const request = fetchRequest(args[0], args[1]);
-    inspectResponse({ ...request, source: "fetch" }, response.clone());
+    // Clone only relevant responses: an unread clone forces Chrome to keep
+    // the whole body buffered for every fetch on the page.
+    if (isRelevantUrl(request.url)) {
+      inspectResponse({ ...request, source: "fetch" }, response.clone());
+    }
     return response;
   };
 }
@@ -119,6 +123,10 @@ function patchXhr(): void {
     xhr.markonverterRequestBody = requestBodyText(args[0]);
     this.addEventListener("loadend", () => {
       if (!isRelevantUrl(xhr.markonverterUrl || "")) {
+        return;
+      }
+      // responseText throws InvalidStateError for non-text responseType.
+      if (xhr.responseType && xhr.responseType !== "text") {
         return;
       }
       inspectPayload(

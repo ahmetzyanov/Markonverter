@@ -18,15 +18,6 @@ export interface PickupPoint {
   comment?: string;
 }
 
-export interface CapturedPickupPoint {
-  name: string;
-  marketplace: MarketplaceId;
-  country: PickupCountry;
-  currency: Currency;
-  externalLocationId: string;
-  comment?: string;
-}
-
 export interface ExtensionSettings {
   language: LanguagePreference;
   debug: boolean;
@@ -94,12 +85,6 @@ export interface ComparisonRow {
   result: ComparisonResult;
   deltaFromCheapest?: number;
   isCheapest: boolean;
-}
-
-export interface MarketplaceInfo {
-  id: MarketplaceId;
-  name: string;
-  supported: boolean;
 }
 
 export const SUPPORTED_CURRENCIES: Currency[] = ["RUB", "KZT"];

@@ -3,11 +3,10 @@ import {
   CurrencyRateRefreshResult,
   ExtensionSettings
 } from "./types";
-import { normalizeSettings } from "./validation";
+import { MAX_REASONABLE_KZT_TO_RUB_RATE, normalizeSettings } from "./validation";
 
 export const CURRENCY_RATE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const PROVIDER_FETCH_TIMEOUT_MS = 5000;
-const MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
 export const REMOTE_CURRENCY_RATE_PROVIDERS: CurrencyRateProvider[] = ["cbr", "nbk", "exchangeRateApi"];
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -130,11 +129,9 @@ async function fetchNationalBankKzQuote(fetcher: FetchLike): Promise<ProviderQuo
 }
 
 async function fetchExchangeRateApiQuote(fetcher: FetchLike): Promise<ProviderQuote> {
-  const response = await fetchWithTimeout(fetcher, "https://open.er-api.com/v6/latest/RUB");
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  const data = (await response.json()) as {
+  const data = (await fetchBodyWithTimeout(fetcher, "https://open.er-api.com/v6/latest/RUB", (response) =>
+    response.json()
+  )) as {
     result?: string;
     rates?: Record<string, unknown>;
     time_last_update_utc?: string;
@@ -153,21 +150,27 @@ async function fetchExchangeRateApiQuote(fetcher: FetchLike): Promise<ProviderQu
 }
 
 async function fetchText(fetcher: FetchLike, url: string): Promise<string> {
-  const response = await fetchWithTimeout(fetcher, url);
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  return response.text();
+  return fetchBodyWithTimeout(fetcher, url, (response) => response.text());
 }
 
-async function fetchWithTimeout(fetcher: FetchLike, url: string): Promise<Response> {
+// The timer must stay armed through the body read: a provider that sends
+// headers and then stalls the body would otherwise hang the refresh forever.
+async function fetchBodyWithTimeout<T>(
+  fetcher: FetchLike,
+  url: string,
+  readBody: (response: Response) => Promise<T>
+): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     controller.abort();
   }, PROVIDER_FETCH_TIMEOUT_MS);
 
   try {
-    return await fetcher(url, { signal: controller.signal });
+    const response = await fetcher(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return await readBody(response);
   } finally {
     clearTimeout(timeout);
   }

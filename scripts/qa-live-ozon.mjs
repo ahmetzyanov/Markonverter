@@ -133,7 +133,9 @@ async function main() {
     if (!options.keepOpen) {
       await context?.close().catch(() => undefined);
     }
-    if (temporaryProfile && !options.keepProfile) {
+    // With --keep-open the browser is still running on this profile; deleting
+    // it here would corrupt the very session the flag is meant to preserve.
+    if (temporaryProfile && !options.keepProfile && !options.keepOpen) {
       rmSync(userDataDir, { recursive: true, force: true });
     }
   }

@@ -1,10 +1,8 @@
 import { RuntimeRequest, RuntimeResponse } from "../shared/messages";
 import { CurrencyRateProvider, CurrencyRateRefreshResult, DEFAULT_SETTINGS, ExtensionSettings } from "../shared/types";
 import { applyCurrencyRateResult, fetchCurrencyRates, isCurrencyRateCacheFresh } from "../shared/exchange-rates";
-import { deletePickupPoint, setComparisonPickupPointIds, upsertManualQuote, upsertPickupPoint } from "../shared/settings";
+import { deletePickupPoint, SETTINGS_KEY, setComparisonPickupPointIds, upsertManualQuote, upsertPickupPoint } from "../shared/settings";
 import { normalizeSettings } from "../shared/validation";
-
-const SETTINGS_KEY = "markonverter.settings";
 let staleRateRefresh: Promise<ExtensionSettings> | null = null;
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -29,33 +27,26 @@ async function handleRequest(request: RuntimeRequest): Promise<RuntimeResponse> 
     return { ok: true, settings: await getSettingsWithFreshRates() };
   }
   if (request.type === "SAVE_SETTINGS") {
-    const settings = normalizeSettings(request.settings);
-    await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
-    return { ok: true, settings };
+    return { ok: true, settings: await mutateSettings(() => normalizeSettings(request.settings)) };
   }
   if (request.type === "REFRESH_CURRENCY_RATES") {
     const { settings, result } = await refreshAndStoreCurrencyRates(await getStoredSettings(), request.provider);
     return { ok: true, settings, rateResult: result };
   }
   if (request.type === "UPSERT_PICKUP_POINT") {
-    const settings = upsertPickupPoint(await getStoredSettings(), request.pickupPoint);
-    await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
-    return { ok: true, settings };
+    return { ok: true, settings: await mutateSettings((settings) => upsertPickupPoint(settings, request.pickupPoint)) };
   }
   if (request.type === "DELETE_PICKUP_POINT") {
-    const settings = deletePickupPoint(await getStoredSettings(), request.pickupPointId);
-    await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
-    return { ok: true, settings };
+    return { ok: true, settings: await mutateSettings((settings) => deletePickupPoint(settings, request.pickupPointId)) };
   }
   if (request.type === "SET_COMPARISON_PICKUP_POINT_IDS") {
-    const settings = setComparisonPickupPointIds(await getStoredSettings(), request.pickupPointIds);
-    await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
-    return { ok: true, settings };
+    return {
+      ok: true,
+      settings: await mutateSettings((settings) => setComparisonPickupPointIds(settings, request.pickupPointIds))
+    };
   }
   if (request.type === "SAVE_MANUAL_QUOTE") {
-    const settings = upsertManualQuote(await getStoredSettings(), request.manualQuote);
-    await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
-    return { ok: true, settings };
+    return { ok: true, settings: await mutateSettings((settings) => upsertManualQuote(settings, request.manualQuote)) };
   }
   if (request.type === "OPEN_OPTIONS") {
     await openOptionsPage();
@@ -85,6 +76,21 @@ async function getStoredSettings(): Promise<ExtensionSettings> {
   return normalizeSettings(stored[SETTINGS_KEY]);
 }
 
+// Concurrent messages (two tabs, sweep + auto-capture) must not interleave
+// their read-modify-write cycles, or the last writer silently drops the
+// other's update. All settings writes are serialized through this queue.
+let settingsWriteQueue: Promise<unknown> = Promise.resolve();
+
+function mutateSettings(mutate: (settings: ExtensionSettings) => ExtensionSettings): Promise<ExtensionSettings> {
+  const task = settingsWriteQueue.then(async () => {
+    const settings = mutate(await getStoredSettings());
+    await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
+    return settings;
+  });
+  settingsWriteQueue = task.catch(() => undefined);
+  return task;
+}
+
 async function getSettingsWithFreshRates(): Promise<ExtensionSettings> {
   const settings = await getStoredSettings();
   if (isCurrencyRateCacheFresh(settings)) {
@@ -109,7 +115,6 @@ async function refreshAndStoreCurrencyRates(
   provider: CurrencyRateProvider = settings.currencyRateProvider
 ): Promise<{ settings: ExtensionSettings; result: CurrencyRateRefreshResult }> {
   const result = await fetchCurrencyRates(provider);
-  const nextSettings = applyCurrencyRateResult(settings, result, provider);
-  await chrome.storage.local.set({ [SETTINGS_KEY]: nextSettings });
+  const nextSettings = await mutateSettings((current) => applyCurrencyRateResult(current, result, provider));
   return { settings: nextSettings, result };
 }

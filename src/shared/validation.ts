@@ -12,7 +12,9 @@ import {
 } from "./types";
 import { normalizeLanguagePreference } from "./i18n";
 
-const MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
+// Shared with exchange-rates.ts: fetch-time and storage-time plausibility
+// checks must agree on the cap.
+export const MAX_REASONABLE_KZT_TO_RUB_RATE = 1;
 
 export function normalizeSettings(value: unknown): ExtensionSettings {
   const candidate = value as Partial<ExtensionSettings> | undefined;
@@ -31,7 +33,9 @@ export function normalizeSettings(value: unknown): ExtensionSettings {
       : DEFAULT_SETTINGS.currencyRateProvider,
     currencyRateMeta: normalizeCurrencyRateMeta(candidate?.currencyRateMeta),
     ratesToRub: {
-      RUB: sanitizeRate(candidate?.ratesToRub?.RUB, DEFAULT_SETTINGS.ratesToRub.RUB),
+      // RUB is the base currency of ratesToRub; any other value silently
+      // rescales every conversion, so it is pinned rather than user-editable.
+      RUB: 1,
       KZT: sanitizeRate(candidate?.ratesToRub?.KZT, DEFAULT_SETTINGS.ratesToRub.KZT, MAX_REASONABLE_KZT_TO_RUB_RATE)
     },
     pickupPoints,
