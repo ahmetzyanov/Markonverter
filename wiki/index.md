@@ -8,6 +8,7 @@ survive across agent sessions.
 - [Wiki log](log.md)
 - [Knowledge maps](maps/README.md)
 - [Project map](maps/project.md)
+- [Release / Chrome Web Store publishing](maps/release.md)
 
 ## Current Project Shape
 

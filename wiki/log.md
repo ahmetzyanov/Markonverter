@@ -243,6 +243,10 @@ updates, and non-trivial implementation changes.
   ("pairs visible selector labels when Ozon appends a non-PVZ address id after
   pickup rows"), so dropping it regresses an intended scenario; guarding it
   needs a design call.
+- First automated Chrome Web Store release shipped: v0.2.0 published via
+  `.github/workflows/release.yml` on tag push, with all four `CHROME_*` repo
+  secrets configured. Release procedure documented in
+  [maps/release.md](maps/release.md); v0.1.0 had been uploaded by hand.
 
 ## 2026-07-05
 
