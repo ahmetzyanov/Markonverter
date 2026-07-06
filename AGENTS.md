@@ -8,14 +8,32 @@ product prices across saved pickup points. Source code lives in `src/`, tests in
 
 ## Working Rules
 
+Adapted from Karpathy's four LLM-coding-pitfall rules.
+
+### Think before coding
+- State assumptions explicitly. If a task is genuinely ambiguous or
+  behavior-changing, name the ambiguity and ask instead of guessing silently.
+- If a simpler approach exists than the one implied by the request, say so.
+
+### Simplicity first
+- Minimum code that solves the problem. No speculative abstractions, flags, or
+  config for values that don't actually vary.
+- Prefer existing project patterns and small modules over broad rewrites.
+
+### Surgical changes
 - Keep changes focused on the user's requested scope.
 - Preserve unrelated local work. Inspect the worktree before editing and do not
   revert changes you did not make.
-- Prefer existing project patterns and small modules over broad rewrites.
+- Don't "improve" adjacent code, comments, or formatting outside scope; if you
+  notice unrelated dead code, mention it instead of deleting it.
+
+### Goal-driven execution
 - When source behavior changes, run the relevant checks:
   - `npm run typecheck`
   - `npm test`
   - `npm run build`
+- Where practical, turn vague tasks into a verifiable criterion (failing test
+  before the fix, passing test after).
 - Treat `dist/` as build output. Update it only when the task requires a
   loadable extension build or when source changes must be reflected there.
 
