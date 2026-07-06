@@ -247,6 +247,62 @@ updates, and non-trivial implementation changes.
   `.github/workflows/release.yml` on tag push, with all four `CHROME_*` repo
   secrets configured. Release procedure documented in
   [maps/release.md](maps/release.md); v0.1.0 had been uploaded by hand.
+- Research: no-reload pricing of all saved PVZ (replace the visible reload
+  sweep). Findings, no code change:
+  - History: silent background `select_address` activation was reverted
+    (41f123a) because it desynced page JS from the server session; the reload
+    sweep (option 2) is the current design. `TODO(option 3)` in
+    `src/content/app.ts` sketches a guarded silent-activation path.
+  - Open empirical gap: a *bare* `page/json/v2?url=<product>&deliveryAddressOid=<id>`
+    GET (no `select_address` call) was never tested in isolation — in the old
+    code it only ran after activation (`includeLocationCandidates` is gated
+    behind `allowSessionMutatingLocationActivation`). Nobody knows whether it
+    (a) returns a price computed for that non-active point, and (b) mutates the
+    session. If (a) without (b), a no-reload compare is a small change.
+  - Automated verification is currently impossible: with refreshed Arc
+    cookies+localStorage the *page* loads (`LIVE_OZON_OK`) but every composer
+    API fetch from a Playwright context (persistent or not, with or without
+    the webdriver flag) returns a 403 challenge page. Note `LIVE_OZON_OK`
+    proves page+panel load only, not composer-API reachability.
+  - The isolated test must run in the user's real browser: 4 read-only
+    requests — baseline product `page/json/v2` (selected id + price),
+    read-only `/modal/addressbook?set_sm=1&page_changed=true` (collect other
+    ids), product `page/json/v2` with `&deliveryAddressOid=<other id>`
+    (check confirmation + price), baseline again (check mutation), restoring
+    via `select_address` only if mutated.
+  - Probe result (real Arc session, console, ozon.kz product): the bare
+    `deliveryAddressOid` GET is **inert** — response identical to baseline
+    (same selected ids, same `webPrice`), target id not confirmed, session not
+    mutated. No stateless per-point pricing via that GET. Probe #2: composer
+    POST with `deliveryAddressOid` body returns **404**; entrypoint-api GET
+    with the param is inert like the composer GET. Conclusion: **Ozon has no
+    read-only per-point pricing path** — the price is always computed for the
+    session's active delivery address. A no-reload compare therefore requires
+    session mutation (option 3); "simple price loading" is not achievable.
+  - If the bare param is inert/mutating, the fallback design is option 3
+    (activate → API price read → restore → confirm restore), now more viable
+    than at revert time because `fetchOzonSelectedLocationId` gives a reliable
+    restore target; main risks stay: native selector desync during the window,
+    and antibot request volume (see TODO "Reduce private-API request volume").
+- Implemented option 3: silent Ozon price sweep in `src/content/app.ts`
+  (`runOzonSilentPriceSweep`), tried before the visible reload sweep, which
+  stays as the fallback for anything left unpriced. Per pending point:
+  `select_address` activation + confirmed private price read
+  (`allowSessionMutatingLocationActivation`), then restore of the original
+  point read from `fetchOzonSelectedLocationId`, with one resync
+  `location.reload()` only when the restore cannot be confirmed. Guards, all
+  shaped by the 41f123a desync revert and an Opus gate review: never starts
+  (and stops mid-run) when the native delivery selector is open, waits up to
+  30s for it to close before restoring, aborts on `runId` staleness (SPA
+  navigation) and then skips the resync reload since the new page already
+  reflects the mutated session, and runs once per product per tab session via
+  `markonverter.ozonSilentSwept.v1:<productId>` (requires persistable
+  sessionStorage so a failed-restore reload cannot loop). Known ceilings: a
+  server-side failed restore can land the user on the last-swept point, and a
+  selector dismissed after the 30s timeout can leave a bounded desync until
+  the user's own selection resets it. Verified: typecheck, 95 unit tests,
+  `qa:ozon` (BROWSER_QA_OK), live `LIVE_OZON_OK` on the ozon.kz product URL
+  (ozon.ru redirect was antibot-blocked that run).
 
 ## 2026-07-05
 
