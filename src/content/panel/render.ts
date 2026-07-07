@@ -32,7 +32,10 @@ export type PanelModel =
     };
 
 let lastPanelModel: PanelModel | null = null;
+const CAPTURE_STATUS_AUTO_HIDE_MS = 3000;
+
 let captureStatus: { tone: "normal" | "error"; message: string } | null = null;
+let captureStatusHideTimer: ReturnType<typeof setTimeout> | null = null;
 export let isPanelCollapsed = false;
 let pendingPanelConfirmationCancel: (() => void) | null = null;
 let panelRenderDeferredByConfirmation = false;
@@ -40,6 +43,17 @@ let panelTransitionVersion = 0;
 
 export function setCaptureStatus(status: { tone: "normal" | "error"; message: string } | null): void {
   captureStatus = status;
+  if (captureStatusHideTimer !== null) {
+    clearTimeout(captureStatusHideTimer);
+    captureStatusHideTimer = null;
+  }
+  if (status) {
+    captureStatusHideTimer = setTimeout(() => {
+      captureStatusHideTimer = null;
+      captureStatus = null;
+      renderLastPanel();
+    }, CAPTURE_STATUS_AUTO_HIDE_MS);
+  }
 }
 
 export function ensurePanel(): ShadowRoot {
