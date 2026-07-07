@@ -442,13 +442,31 @@ async function requestOzonPrice(request: {
 // restores the originally selected point and confirms the restore. The page DOM
 // stays on the original point the whole time, so the session is desynced only
 // inside this window: the sweep refuses to start (and stops mid-run) while
-// Ozon's native delivery selector is open, and ends with one resync reload when
-// the restore cannot be confirmed — never leaving the page silently desynced,
-// which is the bug that reverted the first silent-activation attempt (41f123a).
-// Runs once per product per tab session; whatever it leaves unpriced falls
-// through to the visible reload sweep below.
+// Ozon's native delivery selector is open, and never leaves the page silently
+// desynced — the bug that reverted the first silent-activation attempt
+// (41f123a). When the restore cannot be confirmed it hands off to the visible
+// reload sweep's state machine (below), seeded with the true original point, so
+// the return still happens through navigation that can cross an ozon.ru/ozon.kz
+// domain flip. Runs once per product per tab session; whatever it leaves
+// unpriced (including cross-country points it must not touch) falls through to
+// that reload sweep too.
 
 const OZON_SILENT_SWEPT_SESSION_PREFIX = "markonverter.ozonSilentSwept.v1:";
+
+// Pricing a point from the other Ozon country needs the other domain: the
+// same-origin private API can switch the session to it, but then both the
+// price read and the restore come back as redirects/challenges. Only the
+// reload sweep's navigation machinery handles that, so the silent sweep is
+// limited to points matching the page's domain currency.
+function ozonHostCurrency(hostname: string): Currency | null {
+  if (hostname === "ozon.kz" || hostname.endsWith(".ozon.kz")) {
+    return "KZT";
+  }
+  if (hostname === "ozon.ru" || hostname.endsWith(".ozon.ru")) {
+    return "RUB";
+  }
+  return null;
+}
 
 function markOzonProductSilentSwept(productId: string): void {
   try {
@@ -471,9 +489,11 @@ function ozonSilentSweepPendingPoints(
   settings: ExtensionSettings,
   comparisonPoints: PickupPoint[]
 ): PickupPoint[] {
+  const pageCurrency = ozonHostCurrency(location.hostname);
   return comparisonPoints.filter(
     (point) =>
       point.externalLocationId.trim() !== "" &&
+      point.currency === pageCurrency &&
       !settings.manualQuotes[manualQuoteKey(product.productId, point.id)] &&
       !isOzonPickupSessionUnavailable(product.productId, point.externalLocationId)
   );
@@ -487,9 +507,9 @@ function shouldStartOzonSilentPriceSweep(
   if (isPanelCollapsed || ozonSweepBusy) {
     return false;
   }
-  // The once-per-session mark is the only thing preventing a failed-restore
-  // resync reload from re-running the sweep forever; without persistence,
-  // never start.
+  // The once-per-session mark and the reload-sweep handoff both live in
+  // sessionStorage; without persistence a failed-restore reload would re-run
+  // the sweep forever, so never start.
   if (!canPersistOzonSweepState()) {
     return false;
   }
@@ -512,6 +532,10 @@ async function runOzonSilentPriceSweep(
 ): Promise<"reloading" | "done"> {
   ozonSweepBusy = true;
   markOzonProductSilentSwept(product.productId);
+  // Once a handoff state is saved and the page is reloading, the busy flag
+  // must stay set so nothing advances the seeded state machine against the
+  // dying page's DOM (same pattern as the reload sweep).
+  let outcome: "reloading" | "done" = "done";
   try {
     // Ozon's own selected-address id is the restore target; without it a
     // restore cannot be verified, so leave the work to the reload sweep.
@@ -523,6 +547,11 @@ async function runOzonSilentPriceSweep(
     const pending = ozonSilentSweepPendingPoints(product, settings, comparisonPoints).filter(
       (point) => point.externalLocationId !== originalActive
     );
+    if (pending.length === 0) {
+      return "done";
+    }
+    const originalHref = location.href;
+    const priced: string[] = [];
     const unavailable: string[] = [];
     let touchedSession = false;
 
@@ -543,6 +572,7 @@ async function runOzonSilentPriceSweep(
           allowSessionMutatingLocationActivation: true
         });
         await saveManualQuoteForPoint(point, product, quote);
+        priced.push(point.externalLocationId);
         captureStatus = { tone: "normal", message: t("panelAutoCapturedCurrentPrice", { name: ozonPickupDisplayName(point) }) };
       } catch (error) {
         if (isOzonProductUnavailableInRegion(error)) {
@@ -574,21 +604,53 @@ async function runOzonSilentPriceSweep(
     if (selectedNow === originalActive) {
       return "done";
     }
-    // Restore unconfirmed: reload once so the page shows the session's true
-    // state instead of staying silently desynced. This can land the user on
-    // the last-swept point when the restore genuinely failed server-side; the
-    // reload sweep's return machinery then treats that point as its origin.
-    // Skip the reload when the run is stale (an SPA navigation replaced the
-    // page after the mutations, so the new page already reflects the session)
-    // or the native selector reopened (closing it under the user is worse;
-    // their own selection resyncs the session).
     if (runId !== activeRun || findOzonDeliveryContainer()) {
+      // An SPA navigation replaced the page (it already reflects the mutated
+      // session) or the user is inside the native selector (their own pick
+      // sets the session explicitly); yanking the page around now is worse.
+      // ponytail: known ceiling — in these two rare exits a failed restore
+      // leaves the switched pickup point in place.
       return "done";
     }
-    location.reload();
-    return "reloading";
+    // Restore unconfirmed: hand off to the reload-sweep state machine instead
+    // of a bare resync reload. Seeded with the true origin it re-prices what
+    // is still missing (including points this sweep is not allowed to touch),
+    // returns to the original point via the navigation-based machinery that
+    // handles domain flips, and finalizes on the next load(s) — nothing
+    // lingers that could later fight a manual pickup change by the user.
+    const latest = latestSettings || settings;
+    const handoffPending = comparisonPoints
+      .filter(
+        (point) =>
+          point.externalLocationId.trim() !== "" &&
+          point.externalLocationId !== originalActive &&
+          !priced.includes(point.externalLocationId) &&
+          !latest.manualQuotes[manualQuoteKey(product.productId, point.id)] &&
+          !isOzonPickupSessionUnavailable(product.productId, point.externalLocationId)
+      )
+      .map((point) => point.externalLocationId);
+    const state: OzonSweepState = {
+      productId: product.productId,
+      originalActive,
+      originalHref,
+      pending: handoffPending,
+      priced,
+      unavailable,
+      returnStage: 0
+    };
+    saveOzonSweepState(state);
+    if (handoffPending.length === 0) {
+      // Either reloads toward the origin or finalizes in place.
+      outcome = await beginOzonSweepReturn(product, state, selectedNow);
+      return outcome;
+    }
+    await activateOzonAddressAndReload(product, handoffPending[0]);
+    outcome = "reloading";
+    return outcome;
   } finally {
-    ozonSweepBusy = false;
+    if (outcome !== "reloading") {
+      ozonSweepBusy = false;
+    }
   }
 }
 

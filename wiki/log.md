@@ -304,6 +304,28 @@ updates, and non-trivial implementation changes.
   `qa:ozon` (BROWSER_QA_OK), live `LIVE_OZON_OK` on the ozon.kz product URL
   (ozon.ru redirect was antibot-blocked that run).
 
+## 2026-07-07
+
+- Fixed two silent-sweep issues found by dogfooding a cross-country account
+  (ozon.kz page, one KZT + one RUB saved point):
+  - Cross-country point never priced: the KZ→RU switch needs the other Ozon
+    domain, so the same-origin activation, price read, and restore all fail
+    (redirect/challenge). `runOzonSilentPriceSweep` now only touches points
+    whose `currency` matches the page host (`ozonHostCurrency`); everything
+    else is left to the reload sweep, which handles the domain flip.
+  - Original PVZ not restored on the fallback path. Previously a failed silent
+    restore did a bare `location.reload()`, after which the reload sweep read
+    the *mutated* point as its origin and never returned the user. The failed
+    restore now hands off to the reload-sweep state machine directly, seeded
+    with the true `originalActive`/`originalHref` and a rebuilt `pending`
+    (missing points, cross-country included), so the return uses the
+    navigation machinery that crosses `ozon.ru`/`ozon.kz`. `ozonSweepBusy`
+    stays held across that handoff reload so nothing advances the seeded state
+    against the dying page (Opus review should-fix). Known ceiling kept: if the
+    run goes stale or the native selector reopens right at restore time, the
+    session is left on the switched point (marked `ponytail:` in code).
+  - Verified: typecheck, 95 unit tests, `qa:ozon` (BROWSER_QA_OK).
+
 ## 2026-07-05
 
 - Hid the secondary original-price label in saved-PVZ product rows when the
