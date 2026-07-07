@@ -76,13 +76,11 @@ export function panelCss(): string {
     }
     .eyebrow {
       display: block;
-      margin: 0 0 5px;
       color: var(--mk-accent);
       font-size: 11px;
       line-height: 1;
       font-weight: 720;
     }
-    .header strong,
     .meta strong,
     .value strong {
       display: block;
@@ -90,7 +88,6 @@ export function panelCss(): string {
       font-size: 13px;
       font-weight: 760;
     }
-    .header span,
     .meta span,
     .value span {
       display: block;
@@ -99,13 +96,10 @@ export function panelCss(): string {
       font-size: 12px;
       overflow-wrap: anywhere;
     }
-    .headerTitle > span:last-child {
-      max-width: 100%;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      overflow: hidden;
+    .header .eyebrow {
+      font-size: 17px;
+      font-weight: 800;
     }
-    .header .eyebrow,
     .pointManagerTop .eyebrow,
     .detectedCandidatesTop .eyebrow {
       margin: 0 0 5px;
@@ -533,9 +527,6 @@ export function panelCss(): string {
         align-items: flex-start;
         flex-direction: column;
       }
-      .headerTitle > span:last-child {
-        max-width: 100%;
-      }
       .headerActions {
         width: 100%;
         justify-content: flex-start;
@@ -567,9 +558,6 @@ export function panelCss(): string {
       .header {
         align-items: flex-start;
         flex-direction: column;
-      }
-      .headerTitle > span:last-child {
-        max-width: 100%;
       }
       .headerActions {
         width: 100%;

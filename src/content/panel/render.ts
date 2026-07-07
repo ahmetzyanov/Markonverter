@@ -141,9 +141,7 @@ export function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
 
   const header = document.createElement("div");
   header.className = "header";
-  header.innerHTML = `<div class="headerTitle"><span class="eyebrow">Markonverter</span><strong>${escapeHtml(
-    i18n.t("panelPickupPrices")
-  )}</strong><span>${escapeHtml(model.product.title || i18n.t("panelProductFallback"))}</span></div>`;
+  header.innerHTML = `<div class="headerTitle"><span class="eyebrow">Markonverter</span></div>`;
 
   const headerActions = document.createElement("div");
   headerActions.className = "headerActions";
