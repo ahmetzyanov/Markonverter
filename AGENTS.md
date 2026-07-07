@@ -50,20 +50,17 @@ Adapted from Karpathy's four LLM-coding-pitfall rules.
 
 The main agent owns requirements, architecture, integration, and final judgment.
 
-- Use subagents for read-only repository mapping and evidence gathering, using
-  an `explorer`-style role when that helps keep discovery parallel and bounded.
-- Use subagents for exact mechanical cleanup in named files, using a
-  `cleaner`-style role when the edits are fully specified.
-- Use subagents for bounded implementation from a tight specification, using an
-  `implementer`-style role when the write boundaries and acceptance criteria are
-  clear.
-- Use subagents for selective review of risky or unfamiliar diffs, using a
-  `gate`-style role when focused second-pass judgment reduces integration risk.
-- Use subagents for other tasks that can be optimized by parallel, bounded
-  delegation without weakening the main agent's ownership of the outcome.
+Every delegation states: one objective, expected output format, scope
+boundaries, and an effort ceiling (e.g. "under 5 tool calls").
 
-Every delegation names scope, write boundaries, done criteria, and expected
-evidence. Do not delegate tiny tasks or work that is inherently serial.
+Scale subagent count to complexity: trivial → do it directly; simple → 1;
+multi-part → 2-3; complex → up to 5-10, each with a distinct objective.
+Prefer fewer, more capable subagents over many narrow ones.
+
+Run independent subagents in parallel; sequential only when one's output
+feeds the next.
+
+Do not delegate tiny tasks or work that is inherently serial.
 
 ## Local LLM Wiki
 
