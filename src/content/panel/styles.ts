@@ -150,27 +150,25 @@ export function panelCss(): string {
       color: var(--mk-accent);
     }
     .iconButton {
-      border: 1px solid var(--mk-border-strong);
+      border: 1px solid transparent;
       background: var(--mk-surface);
       color: var(--mk-muted);
       cursor: pointer;
     }
-    .secondaryButton:hover:not(:disabled),
-    .iconButton:hover:not(:disabled) {
+    .secondaryButton:hover:not(:disabled) {
       border-color: var(--mk-accent-border);
       background: var(--mk-accent-soft);
       color: var(--mk-accent);
     }
-    .settingsButton:hover:not(:disabled),
-    .collapseButton:hover:not(:disabled) {
-      border-color: transparent;
+    .iconButton:hover:not(:disabled) {
+      background: var(--mk-accent-soft);
+      color: var(--mk-accent);
     }
     .settingsButton {
       width: 32px;
       padding: 0;
       font-size: 17px;
       line-height: 1;
-      border-color: transparent;
     }
     .collapseButton {
       display: inline-flex;
@@ -178,7 +176,6 @@ export function panelCss(): string {
       justify-content: center;
       width: 32px;
       padding: 0;
-      border-color: transparent;
     }
     .chevronIcon {
       width: 9px;
