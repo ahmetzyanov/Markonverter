@@ -196,7 +196,7 @@ export function renderPanel(shadow: ShadowRoot, model: PanelModel): void {
   if (model.state === "loading") {
     root.append(messageNode(i18n.t("panelCheckingPickupPoints", { count: model.pickupPoints?.length ?? i18n.t("panelConfiguredPickupPoints") })));
     if (captureStatus) {
-      root.append(messageNode(captureStatus.message, captureStatus.tone));
+      root.append(messageNode(captureStatus.message, captureStatus.tone, true));
     }
   } else if (model.state === "empty") {
     root.append(messageNode(i18n.t("panelNoOzonPickupPoints")));
@@ -459,13 +459,13 @@ async function animatePanelBox(
 
 function appendCaptureStatus(root: HTMLElement): void {
   if (captureStatus) {
-    root.append(messageNode(captureStatus.message, captureStatus.tone));
+    root.append(messageNode(captureStatus.message, captureStatus.tone, true));
   }
 }
 
-function messageNode(text: string, tone: "normal" | "error" = "normal"): HTMLElement {
+function messageNode(text: string, tone: "normal" | "error" = "normal", autoHide = false): HTMLElement {
   const node = document.createElement("p");
-  node.className = `message ${tone}`;
+  node.className = `message ${tone}${autoHide ? " autoHide" : ""}`;
   node.textContent = text;
   return node;
 }

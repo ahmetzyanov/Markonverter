@@ -198,6 +198,13 @@ export function panelCss(): string {
     .message.error {
       color: var(--mk-danger);
     }
+    .message.autoHide {
+      animation: mkMessageFade 3s ease-in forwards;
+    }
+    @keyframes mkMessageFade {
+      0%, 80% { opacity: 1; }
+      100% { opacity: 0; }
+    }
     .capture {
       display: grid;
       gap: 7px;
