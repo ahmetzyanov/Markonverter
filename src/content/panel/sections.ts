@@ -107,7 +107,11 @@ function renderPickupRows(rows: PanelComparisonRow[], product: ProductIdentity, 
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "deleteButton rowDeleteButton";
-    deleteButton.textContent = i18n.t("optionsDelete");
+    deleteButton.innerHTML =
+      '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">' +
+      '<path fill="currentColor" d="M6 1.5a1 1 0 0 0-1 1V3H2.5a.75.75 0 0 0 0 1.5h.55l.64 9.14A1.5 1.5 0 0 0 5.19 15h5.62a1.5 1.5 0 0 0 1.5-1.36l.64-9.14h.55a.75.75 0 0 0 0-1.5H11v-.5a1 1 0 0 0-1-1H6Zm0 1.5v-.5h4V3H6Zm-1.44 1.5h6.88l-.63 9H5.19l-.63-9ZM6.5 6.75a.75.75 0 0 1 1.5 0v5.5a.75.75 0 0 1-1.5 0v-5.5Zm2.5 0a.75.75 0 0 1 1.5 0v5.5a.75.75 0 0 1-1.5 0v-5.5Z"/>' +
+      "</svg>";
+    deleteButton.setAttribute("aria-label", i18n.t("optionsDelete"));
     deleteButton.title = i18n.t("panelDeletePickupTitle");
     deleteButton.addEventListener("click", () => {
       void deleteSavedPickupPoint(row.pickupPoint, product);

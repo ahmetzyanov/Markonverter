@@ -333,15 +333,17 @@ export function panelCss(): string {
     .rowHoverActions {
       display: flex;
       justify-content: flex-end;
-      flex: 0 0 54px;
-      width: 54px;
+      flex: 0 0 24px;
+      width: 24px;
       min-height: 24px;
     }
     .rowDeleteButton {
       min-height: 24px;
-      width: 54px;
-      padding: 0 7px;
-      font-size: 11px;
+      width: 24px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
