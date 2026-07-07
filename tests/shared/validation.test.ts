@@ -38,6 +38,12 @@ describe("settings normalization", () => {
     expect(normalizeSettings({ debug: true }).debug).toBe(true);
   });
 
+  it("defaults inline converted prices to true unless explicitly disabled", () => {
+    expect(normalizeSettings({}).inlineConvertedPrices).toBe(true);
+    expect(normalizeSettings({ inlineConvertedPrices: undefined }).inlineConvertedPrices).toBe(true);
+    expect(normalizeSettings({ inlineConvertedPrices: false }).inlineConvertedPrices).toBe(false);
+  });
+
   it("keeps manual rate provider", () => {
     expect(normalizeSettings({ currencyRateProvider: "manual" }).currencyRateProvider).toBe("manual");
   });

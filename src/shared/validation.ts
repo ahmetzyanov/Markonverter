@@ -28,6 +28,7 @@ export function normalizeSettings(value: unknown): ExtensionSettings {
       candidate?.defaultCurrency && SUPPORTED_CURRENCIES.includes(candidate.defaultCurrency)
         ? candidate.defaultCurrency
         : DEFAULT_SETTINGS.defaultCurrency,
+    inlineConvertedPrices: candidate?.inlineConvertedPrices !== false,
     currencyRateProvider: SUPPORTED_CURRENCY_RATE_PROVIDERS.includes(candidate?.currencyRateProvider as never)
       ? (candidate?.currencyRateProvider as ExtensionSettings["currencyRateProvider"])
       : DEFAULT_SETTINGS.currencyRateProvider,

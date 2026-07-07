@@ -22,6 +22,7 @@ export interface ExtensionSettings {
   language: LanguagePreference;
   debug: boolean;
   defaultCurrency: Currency;
+  inlineConvertedPrices: boolean;
   currencyRateProvider: CurrencyRateProvider;
   currencyRateMeta?: CurrencyRateMetadata;
   ratesToRub: Record<Currency, number>;
@@ -97,6 +98,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   language: DEFAULT_LANGUAGE_PREFERENCE,
   debug: false,
   defaultCurrency: "RUB",
+  inlineConvertedPrices: true,
   currencyRateProvider: "cbr",
   ratesToRub: {
     RUB: 1,

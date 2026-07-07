@@ -29,6 +29,7 @@ const elements = {
   rateProvider: mustGet<HTMLSelectElement>("rateProvider"),
   defaultCurrency: mustGet<HTMLSelectElement>("defaultCurrency"),
   rateKzt: mustGet<HTMLInputElement>("rateKzt"),
+  inlineConvertedPrices: mustGet<HTMLInputElement>("inlineConvertedPrices"),
   saveCurrency: mustGet<HTMLButtonElement>("saveCurrency"),
   refreshCurrency: mustGet<HTMLButtonElement>("refreshCurrency"),
   currencyRateInfo: mustGet<HTMLSpanElement>("currencyRateInfo"),
@@ -97,6 +98,7 @@ function bindEvents(): void {
             ? settings.currencyRateMeta
             : undefined,
       defaultCurrency: elements.defaultCurrency.value,
+      inlineConvertedPrices: elements.inlineConvertedPrices.checked,
       ratesToRub: {
         RUB: 1,
         KZT: Number(elements.rateKzt.value)
@@ -121,6 +123,7 @@ function render(): void {
   elements.rateProvider.value = settings.currencyRateProvider;
   elements.defaultCurrency.value = settings.defaultCurrency;
   elements.rateKzt.value = String(settings.ratesToRub.KZT);
+  elements.inlineConvertedPrices.checked = settings.inlineConvertedPrices;
   renderCurrencyRateInfo();
   updateRateControls();
   renderPointList();
@@ -312,6 +315,7 @@ function setSaving(isSaving: boolean): void {
   elements.debug.disabled = isSaving;
   elements.saveDebug.disabled = isSaving;
   elements.saveCurrency.disabled = isSaving;
+  elements.inlineConvertedPrices.disabled = isSaving;
   elements.refreshCurrency.disabled = isSaving || readRateProvider() === "manual";
   elements.pointList.querySelectorAll("button").forEach((button) => {
     button.disabled = isSaving;

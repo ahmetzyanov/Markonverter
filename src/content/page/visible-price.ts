@@ -1,5 +1,10 @@
 import { Currency, PriceQuote } from "../../shared/types";
 
+// Kept in sync with BADGE_ATTR in ./inline-converted-price.ts: that module
+// injects a "~converted price" badge span into the same price-widget
+// elements this file reads, so it must be stripped before parsing here.
+const APPROX_PRICE_BADGE_ATTR = "data-mkv-approx-badge";
+
 export function extractVisibleOzonPrice(currencyHint: Currency): PriceQuote | null {
   const selectors = ['[data-widget="webPrice"]', '[data-widget*="webPrice" i]', '[data-widget*="price" i]'];
   const seen = new Set<HTMLElement>();
@@ -11,7 +16,7 @@ export function extractVisibleOzonPrice(currencyHint: Currency): PriceQuote | nu
         return;
       }
       seen.add(element);
-      const text = compactText(element.innerText || element.textContent || "");
+      const text = compactText(readTextWithoutApproxBadges(element));
       if (!text) {
         return;
       }
@@ -86,6 +91,19 @@ function extractVisibleDeliverySummary(): string | null {
 function isVisibleEnough(element: HTMLElement): boolean {
   const rect = element.getBoundingClientRect();
   return rect.width > 20 && rect.height > 8 && rect.bottom > 0 && rect.right > 0;
+}
+
+// The inline "~converted price" badge (see page/inline-converted-price.ts) is
+// injected into the same price-widget elements this reads, so it must be
+// stripped before parsing — otherwise its own "~..." amount becomes a second,
+// unmarked price candidate.
+function readTextWithoutApproxBadges(element: HTMLElement): string {
+  if (!element.querySelector(`[${APPROX_PRICE_BADGE_ATTR}]`)) {
+    return element.innerText || element.textContent || "";
+  }
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll(`[${APPROX_PRICE_BADGE_ATTR}]`).forEach((node) => node.remove());
+  return clone.innerText || clone.textContent || "";
 }
 
 function cleanDeliverySummaryText(element: HTMLElement): string {

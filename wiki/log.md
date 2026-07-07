@@ -3,6 +3,17 @@
 Use this file for short dated entries about durable project decisions, wiki
 updates, and non-trivial implementation changes.
 
+## 2026-07-07
+
+- Added inline "~converted price" badges (`src/content/page/inline-converted-price.ts`):
+  on all Ozon pages, prices with an explicit currency marker (₽/₸) that differs
+  from `settings.defaultCurrency` get a muted `~<amount>` suffix. Controlled by
+  the new `inlineConvertedPrices` setting (default true, checkbox in the options
+  Currency section). Badges carry `data-mkv-approx-badge` and are stripped in
+  `visible-price.ts` before parsing so the injected text never becomes a second
+  price candidate. Annotation requires an explicit currency marker — bare
+  numbers are never guessed. Approximate amounts round to whole units.
+
 ## 2026-06-30
 
 - Created the project-local LLM wiki scaffold with a root map, log, and maps

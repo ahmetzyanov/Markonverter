@@ -27,6 +27,7 @@ import {
   startOzonPriceSweep
 } from "./ozon-sweep";
 import { installOzonDeliveryMenuAssist, scheduleOzonDeliveryAssistSync } from "./ozon-delivery-assist";
+import { installInlineConvertedPrices, scheduleInlineConvertedPriceSync } from "./page/inline-converted-price";
 import {
   collectFallbackCaptureSources,
   discoverOzonPickupCandidatesFromApi,
@@ -82,6 +83,7 @@ export async function boot(): Promise<void> {
   await loadPanelState();
   await refreshOzonFixtureSummary();
   installOzonDeliveryMenuAssist();
+  installInlineConvertedPrices();
   installPanelRecovery();
   await runIfProductPage();
   const recheckTimer = setInterval(() => {
@@ -104,6 +106,7 @@ function installSettingsChangeListener(): void {
     updateLastPanelSettings(latestSettings);
     renderLastPanel();
     scheduleOzonDeliveryAssistSync();
+    scheduleInlineConvertedPriceSync();
   });
 }
 

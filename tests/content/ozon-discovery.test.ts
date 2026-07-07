@@ -66,6 +66,7 @@ function settingsWithPickupNames(points: Array<[marketplace: MarketplaceId, name
     language: DEFAULT_LANGUAGE_PREFERENCE,
     debug: false,
     defaultCurrency: "RUB",
+    inlineConvertedPrices: true,
     currencyRateProvider: "manual",
     ratesToRub: { RUB: 1, KZT: 0.17 },
     pickupPoints: points.map(([marketplace, name, externalLocationId], index): ExtensionSettings["pickupPoints"][number] => ({
