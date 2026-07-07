@@ -464,8 +464,10 @@ function initialSelectedLocationId() {
 }
 
 // The visible reload sweep persists progress in sessionStorage, which survives the
-// same-origin navigations between scenarios. Clear it so each scenario starts clean
-// (sweep-internal reloads are not affected because they never call openFakeProduct).
+// same-origin navigations between scenarios, and mirrors it per-tab into
+// chrome.storage.session (so it survives ozon.ru<->ozon.kz domain flips). Clear
+// both so each scenario starts clean (sweep-internal reloads are not affected
+// because they never call openFakeProduct).
 async function clearSweepSessionState(page) {
   try {
     await page.evaluate(() => {
@@ -475,6 +477,21 @@ async function clearSweepSessionState(page) {
     });
   } catch {
     // A fresh/blank page has nothing to clear.
+  }
+  const worker = page
+    .context()
+    .serviceWorkers()
+    .find((candidate) => candidate.url().endsWith("/background.js"));
+  if (worker) {
+    await worker
+      .evaluate(async () => {
+        const all = await chrome.storage.session.get(null);
+        const keys = Object.keys(all).filter((key) => key.startsWith("ozonSweepSession:"));
+        if (keys.length > 0) {
+          await chrome.storage.session.remove(keys);
+        }
+      })
+      .catch(() => undefined);
   }
 }
 

@@ -16,8 +16,8 @@ chrome.runtime.onInstalled.addListener(() => {
   void ensureSettings();
 });
 
-chrome.runtime.onMessage.addListener((request: RuntimeRequest, _sender, sendResponse) => {
-  void handleRequest(request)
+chrome.runtime.onMessage.addListener((request: RuntimeRequest, sender, sendResponse) => {
+  void handleRequest(request, sender)
     .then(sendResponse)
     .catch((error) => {
       sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) } satisfies RuntimeResponse);
@@ -25,11 +25,22 @@ chrome.runtime.onMessage.addListener((request: RuntimeRequest, _sender, sendResp
   return true;
 });
 
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void chrome.storage.session.remove(OZON_SWEEP_SESSION_PREFIX + tabId);
+});
+
 chrome.action.onClicked.addListener(() => {
   void openOptionsPage();
 });
 
-async function handleRequest(request: RuntimeRequest): Promise<RuntimeResponse> {
+async function handleRequest(request: RuntimeRequest, sender: chrome.runtime.MessageSender): Promise<RuntimeResponse> {
+  if (request.type === "OZON_SWEEP_SESSION_GET") {
+    return { ok: true, entries: await readOzonSweepSession(sender.tab?.id) };
+  }
+  if (request.type === "OZON_SWEEP_SESSION_SET") {
+    await mutateOzonSweepSession(sender.tab?.id, request.entries);
+    return { ok: true };
+  }
   if (request.type === "GET_SETTINGS") {
     return { ok: true, settings: await getSettingsWithFreshRates() };
   }
@@ -134,6 +145,53 @@ async function getSettingsWithFreshRates(): Promise<ExtensionSettings> {
     });
 
   return staleRateRefresh;
+}
+
+// Per-tab mirror of the content script's Ozon sweep sessionStorage keys, so a
+// sweep survives an ozon.ru<->ozon.kz domain flip within the same tab. Lives in
+// chrome.storage.session: cleared when the browser closes, like sessionStorage.
+const OZON_SWEEP_SESSION_PREFIX = "ozonSweepSession:";
+
+// Reads chain through the same queue as writes so a GET fired right after a
+// fire-and-forget SET (page navigating away) sees that write.
+let sweepSessionQueue: Promise<unknown> = Promise.resolve();
+
+function readOzonSweepSession(tabId: number | undefined): Promise<Record<string, string>> {
+  const task = sweepSessionQueue.then(() => getOzonSweepSessionEntries(tabId));
+  sweepSessionQueue = task.catch(() => undefined);
+  return task;
+}
+
+function mutateOzonSweepSession(tabId: number | undefined, entries: Record<string, string | null>): Promise<void> {
+  const task = sweepSessionQueue.then(async () => {
+    if (tabId === undefined) {
+      return;
+    }
+    const merged = await getOzonSweepSessionEntries(tabId);
+    for (const [key, value] of Object.entries(entries)) {
+      if (value === null) {
+        delete merged[key];
+      } else {
+        merged[key] = value;
+      }
+    }
+    await chrome.storage.session.set({ [OZON_SWEEP_SESSION_PREFIX + tabId]: merged });
+  });
+  sweepSessionQueue = task.catch(() => undefined);
+  return task;
+}
+
+async function getOzonSweepSessionEntries(tabId: number | undefined): Promise<Record<string, string>> {
+  if (tabId === undefined) {
+    return {};
+  }
+  const key = OZON_SWEEP_SESSION_PREFIX + tabId;
+  const stored = await chrome.storage.session.get(key);
+  const value = stored[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }
 
 async function refreshAndStoreCurrencyRates(
