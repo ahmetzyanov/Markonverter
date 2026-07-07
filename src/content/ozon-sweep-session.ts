@@ -11,6 +11,9 @@ const OZON_SILENT_SWEPT_SESSION_PREFIX = "markonverter.ozonSilentSwept.v1:";
 const OZON_SWEEP_STATE_KEY = "markonverter.ozonSweep.v1";
 const OZON_SWEPT_SESSION_PREFIX = "markonverter.ozonSwept.v1:";
 const OZON_UNAVAILABLE_SESSION_PREFIX = "markonverter.ozonUnavailable.v1:";
+const OZON_DOOMED_SESSION_PREFIX = "markonverter.ozonDoomed.v1:";
+const OZON_THROTTLED_UNTIL_KEY = "markonverter.ozonThrottledUntil.v1";
+const OZON_SWEEP_THROTTLE_MS = 60_000;
 const OZON_SWEEP_SESSION_KEY_PREFIX = "markonverter.ozon";
 
 // Replace the local per-origin copy of the sweep keys with the per-tab mirror
@@ -164,4 +167,47 @@ export function persistOzonSessionUnavailable(productId: string, ids: string[]):
 
 export function isOzonPickupSessionUnavailable(productId: string, externalLocationId: string): boolean {
   return externalLocationId.trim() !== "" && loadOzonSessionUnavailable(productId).includes(externalLocationId);
+}
+
+// A point whose activation never confirms is a structural id-space mismatch
+// (see wiki/maps/ozon-sweep-live-bug-report-2026-07-07.md), not a per-product
+// condition, so this is remembered for the whole tab session rather than per
+// product: it stops every later product page from repeating the same doomed
+// silent-sweep/retry/return reload sequence for this point.
+export function markOzonPickupActivationDoomed(externalLocationId: string): void {
+  try {
+    sessionStorage.setItem(OZON_DOOMED_SESSION_PREFIX + externalLocationId, "1");
+  } catch {
+    // Ignore storage failures.
+  }
+  mirrorOzonSweepSessionEntry(OZON_DOOMED_SESSION_PREFIX + externalLocationId, "1");
+}
+
+export function isOzonPickupActivationDoomed(externalLocationId: string): boolean {
+  try {
+    return sessionStorage.getItem(OZON_DOOMED_SESSION_PREFIX + externalLocationId) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// Short backoff after Ozon's antibot returns HTTP 403: starting another
+// multi-request sweep immediately only deepens the block.
+export function markOzonSweepThrottled(): void {
+  const value = String(Date.now() + OZON_SWEEP_THROTTLE_MS);
+  try {
+    sessionStorage.setItem(OZON_THROTTLED_UNTIL_KEY, value);
+  } catch {
+    // Ignore storage failures.
+  }
+  mirrorOzonSweepSessionEntry(OZON_THROTTLED_UNTIL_KEY, value);
+}
+
+export function isOzonSweepThrottled(): boolean {
+  try {
+    const raw = sessionStorage.getItem(OZON_THROTTLED_UNTIL_KEY);
+    return raw !== null && Date.now() < Number(raw);
+  } catch {
+    return false;
+  }
 }

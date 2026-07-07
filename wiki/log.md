@@ -13,6 +13,15 @@ updates, and non-trivial implementation changes.
   `visible-price.ts` before parsing so the injected text never becomes a second
   price candidate. Annotation requires an explicit currency marker — bare
   numbers are never guessed. Approximate amounts round to whole units.
+- Partial fix for `maps/ozon-sweep-live-bug-report-2026-07-07.md` (reload
+  loop / 403 flood / raw error leak): activation candidate loops now break
+  early on confirm or on first HTTP 403; a 60s session-wide sweep throttle
+  and a per-tab-session "doomed pickup point" mark stop repeat sweeps from
+  hammering Ozon once a point is known to never confirm or the session is
+  already blocked; raw `HTTP 403` panel text replaced with a translated
+  `panelOzonThrottled` message. The primary id-space-mismatch root cause
+  (addressbook UUID vs. Ozon's areaid/fias) is intentionally left unfixed —
+  see the report's "Fix status" section for why and what it would take.
 
 ## 2026-06-30
 
@@ -525,3 +534,17 @@ updates, and non-trivial implementation changes.
 - Confirmed `.claude/skills` is a symlink to `.codex/skills` (single source,
   shared by Codex and Claude Code — no duplication).
 - Verified: `live_check.sh` end-to-end → LIVE_OZON_OK panel=attached.
+
+## 2026-07-07 (seventh round) — live repro of auto-pricing reload loop
+
+- Instrumented live probe (user's real 1-point config, fresh Arc cookies)
+  reproduced both complaints: 3–4 page reloads and ~23 s per product with
+  **zero** captured quotes, ending in "Ozon не подтвердил этот ПВЗ" /
+  raw "HTTP 403" in the panel.
+- Root causes and evidence: saved addressbook UUID never appears in Ozon
+  selected-location paths (Ozon echoes `location.current.areaid`/`fias`
+  only), so confirmation is structurally impossible; the sweep retry/return
+  stages then burn 3–5 reloads per product per tab session; 216 API calls in
+  one visit tripped antibot → next session 89/95 requests 403.
+- Full report: `wiki/maps/ozon-sweep-live-bug-report-2026-07-07.md`.
+  No source changes made (report-only).

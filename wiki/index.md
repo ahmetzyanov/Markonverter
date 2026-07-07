@@ -9,6 +9,7 @@ survive across agent sessions.
 - [Knowledge maps](maps/README.md)
 - [Project map](maps/project.md)
 - [Release / Chrome Web Store publishing](maps/release.md)
+- [Live bug report: Ozon sweep reload loop, 2026-07-07](maps/ozon-sweep-live-bug-report-2026-07-07.md)
 
 ## Current Project Shape
 

@@ -6,7 +6,9 @@ import {
   activateOzonPickupLocationForProduct,
   fetchOzonPrivatePrice,
   fetchOzonSelectedLocationId,
-  isOzonProductUnavailableInRegion
+  isOzonPickupNotConfirmed,
+  isOzonProductUnavailableInRegion,
+  isOzonRequestsThrottled
 } from "../marketplaces/ozon/private-api";
 import { ozonPickupDisplayName } from "../marketplaces/ozon/pickup-matching";
 import { manualQuoteKey } from "../shared/settings";
@@ -23,12 +25,16 @@ import { findOzonDeliveryContainer, waitForOzonDeliveryContainerToClose } from "
 import {
   canPersistOzonSweepState,
   clearOzonSweepState,
+  isOzonPickupActivationDoomed,
   isOzonPickupSessionUnavailable,
   isOzonProductSilentSwept,
   isOzonProductSwept,
+  isOzonSweepThrottled,
   loadOzonSweepState,
+  markOzonPickupActivationDoomed,
   markOzonProductSilentSwept,
   markOzonProductSwept,
+  markOzonSweepThrottled,
   OzonSweepState,
   persistOzonSessionUnavailable,
   saveOzonSweepState
@@ -83,7 +89,8 @@ function ozonSilentSweepPendingPoints(
       point.externalLocationId.trim() !== "" &&
       point.currency === pageCurrency &&
       !settings.manualQuotes[manualQuoteKey(product.productId, point.id)] &&
-      !isOzonPickupSessionUnavailable(product.productId, point.externalLocationId)
+      !isOzonPickupSessionUnavailable(product.productId, point.externalLocationId) &&
+      !isOzonPickupActivationDoomed(point.externalLocationId)
   );
 }
 
@@ -99,6 +106,11 @@ export function shouldStartOzonSilentPriceSweep(
   // sessionStorage; without persistence a failed-restore reload would re-run
   // the sweep forever, so never start.
   if (!canPersistOzonSweepState()) {
+    return false;
+  }
+  // Ozon's antibot is already engaged for this session; starting another
+  // multi-request sweep now only deepens the block.
+  if (isOzonSweepThrottled()) {
     return false;
   }
   if (isOzonProductSilentSwept(product.productId) || isOzonProductSwept(product.productId) || loadOzonSweepState()) {
@@ -144,10 +156,12 @@ export async function runOzonSilentPriceSweep(
     let touchedSession = false;
 
     for (const point of pending) {
-      // Stop pricing when the run went stale (SPA navigation) or the user
-      // opened the native selector; fall through to the restore below so the
-      // session is put back where it started.
-      if (runId !== activeRun || findOzonDeliveryContainer()) {
+      // Stop pricing when the run went stale (SPA navigation), the user
+      // opened the native selector, or Ozon is already blocking this session
+      // (hammering the remaining points would only deepen the block); fall
+      // through to the restore below so the session is put back where it
+      // started.
+      if (runId !== activeRun || findOzonDeliveryContainer() || isOzonSweepThrottled()) {
         break;
       }
       touchedSession = true;
@@ -165,9 +179,17 @@ export async function runOzonSilentPriceSweep(
       } catch (error) {
         if (isOzonProductUnavailableInRegion(error)) {
           unavailable.push(point.externalLocationId);
+        } else if (isOzonRequestsThrottled(error)) {
+          markOzonSweepThrottled();
+        } else if (isOzonPickupNotConfirmed(error)) {
+          // Confirmation failed after the full candidate escalation: this is a
+          // structural id-space mismatch, not a transient miss, so no later
+          // product page should retry it this session either.
+          markOzonPickupActivationDoomed(point.externalLocationId);
         }
-        // Otherwise the activation or the confirmed read failed; the point is
-        // left unpriced for the reload sweep.
+        // Any other failure (network hiccup, ambiguous price, ...) is
+        // transient: leave the point unpriced for the reload sweep to retry
+        // rather than doom it.
       }
     }
     persistOzonSessionUnavailable(product.productId, unavailable);
@@ -214,7 +236,8 @@ export async function runOzonSilentPriceSweep(
           point.externalLocationId !== originalActive &&
           !priced.includes(point.externalLocationId) &&
           !latest.manualQuotes[manualQuoteKey(product.productId, point.id)] &&
-          !isOzonPickupSessionUnavailable(product.productId, point.externalLocationId)
+          !isOzonPickupSessionUnavailable(product.productId, point.externalLocationId) &&
+          !isOzonPickupActivationDoomed(point.externalLocationId)
       )
       .map((point) => point.externalLocationId);
     const state: OzonSweepState = {
@@ -265,6 +288,11 @@ export function shouldStartOzonPriceSweep(
   if (!canPersistOzonSweepState()) {
     return false;
   }
+  // Ozon's antibot is already engaged for this session; starting another
+  // multi-request sweep now only deepens the block.
+  if (isOzonSweepThrottled()) {
+    return false;
+  }
   if (isOzonProductSwept(product.productId) || loadOzonSweepState()) {
     return false;
   }
@@ -275,7 +303,8 @@ export function shouldStartOzonPriceSweep(
     (point) =>
       point.externalLocationId.trim() !== "" &&
       !settings.manualQuotes[manualQuoteKey(product.productId, point.id)] &&
-      !isOzonPickupSessionUnavailable(product.productId, point.externalLocationId)
+      !isOzonPickupSessionUnavailable(product.productId, point.externalLocationId) &&
+      !isOzonPickupActivationDoomed(point.externalLocationId)
   );
 }
 
@@ -290,7 +319,9 @@ export async function startOzonPriceSweep(
   ozonSweepBusy = true;
 
   const pointByExternalId = new Map(
-    comparisonPoints.filter((point) => point.externalLocationId.trim() !== "").map((point) => [point.externalLocationId, point])
+    comparisonPoints
+      .filter((point) => point.externalLocationId.trim() !== "" && !isOzonPickupActivationDoomed(point.externalLocationId))
+      .map((point) => [point.externalLocationId, point])
   );
   const comparisonIds = [...pointByExternalId.keys()];
   // Prefer Ozon's own selected-address id so we can return to the exact pickup
@@ -383,23 +414,34 @@ export async function continueOzonPriceSweep(product: ProductIdentity, settings:
 
   const captureTarget = state.pending[0];
   const point = captureTarget ? settings.pickupPoints.find((item) => item.externalLocationId === captureTarget) : undefined;
-  if (point) {
-    const resolved = await captureOzonSweepStop(product, point, state.priced, state.unavailable);
+  // Ozon is already blocking this session: skip the capture attempt (it would
+  // just 403 again) and give up on every remaining pending point rather than
+  // reloading through each one while blocked.
+  if (point && isOzonSweepThrottled()) {
+    state.pending = [];
+  } else if (point) {
+    const stop = await captureOzonSweepStop(product, point, state.priced, state.unavailable);
     persistOzonSessionUnavailable(product.productId, state.unavailable);
     // Unresolved means the address switch likely did not take (Ozon kept the
     // previous point). Retry the switch once before giving the point up —
     // otherwise it surfaces as "Ozon did not confirm this pickup point".
-    if (!resolved && !state.retriedHead) {
+    if (!stop.resolved && !state.retriedHead) {
       state.retriedHead = true;
       saveOzonSweepState(state);
       await activateOzonAddressAndReload(product, captureTarget);
       return "reloading";
     }
+    if (!stop.resolved && state.retriedHead && stop.confirmationFailed) {
+      // Second consecutive confirmation failure for the same target: this is
+      // a structural id-space mismatch, not a transient miss, so no later
+      // product page should retry it this session either.
+      markOzonPickupActivationDoomed(captureTarget);
+    }
   }
 
   state.retriedHead = false;
   state.pending = state.pending.slice(1);
-  if (state.pending.length > 0) {
+  if (state.pending.length > 0 && !isOzonSweepThrottled()) {
     saveOzonSweepState(state);
     await activateOzonAddressAndReload(product, state.pending[0]);
     return "reloading";
@@ -466,21 +508,29 @@ function chooseOzonSweepFinishTarget(originalActive: string | null, priced: stri
   return priced[0] ?? originalActive ?? null;
 }
 
-// Returns whether this stop was resolved (priced or confirmed unavailable);
-// false means the address switch likely did not take effect.
+interface OzonSweepStopResult {
+  // False means the address switch likely did not take effect (or Ozon is
+  // throttling): the point is left uncaptured.
+  resolved: boolean;
+  // True only when the failure was specifically Ozon never confirming the
+  // switched pickup point, as opposed to a network hiccup or other transient
+  // miss. Only this failure kind justifies remembering the point as doomed.
+  confirmationFailed?: boolean;
+}
+
 async function captureOzonSweepStop(
   product: ProductIdentity,
   point: PickupPoint,
   priced: string[],
   unavailable: string[]
-): Promise<boolean> {
+): Promise<OzonSweepStopResult> {
   await waitForVisibleOzonPriceOrUnavailable(point.currency);
 
   if (isVisibleOzonRegionUnavailable()) {
     if (!unavailable.includes(point.externalLocationId)) {
       unavailable.push(point.externalLocationId);
     }
-    return true;
+    return { resolved: true };
   }
 
   // Confirm the page actually switched to this point before recording a price:
@@ -498,16 +548,26 @@ async function captureOzonSweepStop(
       priced.push(point.externalLocationId);
     }
     setCaptureStatus({ tone: "normal", message: t("panelAutoCapturedCurrentPrice", { name: ozonPickupDisplayName(point) }) });
-    return true;
+    return { resolved: true };
   } catch (error) {
     if (isOzonProductUnavailableInRegion(error)) {
       if (!unavailable.includes(point.externalLocationId)) {
         unavailable.push(point.externalLocationId);
       }
-      return true;
+      return { resolved: true };
+    }
+    if (isOzonRequestsThrottled(error)) {
+      // Ozon is already blocking this session; retrying this same stop would
+      // just trigger another 403, so treat it as resolved (uncaptured) rather
+      // than burning a retry-then-reload on it.
+      markOzonSweepThrottled();
+      return { resolved: true };
     }
     // The switch likely did not take effect; leave this point uncaptured.
-    return false;
+    // Only flag it as a confirmation failure (candidate for doom-marking) when
+    // that's precisely what happened — a network hiccup or ambiguous price
+    // should just be retried, never doomed.
+    return { resolved: false, confirmationFailed: isOzonPickupNotConfirmed(error) };
   }
 }
 

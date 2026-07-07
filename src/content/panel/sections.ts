@@ -9,7 +9,7 @@ import { type Translator } from "../../shared/i18n";
 import { ComparisonResult, ExtensionSettings, PickupPoint, ProductIdentity } from "../../shared/types";
 import { OzonPickupCandidate } from "../../marketplaces/ozon/pickup-capture";
 import { ozonCandidateDisplayName, ozonPickupDisplayName } from "../../marketplaces/ozon/pickup-matching";
-import { isOzonProductUnavailableInRegion } from "../../marketplaces/ozon/private-api";
+import { isOzonProductUnavailableInRegion, isOzonRequestsThrottled } from "../../marketplaces/ozon/private-api";
 import { currentI18n, deleteSavedPickupPoint, t } from "../app";
 import { latestPickupCandidates } from "../ozon-candidates";
 import { captureCurrentPriceForPickupPoint, saveDetectedPickupCandidate } from "../ozon-quote-capture";
@@ -299,6 +299,9 @@ function readableResultError(error: string, i18n: Translator = currentI18n()): s
   }
   if (error.includes("response did not confirm requested pickup point")) {
     return i18n.t("panelOzonDidNotConfirm");
+  }
+  if (isOzonRequestsThrottled(error)) {
+    return i18n.t("panelOzonThrottled");
   }
   return error.length > 150 ? `${error.slice(0, 147)}...` : error;
 }

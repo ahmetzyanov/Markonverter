@@ -2,10 +2,12 @@ import {
   activateOzonPickupLocationForProduct,
   buildLocationActivationCandidates,
   fetchOzonPrivatePrice,
+  fetchOzonSelectedLocationId,
   extractOzonDeliveryText,
   extractOzonPrice,
   extractSelectedOzonLocationId,
   isOzonProductUnavailableInRegion,
+  isOzonRequestsThrottled,
   responseContainsLocation
 } from "../../../src/marketplaces/ozon/private-api";
 
@@ -724,5 +726,74 @@ describe("Ozon private API parsing", () => {
         addressBook: { items: [{ deliveryAddressOid: "kz-456" }] }
       })
     ).toBeNull();
+  });
+
+  it("stops escalating candidates and throws a throttled error once Ozon returns HTTP 403", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        return new Response(null, { status: 403 });
+      })
+    );
+
+    try {
+      await fetchOzonPrivatePrice({
+        productId: "2229282395",
+        productUrl: "https://ozon.kz/product/fake-product-2229282395/",
+        pickupExternalLocationId: "ru-123",
+        currencyHint: "RUB"
+      });
+      throw new Error("expected a throttled rejection");
+    } catch (error) {
+      expect(isOzonRequestsThrottled(error)).toBe(true);
+    }
+    // Two non-mutating read candidates exist by default; abort after the first 403.
+    expect(calls.length).toBe(1);
+  });
+
+  it("stops reading further candidates for the selected location id once Ozon returns HTTP 403", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        return new Response(null, { status: 403 });
+      })
+    );
+
+    await expect(fetchOzonSelectedLocationId("https://ozon.kz/product/fake-product-2229282395/")).resolves.toBeNull();
+    expect(calls.length).toBe(1);
+  });
+
+  it("stops activation candidate escalation once a candidate confirms the pickup point", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        return new Response(
+          JSON.stringify({
+            delivery: {
+              selectedAddressOid: "ru-123"
+            }
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        );
+      })
+    );
+
+    await expect(activateOzonPickupLocationForProduct("https://ozon.kz/product/fake-product-2229282395/", "ru-123")).resolves.toBe(
+      true
+    );
+    // 12 candidates are built (4 endpoints x 3 modal variants); confirming on
+    // the first one must skip the remaining 11.
+    expect(calls.length).toBe(1);
   });
 });

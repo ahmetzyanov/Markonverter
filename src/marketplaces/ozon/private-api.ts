@@ -17,6 +17,9 @@ interface EndpointCandidate {
 }
 
 export const OZON_PRODUCT_UNAVAILABLE_IN_REGION = "Ozon product is not delivered to this pickup point region";
+// Ozon's antibot returns HTTP 403 session-wide once request volume trips it;
+// hammering more candidates after the first 403 only digs the hole deeper.
+export const OZON_REQUESTS_THROTTLED_MESSAGE = "Ozon is temporarily blocking requests (HTTP 403)";
 
 export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): Promise<PriceQuote> {
   const productUrl = new URL(request.productUrl);
@@ -30,6 +33,7 @@ export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): P
     includeSelectionCandidates: request.allowSessionMutatingLocationActivation === true
   });
   const errors: string[] = [];
+  let throttled = false;
 
   for (const candidate of candidates) {
     try {
@@ -41,6 +45,10 @@ export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): P
       });
       if (!response.ok) {
         errors.push(`${candidate.label}: HTTP ${response.status}`);
+        if (response.status === 403) {
+          throttled = true;
+          break;
+        }
         continue;
       }
 
@@ -71,12 +79,29 @@ export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): P
     }
   }
 
+  if (throttled) {
+    throw new Error(OZON_REQUESTS_THROTTLED_MESSAGE);
+  }
   throw new Error(`Ozon private API did not return a verified product price. ${errors.join("; ")}`);
 }
 
 export function isOzonProductUnavailableInRegion(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error);
   return text.includes(OZON_PRODUCT_UNAVAILABLE_IN_REGION) || /товар\s+не\s+доставляется\s+в\s+ваш\s+регион/i.test(text);
+}
+
+export function isOzonRequestsThrottled(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  return text.includes(OZON_REQUESTS_THROTTLED_MESSAGE);
+}
+
+// True only for a genuine "Ozon never confirmed this pickup point" failure —
+// not a network hiccup, ambiguous price, or other transient miss. Only this
+// specific failure justifies remembering the point as permanently doomed for
+// the session; a transient failure should just be retried later.
+export function isOzonPickupNotConfirmed(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  return text.includes("response did not confirm requested pickup point");
 }
 
 export async function activateOzonPickupLocationForProduct(productUrl: string, pickupExternalLocationId: string): Promise<boolean> {
@@ -102,6 +127,9 @@ export async function fetchOzonSelectedLocationId(productUrl: string): Promise<s
         body: candidate.body
       });
       if (!response.ok) {
+        if (response.status === 403) {
+          break;
+        }
         continue;
       }
       const selected = extractSelectedOzonLocationId(await response.json());
@@ -160,6 +188,9 @@ async function activateOzonPickupLocation(
         body: candidate.body
       });
       if (!response.ok) {
+        if (response.status === 403) {
+          break;
+        }
         continue;
       }
 
@@ -167,6 +198,9 @@ async function activateOzonPickupLocation(
       const activation = inspectActivationResponse(json, pickupExternalLocationId);
       confirmed ||= activation.confirmed;
       activation.aliases.forEach((alias) => aliases.add(alias));
+      if (confirmed) {
+        break;
+      }
     } catch {
       // Best effort only: the verified product-price request below decides whether the switch worked.
     }
