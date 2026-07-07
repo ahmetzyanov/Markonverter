@@ -161,11 +161,16 @@ export function panelCss(): string {
       background: var(--mk-accent-soft);
       color: var(--mk-accent);
     }
+    .settingsButton:hover:not(:disabled),
+    .collapseButton:hover:not(:disabled) {
+      border-color: transparent;
+    }
     .settingsButton {
       width: 32px;
       padding: 0;
       font-size: 17px;
       line-height: 1;
+      border-color: transparent;
     }
     .collapseButton {
       display: inline-flex;
@@ -173,6 +178,7 @@ export function panelCss(): string {
       justify-content: center;
       width: 32px;
       padding: 0;
+      border-color: transparent;
     }
     .chevronIcon {
       width: 9px;
