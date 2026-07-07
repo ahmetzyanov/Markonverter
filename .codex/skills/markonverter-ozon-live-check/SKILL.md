@@ -13,37 +13,22 @@ The deterministic extension regression harness is `npm run qa:ozon`. The real-pa
 
 Never print, paste, commit, or summarize cookie or localStorage values. It is OK to report counts, domains, origin names, filenames, and `LIVE_OZON_*` statuses.
 
-## Commands
+## Command
 
-From `/Users/gogla/PycharmProjects/markonverter`:
+From `/Users/gogla/PycharmProjects/markonverter`, one script does the whole flow — Arc cookie export, storage-state export (cookies + Arc localStorage for `https://www.ozon.ru` and `https://ozon.kz`), then the live probe:
 
 ```bash
-rtk python3 .codex/skills/markonverter-ozon-live-check/scripts/export_arc_ozon_cookies.py
+rtk .codex/skills/markonverter-ozon-live-check/scripts/live_check.sh
 ```
 
-If macOS prompts for Keychain access to `Arc Safe Storage`, the user must approve or enter their password. The script reads only Ozon rows from Arc's cookie DB and overwrites:
+If macOS prompts for Keychain access to `Arc Safe Storage`, the user must approve or enter their password. The script reads only Ozon rows from Arc's cookie DB and overwrites these gitignored files:
 
 ```text
 /Users/gogla/PycharmProjects/markonverter/.secrets/ozon-cookies.txt
-```
-
-Then export Ozon storage state. This combines the refreshed cookies with Arc localStorage entries for `https://www.ozon.ru` and `https://ozon.kz`:
-
-```bash
-rtk node .codex/skills/markonverter-ozon-live-check/scripts/export_arc_ozon_storage_state.mjs
-```
-
-It overwrites:
-
-```text
 /Users/gogla/PycharmProjects/markonverter/.secrets/ozon-arc-storage-state.json
 ```
 
-Run the saved live probe with that storage state:
-
-```bash
-rtk zsh -lc 'set -a; source .env.ozon.local; set +a; npm run qa:ozon:live'
-```
+Extra probe flags pass through, for example `live_check.sh --capture-check`.
 
 Expected green result:
 

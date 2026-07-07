@@ -515,3 +515,13 @@ updates, and non-trivial implementation changes.
   private-api.ts, panel/styles.ts.
 - Verified: typecheck, gate + 95 unit tests, build, `qa:ozon`
   (BROWSER_QA_OK), live check (LIVE_OZON_OK).
+
+## 2026-07-07 (sixth round) — one-shot live check script
+
+- Added `.codex/skills/markonverter-ozon-live-check/scripts/live_check.sh`:
+  chains Arc cookie export, storage-state export, and `qa:ozon:live` into one
+  command; extra flags pass through to the probe. SKILL.md updated to make it
+  the primary command.
+- Confirmed `.claude/skills` is a symlink to `.codex/skills` (single source,
+  shared by Codex and Claude Code — no duplication).
+- Verified: `live_check.sh` end-to-end → LIVE_OZON_OK panel=attached.
