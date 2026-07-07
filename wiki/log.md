@@ -304,6 +304,37 @@ updates, and non-trivial implementation changes.
   `qa:ozon` (BROWSER_QA_OK), live `LIVE_OZON_OK` on the ozon.kz product URL
   (ozon.ru redirect was antibot-blocked that run).
 
+## 2026-07-07 (second round)
+
+- Fixed the reload sweep for cross-country accounts after more dogfooding
+  ("always end up on the RU point", "KZ point 1-in-5 shows 'Ozon did not
+  confirm'"):
+  - Root cause of the lost return-to-origin: all sweep state (state machine,
+    swept marks, unavailable marks) lived in per-origin `sessionStorage`.
+    Activating the other country's point makes the reload land on the other
+    Ozon domain (`ozon.kz`→`ozon.ru` observed), orphaning the state — the
+    return never ran and re-entering products re-triggered sweeps ("ПВЗ
+    скачет"). The background now mirrors the `markonverter.ozon*` keys per tab
+    id in `chrome.storage.session` (`OZON_SWEEP_SESSION_GET/SET`, serialized
+    through a queue, cleaned on `tabs.onRemoved`); the content script hydrates
+    `sessionStorage` from the mirror once per page load before any sweep
+    decision, and every sweep write mirrors fire-and-forget. Mirror is the
+    source of truth on hydration (local-only keys are dropped).
+  - `beginOzonSweepReturn` now switches the session back (best effort) *before*
+    navigating to `originalHref` across a domain flip — otherwise the origin
+    domain redirects straight back while the session points at the other
+    country. Stage 1 verifies via `fetchOzonSelectedLocationId` and skips the
+    extra activate+reload when the pre-navigation switch already took.
+  - The "did not confirm" rows came from an address switch that did not take
+    on the first attempt: `captureOzonSweepStop` now reports resolved/failed
+    and `continueOzonPriceSweep` retries the switch once per pending head
+    (`retriedHead` in state, bounded — max one extra reload per point).
+  - `qa-fake-ozon.mjs` `clearSweepSessionState` also clears the per-tab mirror
+    via the extension service worker; the mirror deliberately survives what
+    used to isolate scenarios (same product id, same tab).
+  - Verified: typecheck, 95 unit tests, `qa:ozon` (BROWSER_QA_OK), live check
+    LIVE_OZON_OK on ozon.kz.
+
 ## 2026-07-07
 
 - Fixed two silent-sweep issues found by dogfooding a cross-country account
@@ -378,3 +409,98 @@ updates, and non-trivial implementation changes.
   - `qa-live-ozon.mjs --keep-open` no longer deletes the temporary profile out
     from under the still-running browser. Fixture records keep their stored
     `responseTruncated` flag across storage round-trips.
+
+## 2026-07-07 (third round)
+
+- Split `src/content/app.ts` (3608 → 2200 raw lines), the two extractions
+  planned in TODO.md:
+  - `content/ozon-sweep.ts` — silent sweep (option 3) + reload sweep state
+    machine; `ozonSweepBusy` is now module-private behind `isOzonSweepBusy()`.
+  - `content/ozon-sweep-session.ts` — sweep sessionStorage layer + the per-tab
+    background mirror (hydrate/mirror, sweep state, swept/unavailable marks).
+  - `content/ozon-delivery-dom.ts` — read-only detection of Ozon's delivery
+    selector (container/opener/rows); `latestPickupCandidates` became a
+    parameter, same pattern as the pickup-matching extraction.
+  - `content/ozon-delivery-assist.ts` — injected assist bar, row actions, and
+    the guarded page-action event layer.
+  - `content/runtime.ts` (runtimeRequest + context-gone latch) and
+    `content/ids.ts` (shared DOM ids).
+  - Convention for the remaining split: modules read app state via exported
+    ESM live bindings (`latestSettings`, `activeRun`, `isPanelCollapsed`,
+    `latestPickupCandidates`); the only cross-module writes go through
+    `setCaptureStatus`/`setLatestSettings`. The app↔sweep and app↔assist
+    import cycles are intentional and function-level only (nothing reads the
+    other module at init time).
+  - Deleted `requestOzonPrice` (pure pass-through); callers use
+    `fetchOzonPrivatePrice` directly.
+- Added the file-size gate from TODO.md: `scripts/check-file-size.mjs` runs
+  first in `npm test`; soft 300 warn / hard 500 fail on counted lines
+  (blank/comment excluded), allowlist of pre-existing offenders (app.ts,
+  pickup-capture.ts, private-api.ts, panel/styles.ts) to be shrunk, never
+  grown. All new modules are under the 500 hard limit. Decision: no eslint —
+  function-length/complexity rules would need it, and the dependency is not
+  worth it for line counts alone; revisit only if more lint rules are wanted.
+- Verified: typecheck, 95 unit tests, `qa:ozon` (BROWSER_QA_OK). Next split
+  targets tracked in TODO.md: panel rendering, then candidate
+  capture/discovery.
+
+## 2026-07-07 (fourth round)
+
+- app.ts split, panel pass (second of the three TODO steps): 2200 -> 1265 raw
+  lines (1133 counted). Three new modules, all under the 500 hard limit:
+  - `content/panel/render.ts` — `PanelModel`, panel shell + `renderPanel`,
+    in-panel confirmation dialog, collapse/expand state + animation. Now owns
+    `lastPanelModel`, `captureStatus` (writes go through the exported
+    `setCaptureStatus`, moved here from app.ts), and `isPanelCollapsed`
+    (exported live binding; read by app and sweep).
+  - `content/panel/sections.ts` — comparison rows, detected pickup-candidate
+    list (`resetDetectedPickupListCollapse()` replaces app's direct override
+    write), failure diagnostics, `getSavedOzonExternalIds`.
+  - `content/fixtures.ts` — the whole debug fixture pipeline (page-event
+    capture via `installOzonFixtureCapture()`, buffered flush, panel tools
+    section). Keeping capture + UI together removed the cross-module
+    `ozonFixtureCount` write that a render/app split would have created.
+- app.ts newly exports for the panel modules: `currentI18n`,
+  `isDebugModeEnabled`, `deleteSavedPickupPoint`,
+  `captureCurrentPriceForPickupPoint`. The app<->panel, app<->fixtures and
+  render<->sections import cycles follow the established convention:
+  intentional, function-level only.
+- Verified: typecheck, gate + 95 unit tests, build, `qa:ozon`
+  (BROWSER_QA_OK), and live check (LIVE_OZON_OK, panel attached, detected
+  candidates rendered on a real product page).
+- Remaining split target tracked in TODO.md: candidate capture/discovery
+  (~700 lines), then shrink the gate allowlist.
+
+## 2026-07-07 (fifth round) — app.ts split DONE
+
+- Final pass (candidate capture/discovery): app.ts 1265 -> 473 raw lines
+  (418 counted, under the 500 hard limit) — removed from the gate allowlist
+  in `scripts/check-file-size.mjs`. The TODO item is complete and was removed
+  from TODO.md.
+- Two new modules, both under the hard limit:
+  - `content/ozon-candidates.ts` — page-world candidate event feed
+    (`installPickupCandidateCapture()`), merge/dedupe, fallback DOM/storage
+    capture sources, private-API discovery endpoints, saved-name repair/sync.
+    Now owns `latestPickupCandidates` (exported live binding) and the
+    discovery session sets (`resetPickupDiscoverySession()` replaces app's
+    direct `.clear()` calls).
+  - `content/ozon-quote-capture.ts` — manual/auto visible-quote capture,
+    `saveDetectedPickupCandidate`, and `currentOzonExternalLocationId`
+    (owns `lastAutoCapturedCurrentLocation`;
+    `resetAutoCapturedCurrentLocation()` for page changes). Sweep now imports
+    `currentOzonExternalLocationId` from here.
+- app.ts is now only: boot/listeners/panel recovery, `runIfProductPage`
+  orchestration, the per-point compare (`compareOzonPickupPoint` +
+  non-mutating price fetch), settings state (`latestSettings`/`activeRun`
+  live bindings + `setLatestSettings`), `saveManualQuoteForPoint`,
+  `deleteSavedPickupPoint`, `getLatestSettings`, and i18n helpers
+  (`currentI18n`/`t`/`isDebugModeEnabled`).
+- `tests/content/ozon-discovery.test.ts` import moved to
+  `src/content/ozon-candidates` (`buildOzonPickupDiscoveryEndpoints`,
+  `shouldAutoRefreshSavedOzonPickupNames`).
+- All content modules follow the same convention: reads via exported ESM live
+  bindings, writes via setters, import cycles intentional and function-level
+  only. Remaining allowlist (pre-existing, non-content): pickup-capture.ts,
+  private-api.ts, panel/styles.ts.
+- Verified: typecheck, gate + 95 unit tests, build, `qa:ozon`
+  (BROWSER_QA_OK), live check (LIVE_OZON_OK).

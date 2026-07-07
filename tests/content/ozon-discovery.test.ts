@@ -1,4 +1,4 @@
-import { buildOzonPickupDiscoveryEndpoints, shouldAutoRefreshSavedOzonPickupNames } from "../../src/content/app";
+import { buildOzonPickupDiscoveryEndpoints, shouldAutoRefreshSavedOzonPickupNames } from "../../src/content/ozon-candidates";
 import { DEFAULT_LANGUAGE_PREFERENCE } from "../../src/shared/i18n";
 import { ExtensionSettings, MarketplaceId } from "../../src/shared/types";
 
