@@ -234,3 +234,35 @@ Root cause 4 (delivery widget text often absent until hydration) remains
 open, but is now only a latency issue for *first-time* learning: once any
 page has matched the point visibly, every later page is priced through the
 alias-confirmed API read without needing delivery text at all.
+
+## Fix status (2026-07-08, second pass) — sweep-time learning
+
+User live-tested the two-point config (Astana active + saved {Буинск,
+Астана}) and Buinsk still ended «Недоступно» after
+reload→Буинск→reload→Буинск→Астана. Gap in the first pass: learning lived
+only in the visible-delivery auto-capture path, which is disabled while a
+sweep runs (`captureCurrentVisibleQuoteFromLatestSettings` bails on
+`isOzonSweepBusy() || loadOzonSweepState()`) — but a point that is not the
+user's own active point is *only ever active mid-sweep*, so its alias could
+never be learned; the confirmation then failed forever and the `retriedHead`
+retry produced the double reload.
+
+Second-pass fix (`learnOzonAliasAfterSweepActivation` in
+`src/content/ozon-sweep.ts`, decision logic pure in
+`chooseOzonSweepLearnedAlias`): the sweep itself just issued select_address
+for the point, so when the reported selected id verifiably moved off the
+sweep's origin and no other saved point owns it, it is learned as the
+point's alias and the same price read confirms through it. Applied to both
+the silent sweep's not-confirmed branch (learn → retry read in place → only
+doom when the selection never moved) and the reload sweep's capture stop
+(first stop resolves → no retry reload). Reload-sweep pending additionally
+skips already-quoted points (kept in `priced` for the finish target).
+
+Live two-point probe (real ozon.kz session, replica of the active point
+under a never-echoed UUID + the real Буинск UUID): Buinsk alias `17858`
+learned mid-sweep, 37 973 ₽ captured in ~20 s, exactly one activation, no
+double reload, 0×403; active-point replica captured 229 688 KZT + alias
+`40723` via the visible path; panel showed both rows with delta. Probe
+artifact: its fake replica UUID is not selectable, so the return leg ended
+on ozon.ru/Буинск — real addressbook UUIDs restore fine (session verified
+back on Астана, areaid 40723, afterwards).

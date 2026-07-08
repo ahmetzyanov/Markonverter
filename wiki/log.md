@@ -571,3 +571,35 @@ updates, and non-trivial implementation changes.
   plus single-owner rule keep it from loosening further.
 - Verified: typecheck, 115 tests, build, qa:ozon (BROWSER_QA_OK),
   live_check.sh (LIVE_OZON_OK).
+
+## 2026-07-08 — sweep-time alias learning (two-point config regression)
+
+- User live report: with Astana active + saved {Буинск, Астана}, Buinsk still
+  ended «Недоступно» after a reload chain (Buinsk activated twice, then back
+  to Astana). Root cause: alias learning only lived in the visible-delivery
+  auto-capture path, which is deliberately disabled while a sweep runs — but
+  a point that is not the user's own active point is only ever active
+  mid-sweep, so its alias could never be learned. The retriedHead retry then
+  produced the double reload before doom-marking.
+- Fix: `learnOzonAliasAfterSweepActivation` in both sweeps. The sweep itself
+  just asked Ozon to select the point; when `fetchOzonSelectedLocationId`
+  reports an id that moved off the sweep's origin and no other saved point
+  owns it (`chooseOzonSweepLearnedAlias`, pure + unit-tested), that id is the
+  point's identity in Ozon's response id-space. Persisted via shared
+  `persistLearnedOzonLocationAlias` (also lifts the session doom mark), then
+  the same price read confirms through it — first stop resolves, no retry
+  reload. Reload-sweep pending now also skips already-quoted points (they
+  stay in `priced` so the finish step can still land on them — qa:ozon's
+  region-unavailable scenario guards this).
+- Live two-point probe on real ozon.kz session: Buinsk alias `17858` learned
+  mid-sweep, quote 37 973 ₽ captured in ~20 s with one activation and no
+  double reload; replica active point captured 229 688 KZT + alias via the
+  visible path; 0×403.
+- Known ceiling: when the sweep domain-flips (kz→ru) and the origin point's
+  saved UUID is not selectable (probe used a fake UUID), the return leg
+  cannot restore and the page finishes on the swept point's domain. Real
+  addressbook UUIDs restore fine (verified: session put back on Astana,
+  areaid 40723). A user pick mid-sweep could in principle be learned as the
+  swept point's alias (same exposure as visible-text learning); deleting and
+  re-adding the point clears wrong aliases.
+- Verified: typecheck, 118 tests, build, qa:ozon (BROWSER_QA_OK), live probe.

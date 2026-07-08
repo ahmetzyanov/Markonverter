@@ -1,5 +1,6 @@
 import {
   canLearnOzonLocationAlias,
+  chooseOzonSweepLearnedAlias,
   findOzonPickupPointByLocationId,
   findSavedPickupPointForVisibleDelivery,
   isCandidateNameSharedAcrossExternalIds,
@@ -127,5 +128,34 @@ describe("Ozon location id aliases", () => {
     // Owned by another point: two same-city points must not cross-confirm.
     expect(canLearnOzonLocationAlias([buinsk, astana], astana, "17858")).toBe(false);
     expect(canLearnOzonLocationAlias([buinsk, astana], astana, buinsk.externalLocationId)).toBe(false);
+  });
+});
+
+describe("Ozon sweep activation alias learning", () => {
+  // The user's exact configuration from the 2026-07-07 bug report: session
+  // active on Astana, Buinsk saved under an addressbook UUID Ozon never echoes.
+  const buinsk = point("a", "Буинск, ул. Вахитова, 174Б", "daa6eeff-8093-429a-9fee-9c73e5ef6036");
+  const astana = {
+    ...point("b", "Астана, пр-кт Улы Дала, 31", "e11d0e5a-0000-4000-8000-000000000031"),
+    locationAliasIds: ["31741"]
+  };
+
+  it("learns the moved-to id after the sweep's own activation", () => {
+    expect(chooseOzonSweepLearnedAlias([buinsk, astana], buinsk, "17858", "31741")).toBe("17858");
+  });
+
+  it("refuses when the selection never moved off the sweep origin", () => {
+    // Same raw id: the activation may have silently failed.
+    expect(chooseOzonSweepLearnedAlias([buinsk, astana], buinsk, "31741", "31741")).toBeNull();
+    // Origin saved under a UUID, still selected under its learned area alias.
+    expect(chooseOzonSweepLearnedAlias([buinsk, astana], buinsk, "31741", astana.externalLocationId)).toBeNull();
+  });
+
+  it("refuses unknown origins, junk ids, owned ids, and already-aliased points", () => {
+    expect(chooseOzonSweepLearnedAlias([buinsk, astana], buinsk, "17858", null)).toBeNull();
+    expect(chooseOzonSweepLearnedAlias([buinsk, astana], buinsk, "москва", "31741")).toBeNull();
+    // "31741" belongs to Astana even when the origin id is some third place.
+    expect(chooseOzonSweepLearnedAlias([buinsk, astana], buinsk, "31741", "99999")).toBeNull();
+    expect(chooseOzonSweepLearnedAlias([buinsk, astana], { ...buinsk, locationAliasIds: ["17858"] }, "555", "31741")).toBeNull();
   });
 });

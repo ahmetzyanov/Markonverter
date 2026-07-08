@@ -226,15 +226,23 @@ async function learnOzonLocationAliasForActivePoint(
     return settings;
   }
 
+  return (await persistLearnedOzonLocationAlias(pickupPoint, selected)) ?? settings;
+}
+
+// Persist a learned location alias for a saved point. The point was
+// unconfirmable before the alias existed, so a doomed mark from earlier in
+// this session no longer applies and is lifted.
+export async function persistLearnedOzonLocationAlias(
+  pickupPoint: PickupPoint,
+  aliasId: string
+): Promise<ExtensionSettings | null> {
   const response = await runtimeRequest({
     type: "UPSERT_PICKUP_POINT",
-    pickupPoint: { ...pickupPoint, locationAliasIds: [selected] }
+    pickupPoint: { ...pickupPoint, locationAliasIds: [...(pickupPoint.locationAliasIds ?? []), aliasId] }
   });
   if (!response.ok || !("settings" in response)) {
-    return settings;
+    return null;
   }
-  // The point was unconfirmable before the alias existed; a doomed mark from
-  // earlier in this session no longer applies.
   clearOzonPickupActivationDoomed(pickupPoint.externalLocationId);
   setLatestSettings(response.settings);
   return response.settings;

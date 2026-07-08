@@ -11,6 +11,7 @@ import {
   isOzonRequestsThrottled
 } from "../marketplaces/ozon/private-api";
 import {
+  chooseOzonSweepLearnedAlias,
   findOzonPickupPointByLocationId,
   ozonPickupDisplayName,
   ozonPointMatchesLocationId
@@ -23,7 +24,7 @@ import {
   saveManualQuoteForPoint,
   t
 } from "./app";
-import { currentOzonExternalLocationId } from "./ozon-quote-capture";
+import { currentOzonExternalLocationId, persistLearnedOzonLocationAlias } from "./ozon-quote-capture";
 import { isPanelCollapsed, setCaptureStatus } from "./panel/render";
 import { findOzonDeliveryContainer, waitForOzonDeliveryContainerToClose } from "./ozon-delivery-dom";
 import {
@@ -47,6 +48,30 @@ import { extractVisibleOzonPrice } from "./page/visible-price";
 
 const OZON_SWEEP_PRICE_WAIT_MS = 6000;
 let ozonSweepBusy = false;
+
+// Root cause 1 follow-up (wiki/maps/ozon-sweep-live-bug-report-2026-07-07.md):
+// a point that is only ever active mid-sweep can never learn its alias from
+// the visible-delivery match — auto capture is disabled while a sweep runs.
+// But the sweep itself just asked Ozon to select `point`, so when the reported
+// selection moved off the sweep's origin onto an id no other saved point owns,
+// that id is this point's identity in Ozon's response id-space. Persist it so
+// the confirmed price read can succeed for UUID-saved points at all.
+async function learnOzonAliasAfterSweepActivation(
+  product: ProductIdentity,
+  point: PickupPoint,
+  originalActive: string | null,
+  settings: ExtensionSettings
+): Promise<string | null> {
+  if ((point.locationAliasIds ?? []).length > 0 || isOzonSweepThrottled()) {
+    return null;
+  }
+  const selectedNow = await fetchOzonSelectedLocationId(product.url).catch(() => null);
+  const alias = chooseOzonSweepLearnedAlias((latestSettings || settings).pickupPoints, point, selectedNow, originalActive);
+  if (!alias) {
+    return null;
+  }
+  return (await persistLearnedOzonLocationAlias(point, alias)) ? alias : null;
+}
 
 export function isOzonSweepBusy(): boolean {
   return ozonSweepBusy;
@@ -191,10 +216,31 @@ export async function runOzonSilentPriceSweep(
         } else if (isOzonRequestsThrottled(error)) {
           markOzonSweepThrottled();
         } else if (isOzonPickupNotConfirmed(error)) {
-          // Confirmation failed after the full candidate escalation: this is a
-          // structural id-space mismatch, not a transient miss, so no later
-          // product page should retry it this session either.
-          markOzonPickupActivationDoomed(point.externalLocationId);
+          // The activation may still have switched the session even though the
+          // response never echoed the point's saved id (id-space mismatch).
+          // Learn the moved-to id as the point's alias and retry the read —
+          // non-mutating, the session already sits on the switched point.
+          const learnedAlias = await learnOzonAliasAfterSweepActivation(product, point, originalActive, settings);
+          const retriedQuote = learnedAlias
+            ? await fetchOzonPrivatePrice({
+                productId: product.productId,
+                productUrl: product.url,
+                pickupExternalLocationId: point.externalLocationId,
+                pickupLocationAliasIds: [...(point.locationAliasIds ?? []), learnedAlias],
+                currencyHint: point.currency
+              }).catch(() => null)
+            : null;
+          if (retriedQuote) {
+            await saveManualQuoteForPoint(point, product, retriedQuote);
+            priced.push(point.externalLocationId);
+            setCaptureStatus({ tone: "normal", message: t("panelAutoCapturedCurrentPrice", { name: ozonPickupDisplayName(point) }) });
+          } else if (!learnedAlias) {
+            // Confirmation failed after the full candidate escalation AND the
+            // selection never moved off the origin: structural id-space
+            // mismatch with no alias to bridge it, so no later product page
+            // should retry it this session either.
+            markOzonPickupActivationDoomed(point.externalLocationId);
+          }
         }
         // Any other failure (network hiccup, ambiguous price, ...) is
         // transient: leave the point unpriced for the reload sweep to retry
@@ -375,7 +421,21 @@ export async function startOzonPriceSweep(
     persistOzonSessionUnavailable(product.productId, unavailable);
   }
 
-  const pending = comparisonIds.filter((id) => id !== originalActive);
+  // A point that already has a captured quote must not cost a reload leg, but
+  // it still counts as priced so the finish step can land on it when the
+  // original point cannot deliver the product.
+  const pending: string[] = [];
+  for (const id of comparisonIds) {
+    const point = id === originalActive ? undefined : pointByExternalId.get(id);
+    if (!point) {
+      continue;
+    }
+    if (settings.manualQuotes[manualQuoteKey(product.productId, point.id)]) {
+      priced.push(id);
+    } else if (!isOzonPickupSessionUnavailable(product.productId, id)) {
+      pending.push(id);
+    }
+  }
   const state: OzonSweepState = {
     productId: product.productId,
     originalActive,
@@ -446,7 +506,7 @@ export async function continueOzonPriceSweep(product: ProductIdentity, settings:
   if (point && isOzonSweepThrottled()) {
     state.pending = [];
   } else if (point) {
-    const stop = await captureOzonSweepStop(product, point, state.priced, state.unavailable);
+    const stop = await captureOzonSweepStop(product, point, state, settings);
     persistOzonSessionUnavailable(product.productId, state.unavailable);
     // Unresolved means the address switch likely did not take (Ozon kept the
     // previous point). Retry the switch once before giving the point up —
@@ -549,17 +609,22 @@ interface OzonSweepStopResult {
 async function captureOzonSweepStop(
   product: ProductIdentity,
   point: PickupPoint,
-  priced: string[],
-  unavailable: string[]
+  state: OzonSweepState,
+  settings: ExtensionSettings
 ): Promise<OzonSweepStopResult> {
   await waitForVisibleOzonPriceOrUnavailable(point.currency);
 
   if (isVisibleOzonRegionUnavailable()) {
-    if (!unavailable.includes(point.externalLocationId)) {
-      unavailable.push(point.externalLocationId);
+    if (!state.unavailable.includes(point.externalLocationId)) {
+      state.unavailable.push(point.externalLocationId);
     }
     return { resolved: true };
   }
+
+  // This page load followed the sweep's own select_address for `point`; when
+  // the switch took, the selected id Ozon reports now is the alias that lets
+  // the confirmed read below succeed (see learnOzonAliasAfterSweepActivation).
+  const learnedAlias = await learnOzonAliasAfterSweepActivation(product, point, state.originalActive, settings);
 
   // Confirm the page actually switched to this point before recording a price:
   // the private read (no session mutation) only returns a confirmed price for the
@@ -569,19 +634,19 @@ async function captureOzonSweepStop(
       productId: product.productId,
       productUrl: product.url,
       pickupExternalLocationId: point.externalLocationId,
-      pickupLocationAliasIds: point.locationAliasIds,
+      pickupLocationAliasIds: [...(point.locationAliasIds ?? []), ...(learnedAlias ? [learnedAlias] : [])],
       currencyHint: point.currency
     });
     await saveManualQuoteForPoint(point, product, quote);
-    if (!priced.includes(point.externalLocationId)) {
-      priced.push(point.externalLocationId);
+    if (!state.priced.includes(point.externalLocationId)) {
+      state.priced.push(point.externalLocationId);
     }
     setCaptureStatus({ tone: "normal", message: t("panelAutoCapturedCurrentPrice", { name: ozonPickupDisplayName(point) }) });
     return { resolved: true };
   } catch (error) {
     if (isOzonProductUnavailableInRegion(error)) {
-      if (!unavailable.includes(point.externalLocationId)) {
-        unavailable.push(point.externalLocationId);
+      if (!state.unavailable.includes(point.externalLocationId)) {
+        state.unavailable.push(point.externalLocationId);
       }
       return { resolved: true };
     }

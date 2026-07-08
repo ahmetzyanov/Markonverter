@@ -1,4 +1,5 @@
 import { ExtensionSettings, PickupPoint } from "../../shared/types";
+import { isPlausibleOzonLocationAliasId } from "../../shared/validation";
 import {
   isGenericOzonPickupName,
   OzonPickupCandidate,
@@ -75,6 +76,33 @@ export function canLearnOzonLocationAlias(points: PickupPoint[], point: PickupPo
     return false;
   }
   return !points.some((other) => other.id !== point.id && ozonPointMatchesLocationId(other, selectedLocationId));
+}
+
+// After a sweep deliberately activated `point`, `selectedNow` is the id Ozon
+// reports as selected. It is safe to learn as the point's alias only when the
+// selection verifiably moved off the sweep's origin (otherwise the activation
+// may have silently failed and `selectedNow` still describes the origin) and
+// no other saved point owns the id.
+export function chooseOzonSweepLearnedAlias(
+  points: PickupPoint[],
+  point: PickupPoint,
+  selectedNow: string | null,
+  originalActive: string | null
+): string | null {
+  if (!selectedNow || !originalActive || (point.locationAliasIds ?? []).length > 0) {
+    return null;
+  }
+  if (selectedNow === originalActive) {
+    return null;
+  }
+  const originalPoint = findOzonPickupPointByLocationId(points, originalActive);
+  if (originalPoint && originalPoint.id !== point.id && ozonPointMatchesLocationId(originalPoint, selectedNow)) {
+    return null;
+  }
+  if (!isPlausibleOzonLocationAliasId(selectedNow) || !canLearnOzonLocationAlias(points, point, selectedNow)) {
+    return null;
+  }
+  return selectedNow;
 }
 
 export function findSavedPickupPointForVisibleDelivery(
