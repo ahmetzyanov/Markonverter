@@ -183,6 +183,17 @@ export function markOzonPickupActivationDoomed(externalLocationId: string): void
   mirrorOzonSweepSessionEntry(OZON_DOOMED_SESSION_PREFIX + externalLocationId, "1");
 }
 
+// Learning a location alias makes a previously unconfirmable point
+// confirmable, so its doomed mark must not keep suppressing sweeps.
+export function clearOzonPickupActivationDoomed(externalLocationId: string): void {
+  try {
+    sessionStorage.removeItem(OZON_DOOMED_SESSION_PREFIX + externalLocationId);
+  } catch {
+    // Ignore storage failures.
+  }
+  mirrorOzonSweepSessionEntry(OZON_DOOMED_SESSION_PREFIX + externalLocationId, null);
+}
+
 export function isOzonPickupActivationDoomed(externalLocationId: string): boolean {
   try {
     return sessionStorage.getItem(OZON_DOOMED_SESSION_PREFIX + externalLocationId) === "1";

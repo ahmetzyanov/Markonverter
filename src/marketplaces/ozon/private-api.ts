@@ -4,6 +4,10 @@ export interface OzonPrivatePriceRequest {
   productId: string;
   productUrl: string;
   pickupExternalLocationId: string;
+  // Persisted alias ids (areaid/fias) Ozon echoes for this point's address.
+  // Used only to confirm responses, never to build extra request candidates:
+  // they are area-level ids, useless as activation parameters.
+  pickupLocationAliasIds?: string[];
   currencyHint: Currency;
   allowSessionMutatingLocationActivation?: boolean;
 }
@@ -27,8 +31,9 @@ export async function fetchOzonPrivatePrice(request: OzonPrivatePriceRequest): P
   const activation = request.allowSessionMutatingLocationActivation
     ? await activateOzonPickupLocation(pathWithSearch, request.pickupExternalLocationId)
     : { confirmed: false, aliases: [] };
-  const acceptedLocationIds = normalizeLocationIds([request.pickupExternalLocationId, ...activation.aliases]);
-  const candidates = buildEndpointCandidates(pathWithSearch, acceptedLocationIds, {
+  const candidateLocationIds = normalizeLocationIds([request.pickupExternalLocationId, ...activation.aliases]);
+  const acceptedLocationIds = normalizeLocationIds([...candidateLocationIds, ...(request.pickupLocationAliasIds ?? [])]);
+  const candidates = buildEndpointCandidates(pathWithSearch, candidateLocationIds, {
     includeLocationCandidates: request.allowSessionMutatingLocationActivation === true,
     includeSelectionCandidates: request.allowSessionMutatingLocationActivation === true
   });

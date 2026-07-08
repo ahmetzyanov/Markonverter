@@ -182,3 +182,55 @@ Not implemented — still needs a decision, not a guess:
   price-confirmation trust boundary and needs explicit sign-off.
 - **Root cause 4** (visible-price auto-capture finds no delivery-widget text
   on the settled page) is a separate DOM-selector live-diagnosis task.
+
+## Fix status (2026-07-08) — root cause 1 landed
+
+Signed off by the user ("land a fix"); implemented via the
+visible-match-piggyback option above:
+
+- `PickupPoint.locationAliasIds` (persisted, `src/shared/types.ts`) stores the
+  area-level ids Ozon actually echoes for a point's address (areaid/fias/uid).
+  Normalized in `src/shared/validation.ts`: only id-shaped values (numeric or
+  UUID — a stray city slug must not confirm price reads), deduped, capped at 4.
+- Learning (`learnOzonLocationAliasForActivePoint` in
+  `src/content/ozon-quote-capture.ts`): the one trusted moment is right after
+  `autoCaptureCurrentVisibleQuote` fuzzy-matched the visible delivery text to
+  a saved point and got a valid quote. One `fetchOzonSelectedLocationId` read,
+  attempted once per point per page load and only while the point has no
+  aliases. `canLearnOzonLocationAlias` (pure, `pickup-matching.ts`) refuses an
+  id already owned by another saved point, so two same-city points cannot
+  cross-confirm. Learning clears the point's session doom mark.
+- Confirmation: `fetchOzonPrivatePrice` accepts `pickupLocationAliasIds` for
+  response confirmation only (never as extra request candidates — they are
+  area ids, useless as activation parameters and would multiply requests).
+  The per-row read in `app.ts` and both sweep reads pass them. Trust boundary
+  note: alias confirmation is city/area-level; Ozon prices are per city
+  cluster, so this is the correct granularity for price capture.
+- Active-point recognition: both sweeps resolve Ozon's selected id through
+  `findOzonPickupPointByLocationId`/`ozonPointMatchesLocationId`, so a point
+  saved under an addressbook UUID is recognized as already active and is
+  never swept onto; sweep state stores the selectable addressbook UUID as
+  `originalActive`, and the restore/return stage comparisons are alias-aware.
+
+Live verification (instrumented Playwright probe, real Ozon, same replica
+UUID as this report; results split across runs because Ozon lazy-hydrates
+the delivery widget and antibot-flags the automated profile over time):
+
+- Alias learning fired live and persisted `locationAliasIds=["17858"]` — the
+  exact areaid this report recorded for Буинск.
+- With the alias known, the next product page captured its quote in ~5.5 s
+  with 0 select_address activations and no extra reloads.
+- Pre-learning worst case is now bounded: silent sweep runs one candidate
+  escalation in place (12-13 requests, 0 page reloads — restore verified via
+  the selected-id read), dooms the point for the tab session, later pages
+  skip it. Previously 3-5 reloads and ~60 activations per product page.
+- 403 handling from the 2026-07-07 fix confirmed live: sweep stopped after
+  1 activation on the first 403 and the panel showed the localized
+  "Ozon временно блокирует запросы" message.
+- `npm run typecheck`, `npm test` (115), `npm run build`, `npm run qa:ozon`,
+  and `npm run qa:ozon:live` (LIVE_OZON_OK, panel attached) all green.
+
+Root cause 4 (delivery widget text often absent until hydration) remains
+open, but is now only a latency issue for *first-time* learning: once any
+page has matched the point visibly, every later page is priced through the
+alias-confirmed API read without needing delivery text at all.

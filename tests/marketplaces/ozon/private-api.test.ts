@@ -796,4 +796,41 @@ describe("Ozon private API parsing", () => {
     // the first one must skip the remaining 11.
     expect(calls.length).toBe(1);
   });
+
+  // Root cause 1 of wiki/maps/ozon-sweep-live-bug-report-2026-07-07.md: for a
+  // point saved with an addressbook address UUID, Ozon only ever echoes the
+  // area-level ids (areaid/fias) of the selected location. The persisted
+  // aliases must confirm the read; without them it must keep failing.
+  it("confirms a read-only price via a persisted location alias id", async () => {
+    const composerResponse = {
+      data: {
+        location: {
+          current: {
+            areaid: 17858,
+            fias: "58e5a396-77c4-4ab6-b235-afe364c0580f"
+          }
+        }
+      },
+      widgetStates: {
+        webPrice: JSON.stringify({ price: "3 013 ₽" })
+      }
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(composerResponse), { status: 200, headers: { "content-type": "application/json" } }))
+    );
+
+    const request = {
+      productId: "2103540263",
+      productUrl: "https://ozon.ru/product/fake-product-2103540263/",
+      pickupExternalLocationId: "daa6eeff-8093-429a-9fee-9c73e5ef6036",
+      currencyHint: "RUB"
+    } as const;
+
+    await expect(fetchOzonPrivatePrice({ ...request, pickupLocationAliasIds: ["17858"] })).resolves.toMatchObject({
+      amount: 3013,
+      currency: "RUB"
+    });
+    await expect(fetchOzonPrivatePrice(request)).rejects.toThrow(/did not confirm requested pickup point/);
+  });
 });

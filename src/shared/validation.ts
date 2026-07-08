@@ -94,6 +94,7 @@ function isPickupPointLike(value: unknown): value is PickupPoint {
 }
 
 function normalizePickupPoint(pickupPoint: PickupPoint): PickupPoint {
+  const locationAliasIds = normalizeLocationAliasIds(pickupPoint.locationAliasIds);
   return {
     id: pickupPoint.id,
     name: pickupPoint.name,
@@ -101,8 +102,28 @@ function normalizePickupPoint(pickupPoint: PickupPoint): PickupPoint {
     country: pickupPoint.country || "RU",
     currency: SUPPORTED_CURRENCIES.includes(pickupPoint.currency) ? pickupPoint.currency : "RUB",
     externalLocationId: pickupPoint.externalLocationId || "",
-    comment: pickupPoint.comment || ""
+    comment: pickupPoint.comment || "",
+    ...(locationAliasIds.length > 0 ? { locationAliasIds } : {})
   };
+}
+
+export const MAX_PICKUP_LOCATION_ALIAS_IDS = 4;
+
+// Aliases must look like Ozon location ids (numeric areaid or fias/uid UUID);
+// anything looser would let a stray city slug confirm price reads for the
+// wrong location.
+export function isPlausibleOzonLocationAliasId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    (/^\d{1,12}$/.test(value.trim()) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim()))
+  );
+}
+
+function normalizeLocationAliasIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return [...new Set(value.filter(isPlausibleOzonLocationAliasId).map((id) => id.trim()))].slice(0, MAX_PICKUP_LOCATION_ALIAS_IDS);
 }
 
 function limitOzonPickupPoints(pickupPoints: PickupPoint[]): PickupPoint[] {

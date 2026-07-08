@@ -8,8 +8,11 @@
 import { RuntimeResponse } from "../shared/messages";
 import { manualQuoteKey } from "../shared/settings";
 import { ExtensionSettings, ManualQuote, MAX_SAVED_OZON_PICKUP_POINTS, PickupPoint, PriceQuote, ProductIdentity } from "../shared/types";
+import { isPlausibleOzonLocationAliasId } from "../shared/validation";
 import { extractOzonPickupCandidatesFromSources, OzonPickupCandidate } from "../marketplaces/ozon/pickup-capture";
+import { fetchOzonSelectedLocationId } from "../marketplaces/ozon/private-api";
 import {
+  canLearnOzonLocationAlias,
   compactText,
   findSavedPickupPointForVisibleDelivery,
   ozonCandidateDisplayName,
@@ -36,7 +39,7 @@ import {
   requestPagePickupCandidates
 } from "./ozon-candidates";
 import { isOzonSweepBusy } from "./ozon-sweep";
-import { loadOzonSweepState } from "./ozon-sweep-session";
+import { clearOzonPickupActivationDoomed, isOzonSweepThrottled, loadOzonSweepState } from "./ozon-sweep-session";
 import { isPanelCollapsed, renderLastPanel, requestPanelConfirmation, setCaptureStatus } from "./panel/render";
 import { extractVisibleOzonPrice } from "./page/visible-price";
 import { runtimeRequest } from "./runtime";
@@ -170,7 +173,7 @@ export async function autoCaptureCurrentVisibleQuote(product: ProductIdentity, s
   const existing = settings.manualQuotes[manualQuoteKey(product.productId, pickupPoint.id)];
   if (existing && quoteMatchesManualQuote(existing, quote)) {
     lastAutoCapturedCurrentLocation = { productId: product.productId, externalLocationId: pickupPoint.externalLocationId };
-    return settings;
+    return learnOzonLocationAliasForActivePoint(product, pickupPoint, settings);
   }
 
   const lockKey = `${product.productId}:${pickupPoint.id}:${quote.amount}:${quote.currency}:${quote.rawText || ""}`;
@@ -186,10 +189,55 @@ export async function autoCaptureCurrentVisibleQuote(product: ProductIdentity, s
     }
     lastAutoCapturedCurrentLocation = { productId: product.productId, externalLocationId: pickupPoint.externalLocationId };
     setCaptureStatus({ tone: "normal", message: t("panelAutoCapturedCurrentPrice", { name: ozonPickupDisplayName(pickupPoint) }) });
-    return updatedSettings;
+    return learnOzonLocationAliasForActivePoint(product, pickupPoint, updatedSettings);
   } finally {
     autoCaptureInFlight.delete(lockKey);
   }
+}
+
+// One learn attempt per point per page load: a page where the selected id is
+// unreadable should not re-poll Ozon on every DOM mutation cycle.
+const aliasLearnAttempted = new Set<string>();
+
+// Root cause 1 of wiki/maps/ozon-sweep-live-bug-report-2026-07-07.md: a point
+// saved with an addressbook address UUID never appears in Ozon's
+// selected-location responses, so API price reads can never be confirmed and
+// the sweeps never recognize the point as already active. The one trustworthy
+// moment to bridge the id spaces is right after the visible delivery text
+// matched this saved point: whatever location id Ozon reports as selected now
+// describes this point's address. Persist it as an alias, once per point.
+async function learnOzonLocationAliasForActivePoint(
+  product: ProductIdentity,
+  pickupPoint: PickupPoint,
+  settings: ExtensionSettings
+): Promise<ExtensionSettings> {
+  if ((pickupPoint.locationAliasIds ?? []).length > 0 || aliasLearnAttempted.has(pickupPoint.id) || isOzonSweepThrottled()) {
+    return settings;
+  }
+  aliasLearnAttempted.add(pickupPoint.id);
+
+  const selected = await fetchOzonSelectedLocationId(product.url).catch(() => null);
+  if (
+    !selected ||
+    selected === pickupPoint.externalLocationId ||
+    !isPlausibleOzonLocationAliasId(selected) ||
+    !canLearnOzonLocationAlias(settings.pickupPoints, pickupPoint, selected)
+  ) {
+    return settings;
+  }
+
+  const response = await runtimeRequest({
+    type: "UPSERT_PICKUP_POINT",
+    pickupPoint: { ...pickupPoint, locationAliasIds: [selected] }
+  });
+  if (!response.ok || !("settings" in response)) {
+    return settings;
+  }
+  // The point was unconfirmable before the alias existed; a doomed mark from
+  // earlier in this session no longer applies.
+  clearOzonPickupActivationDoomed(pickupPoint.externalLocationId);
+  setLatestSettings(response.settings);
+  return response.settings;
 }
 
 export function scheduleCurrentVisibleQuoteCapture(): void {

@@ -338,6 +338,7 @@ async function fetchOzonPickupPointPrice(
       productId: product.productId,
       productUrl: product.url,
       pickupExternalLocationId: pickupPoint.externalLocationId,
+      pickupLocationAliasIds: pickupPoint.locationAliasIds,
       currencyHint: pickupPoint.currency
     });
     return saveFetchedQuoteResult(pickupPoint, product, quote, settings);

@@ -10,7 +10,11 @@ import {
   isOzonProductUnavailableInRegion,
   isOzonRequestsThrottled
 } from "../marketplaces/ozon/private-api";
-import { ozonPickupDisplayName } from "../marketplaces/ozon/pickup-matching";
+import {
+  findOzonPickupPointByLocationId,
+  ozonPickupDisplayName,
+  ozonPointMatchesLocationId
+} from "../marketplaces/ozon/pickup-matching";
 import { manualQuoteKey } from "../shared/settings";
 import { Currency, ExtensionSettings, PickupPoint, ProductIdentity } from "../shared/types";
 import {
@@ -144,8 +148,12 @@ export async function runOzonSilentPriceSweep(
       return "done";
     }
 
+    // Alias-aware: a point saved under an addressbook UUID is recognized as
+    // the active one when Ozon reports its learned areaid/fias as selected,
+    // so it is never "swept onto" (root cause of the reload storms in
+    // wiki/maps/ozon-sweep-live-bug-report-2026-07-07.md).
     const pending = ozonSilentSweepPendingPoints(product, settings, comparisonPoints).filter(
-      (point) => point.externalLocationId !== originalActive
+      (point) => !ozonPointMatchesLocationId(point, originalActive)
     );
     if (pending.length === 0) {
       return "done";
@@ -170,6 +178,7 @@ export async function runOzonSilentPriceSweep(
           productId: product.productId,
           productUrl: product.url,
           pickupExternalLocationId: point.externalLocationId,
+          pickupLocationAliasIds: point.locationAliasIds,
           currencyHint: point.currency,
           allowSessionMutatingLocationActivation: true
         });
@@ -204,14 +213,20 @@ export async function runOzonSilentPriceSweep(
     // selection their own pick will set the session explicitly.
     await waitForOzonDeliveryContainerToClose(30_000);
 
-    const restoreConfirmed = await activateOzonPickupLocationForProduct(product.url, originalActive).catch(() => false);
+    // When the original selection belongs to a saved point (matched by id or
+    // learned alias), restore via the id select_address actually understands —
+    // the point's addressbook UUID — instead of the area-level id Ozon
+    // reported as selected, which never confirms.
+    const originalPoint = findOzonPickupPointByLocationId((latestSettings || settings).pickupPoints, originalActive);
+    const restoreTarget = originalPoint?.externalLocationId ?? originalActive;
+    const restoreConfirmed = await activateOzonPickupLocationForProduct(product.url, restoreTarget).catch(() => false);
     if (restoreConfirmed) {
       return "done";
     }
     // The activation response did not confirm; ask Ozon which point is
     // actually selected before concluding the restore failed.
     const selectedNow = await fetchOzonSelectedLocationId(product.url).catch(() => null);
-    if (selectedNow === originalActive) {
+    if (selectedNow === originalActive || (originalPoint && ozonPointMatchesLocationId(originalPoint, selectedNow))) {
       return "done";
     }
     if (runId !== activeRun || findOzonDeliveryContainer()) {
@@ -233,7 +248,7 @@ export async function runOzonSilentPriceSweep(
       .filter(
         (point) =>
           point.externalLocationId.trim() !== "" &&
-          point.externalLocationId !== originalActive &&
+          !ozonPointMatchesLocationId(point, originalActive) &&
           !priced.includes(point.externalLocationId) &&
           !latest.manualQuotes[manualQuoteKey(product.productId, point.id)] &&
           !isOzonPickupSessionUnavailable(product.productId, point.externalLocationId) &&
@@ -242,7 +257,9 @@ export async function runOzonSilentPriceSweep(
       .map((point) => point.externalLocationId);
     const state: OzonSweepState = {
       productId: product.productId,
-      originalActive,
+      // The selectable id: reload-sweep stages activate and compare against
+      // this, so an area-level alias must not land here.
+      originalActive: restoreTarget,
       originalHref,
       pending: handoffPending,
       priced,
@@ -252,7 +269,7 @@ export async function runOzonSilentPriceSweep(
     saveOzonSweepState(state);
     if (handoffPending.length === 0) {
       // Either reloads toward the origin or finalizes in place.
-      outcome = await beginOzonSweepReturn(product, state, selectedNow);
+      outcome = await beginOzonSweepReturn(product, state, selectedNow, latest.pickupPoints);
       return outcome;
     }
     await activateOzonAddressAndReload(product, handoffPending[0]);
@@ -327,7 +344,13 @@ export async function startOzonPriceSweep(
   // Prefer Ozon's own selected-address id so we can return to the exact pickup
   // point the user started on, even when it is not one of the compared points.
   const apiSelected = await fetchOzonSelectedLocationId(product.url).catch(() => null);
-  const originalActive = apiSelected || currentOzonExternalLocationId(product, settings);
+  const selectedLocationId = apiSelected || currentOzonExternalLocationId(product, settings);
+  // Ozon reports area-level ids (areaid/fias) as selected, never the
+  // addressbook UUID a point was saved with. Resolve through learned aliases
+  // so the active saved point is recognized (and priced in place below)
+  // instead of being reload-swept, and keep a selectable id for the return.
+  const originalPoint = findOzonPickupPointByLocationId(settings.pickupPoints, selectedLocationId);
+  const originalActive = originalPoint?.externalLocationId ?? selectedLocationId;
   const originalHref = location.href;
   const priced: string[] = [];
   const unavailable: string[] = [];
@@ -364,7 +387,7 @@ export async function startOzonPriceSweep(
   };
   if (pending.length === 0) {
     saveOzonSweepState(state);
-    return (await beginOzonSweepReturn(product, state, originalActive)) === "reloading";
+    return (await beginOzonSweepReturn(product, state, originalActive, settings.pickupPoints)) === "reloading";
   }
 
   saveOzonSweepState(state);
@@ -391,8 +414,11 @@ export async function continueOzonPriceSweep(product: ProductIdentity, settings:
   if (state.returnStage === 1) {
     if (state.originalActive) {
       // The pre-navigation switch usually already took; skip the extra reload.
+      // Ozon reports the selection as an area-level id, so compare through the
+      // owning point's learned aliases too.
       const selected = await fetchOzonSelectedLocationId(product.url).catch(() => null);
-      if (selected === state.originalActive) {
+      const originalPoint = findOzonPickupPointByLocationId(settings.pickupPoints, state.originalActive);
+      if (selected === state.originalActive || (originalPoint && ozonPointMatchesLocationId(originalPoint, selected))) {
         finalizeOzonSweep(product, state);
         ozonSweepBusy = false;
         return "done";
@@ -447,7 +473,7 @@ export async function continueOzonPriceSweep(product: ProductIdentity, settings:
     return "reloading";
   }
 
-  return beginOzonSweepReturn(product, state, captureTarget);
+  return beginOzonSweepReturn(product, state, captureTarget, settings.pickupPoints);
 }
 
 // Drive the page back to where the sweep started. When the original pickup point
@@ -458,10 +484,12 @@ export async function continueOzonPriceSweep(product: ProductIdentity, settings:
 async function beginOzonSweepReturn(
   product: ProductIdentity,
   state: OzonSweepState,
-  currentActive: string | null
+  currentActive: string | null,
+  savedPoints: PickupPoint[]
 ): Promise<"reloading" | "done"> {
   const finishTarget = chooseOzonSweepFinishTarget(state.originalActive, state.priced, state.unavailable);
-  if (!finishTarget || finishTarget === currentActive) {
+  const finishPoint = findOzonPickupPointByLocationId(savedPoints, finishTarget);
+  if (!finishTarget || finishTarget === currentActive || (finishPoint && ozonPointMatchesLocationId(finishPoint, currentActive))) {
     finalizeOzonSweep(product, state);
     ozonSweepBusy = false;
     return "done";
@@ -541,6 +569,7 @@ async function captureOzonSweepStop(
       productId: product.productId,
       productUrl: product.url,
       pickupExternalLocationId: point.externalLocationId,
+      pickupLocationAliasIds: point.locationAliasIds,
       currencyHint: point.currency
     });
     await saveManualQuoteForPoint(point, product, quote);

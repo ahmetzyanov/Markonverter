@@ -548,3 +548,26 @@ updates, and non-trivial implementation changes.
   one visit tripped antibot → next session 89/95 requests 403.
 - Full report: `wiki/maps/ozon-sweep-live-bug-report-2026-07-07.md`.
   No source changes made (report-only).
+
+## 2026-07-08 — root cause 1 fix: persisted Ozon location aliases
+
+- Landed the id-space-mismatch fix from the 2026-07-07 bug report (user
+  signed off): `PickupPoint.locationAliasIds` persists the areaid/fias ids
+  Ozon actually echoes for a point's address. Learned once, at the trusted
+  moment the visible delivery text fuzzy-matches a saved point
+  (`learnOzonLocationAliasForActivePoint`); refused when another saved point
+  already owns the id. Aliases confirm API price reads (never expand request
+  candidates) and make both sweeps recognize the active point, so an
+  addressbook-UUID point is no longer reload-swept on every product page.
+  Learning clears the point's session doom mark.
+- Kept the 2026-07-07 throttle/doom commit (c3bc50d) — its 403 flood control
+  was confirmed live (sweep stopped after 1 activation on first 403,
+  localized panel message shown).
+- Live probe evidence: alias `17858` learned and persisted on real Ozon;
+  next product priced in ~5.5 s with 0 activations; pre-learning worst case
+  now 0 reloads (silent sweep verifies restore in place).
+- Trust note: alias confirmation is city/area-level — correct granularity,
+  Ozon prices are per city cluster; the alias-id shape guard (numeric/UUID)
+  plus single-owner rule keep it from loosening further.
+- Verified: typecheck, 115 tests, build, qa:ozon (BROWSER_QA_OK),
+  live_check.sh (LIVE_OZON_OK).

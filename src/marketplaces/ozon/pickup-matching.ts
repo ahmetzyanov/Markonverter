@@ -43,6 +43,40 @@ export function isCandidateNameSharedAcrossExternalIds(
   return matchingExternalIds.size > 1;
 }
 
+// Ozon exposes the selected location under several id spaces at once (the
+// addressbook address UUID a point was saved with, plus the areaid/fias ids it
+// echoes in composer responses). Matching "is this point the selected one"
+// must accept any of them.
+export function ozonPointMatchesLocationId(point: PickupPoint, locationId: string | null | undefined): boolean {
+  if (!locationId) {
+    return false;
+  }
+  return point.externalLocationId === locationId || (point.locationAliasIds ?? []).includes(locationId);
+}
+
+export function findOzonPickupPointByLocationId(points: PickupPoint[], locationId: string | null | undefined): PickupPoint | null {
+  if (!locationId) {
+    return null;
+  }
+  const exact = points.find((point) => point.marketplace === "ozon" && point.externalLocationId === locationId);
+  if (exact) {
+    return exact;
+  }
+  // Alias ids are area/city-level; only trust one that maps to a single point.
+  const byAlias = points.filter((point) => point.marketplace === "ozon" && (point.locationAliasIds ?? []).includes(locationId));
+  return byAlias.length === 1 ? byAlias[0] : null;
+}
+
+// Whether Ozon's currently selected location id is safe to remember as an
+// alias of `point`: it must not already belong to the point, and no other
+// saved point may own it (two same-city points would otherwise cross-confirm).
+export function canLearnOzonLocationAlias(points: PickupPoint[], point: PickupPoint, selectedLocationId: string): boolean {
+  if (ozonPointMatchesLocationId(point, selectedLocationId)) {
+    return false;
+  }
+  return !points.some((other) => other.id !== point.id && ozonPointMatchesLocationId(other, selectedLocationId));
+}
+
 export function findSavedPickupPointForVisibleDelivery(
   settings: ExtensionSettings,
   visibleDeliveryText: string,

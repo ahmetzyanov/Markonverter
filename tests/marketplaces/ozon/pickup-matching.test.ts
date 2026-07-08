@@ -1,7 +1,10 @@
 import {
+  canLearnOzonLocationAlias,
+  findOzonPickupPointByLocationId,
   findSavedPickupPointForVisibleDelivery,
   isCandidateNameSharedAcrossExternalIds,
   matchDetectedPickupCandidateToRow,
+  ozonPointMatchesLocationId,
   scoreVisiblePickupMatch,
   visibleDeliveryPickupLabel
 } from "../../../src/marketplaces/ozon/pickup-matching";
@@ -85,5 +88,44 @@ describe("Ozon pickup matching", () => {
 
   it("scores zero when texts share no meaningful tokens", () => {
     expect(scoreVisiblePickupMatch("Казань, ул. Баумана, 1", "Астана, пр-кт Улы Дала, 31")).toBe(0);
+  });
+});
+
+describe("Ozon location id aliases", () => {
+  const buinsk = {
+    ...point("a", "Буинск, ул. Вахитова, 174Б", "daa6eeff-8093-429a-9fee-9c73e5ef6036"),
+    locationAliasIds: ["17858", "58e5a396-77c4-4ab6-b235-afe364c0580f"]
+  };
+  const astana = point("b", "Астана, пр-кт Улы Дала, 31", "pvz-440129");
+
+  it("matches a point by its external id or any learned alias", () => {
+    expect(ozonPointMatchesLocationId(buinsk, "daa6eeff-8093-429a-9fee-9c73e5ef6036")).toBe(true);
+    expect(ozonPointMatchesLocationId(buinsk, "17858")).toBe(true);
+    expect(ozonPointMatchesLocationId(buinsk, "58e5a396-77c4-4ab6-b235-afe364c0580f")).toBe(true);
+    expect(ozonPointMatchesLocationId(buinsk, "99999")).toBe(false);
+    expect(ozonPointMatchesLocationId(buinsk, null)).toBe(false);
+  });
+
+  it("finds the owning point for a selected location id via alias", () => {
+    expect(findOzonPickupPointByLocationId([buinsk, astana], "17858")?.id).toBe("a");
+    expect(findOzonPickupPointByLocationId([buinsk, astana], "pvz-440129")?.id).toBe("b");
+    expect(findOzonPickupPointByLocationId([buinsk, astana], "99999")).toBeNull();
+    expect(findOzonPickupPointByLocationId([buinsk, astana], null)).toBeNull();
+  });
+
+  it("refuses an alias shared by two points but keeps exact id matches", () => {
+    const sameCityTwin = { ...point("c", "Буинск, ул. Космовского, 1", "pvz-777"), locationAliasIds: ["17858"] };
+
+    expect(findOzonPickupPointByLocationId([buinsk, sameCityTwin], "17858")).toBeNull();
+    expect(findOzonPickupPointByLocationId([buinsk, sameCityTwin], "pvz-777")?.id).toBe("c");
+  });
+
+  it("only learns an alias no saved point owns yet", () => {
+    expect(canLearnOzonLocationAlias([buinsk, astana], astana, "31741")).toBe(true);
+    // Already one of the point's own ids.
+    expect(canLearnOzonLocationAlias([buinsk, astana], buinsk, "17858")).toBe(false);
+    // Owned by another point: two same-city points must not cross-confirm.
+    expect(canLearnOzonLocationAlias([buinsk, astana], astana, "17858")).toBe(false);
+    expect(canLearnOzonLocationAlias([buinsk, astana], astana, buinsk.externalLocationId)).toBe(false);
   });
 });

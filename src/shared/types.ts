@@ -16,6 +16,13 @@ export interface PickupPoint {
   currency: Currency;
   externalLocationId: string;
   comment?: string;
+  // Location ids Ozon itself echoes for this point's address (areaid/fias/uid).
+  // Addressbook address UUIDs never appear in Ozon's selected-location
+  // responses, so without these aliases the extension can neither confirm a
+  // price read nor recognize the point as currently active (see
+  // wiki/maps/ozon-sweep-live-bug-report-2026-07-07.md, root cause 1). Learned
+  // once when the visible delivery text confirms the point is active.
+  locationAliasIds?: string[];
 }
 
 export interface ExtensionSettings {
