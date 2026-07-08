@@ -13,6 +13,8 @@
 
 [Что делает](#что-делает) · [Сборка](#сборка) · [Загрузка в Chrome](#загрузка-в-chrome)
 
+[<img src="docs/badges/chrome-web-store.png" alt="Доступно в Chrome Web Store" height="58" />](https://chromewebstore.google.com/detail/markonverter/flbejmhomeeabmccjalfcenmpjhpbhjl)
+
 English version: [docs/README.en.md](docs/README.en.md)
 
 </div>

@@ -13,6 +13,8 @@
 
 [What it does](#what-it-does) · [Build](#build) · [Load in Chrome](#load-in-chrome)
 
+[<img src="badges/chrome-web-store.png" alt="Available in the Chrome Web Store" height="58" />](https://chromewebstore.google.com/detail/markonverter/flbejmhomeeabmccjalfcenmpjhpbhjl)
+
 Русская версия: [README.md](../README.md)
 
 </div>
