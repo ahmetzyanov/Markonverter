@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "screenshots": "npm run build && node scripts/screenshots.mjs",
     "qa:ozon": "npm run build && node scripts/qa-fake-ozon.mjs",
     "qa:ozon:live": "npm run build && node scripts/qa-live-ozon.mjs",
     "test": "node scripts/check-file-size.mjs && vitest run",

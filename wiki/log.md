@@ -3,6 +3,22 @@
 Use this file for short dated entries about durable project decisions, wiki
 updates, and non-trivial implementation changes.
 
+## 2026-07-08
+
+- Added `scripts/screenshots.mjs` (`npm run screenshots`): loads the built
+  extension into a realistic fake Ozon product page via Playwright and captures
+  the *authentic* rendered panel — no hand-drawn/stretched mockups. Outputs to
+  `docs/screenshots/`: `panel-element.png`, `ozon-price-block.png` (panel inside
+  a realistic Ozon price card), `options.png`, two light marketplace-style promo
+  cards (`promo-panel.png`, `promo-ozon.png`) composited from the real shots, and
+  the Chrome Web Store tile `store-1280x800.png` (rendered in a separate dsf-1
+  context so it is exactly 1280×800; the extension context is locked to dsf 2).
+- Must run headed (`headless: false`) — MV3 service workers don't start
+  headless. Seeds two saved points + manual quotes to suppress the price sweep,
+  same trick as the fake-Ozon QA harness.
+- README hero switched from the old distorted `panel-comparison.png` (deleted)
+  to `ozon-price-block.png`.
+
 ## 2026-07-07
 
 - Added inline "~converted price" badges (`src/content/page/inline-converted-price.ts`):
