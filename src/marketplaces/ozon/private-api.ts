@@ -535,10 +535,10 @@ function textContainsLocationId(text: string, id: string): boolean {
 export function extractOzonPrice(json: unknown, currencyHint: Currency): PriceQuote | null {
   const candidates: Array<PriceQuote & { score: number; path: string }> = [];
 
-  for (const [path, value] of preferredPricePaths(json)) {
+  for (const [path, value, score] of preferredPricePaths(json)) {
     const parsed = parsePrice(value, currencyHint);
     if (parsed) {
-      candidates.push({ ...parsed, score: 100, path });
+      candidates.push({ ...parsed, score, path });
     }
   }
 
@@ -641,9 +641,9 @@ function responseContainsProductUnavailableInRegion(json: unknown): boolean {
   return found;
 }
 
-function preferredPricePaths(json: unknown): Array<[string, unknown]> {
+function preferredPricePaths(json: unknown): Array<[string, unknown, number]> {
   const roots = findWidgetStates(json);
-  const candidates: Array<[string, unknown]> = [];
+  const candidates: Array<[string, unknown, number]> = [];
 
   for (const root of roots) {
     for (const [key, rawValue] of Object.entries(root)) {
@@ -652,20 +652,24 @@ function preferredPricePaths(json: unknown): Array<[string, unknown]> {
         continue;
       }
       const value = parseMaybeJson(rawValue);
-      const paths = [
-        ["price"],
-        ["finalPrice"],
-        ["cardPrice"],
-        ["mainPrice"],
-        ["price", "price"],
-        ["price", "text"],
-        ["mainState", "price"],
-        ["state", "price"]
+      // Distinct scores: ozon.ru's webPrice now ships the plain price and the
+      // bank-subsidized cardPrice ("С банками") side by side; a flat score
+      // read that as ambiguous and priced nothing. The plain price is what a
+      // buyer without the subsidy pays and matches the kz-side captures.
+      const paths: Array<[string[], number]> = [
+        [["price"], 100],
+        [["finalPrice"], 99],
+        [["mainPrice"], 98],
+        [["price", "price"], 97],
+        [["price", "text"], 96],
+        [["mainState", "price"], 95],
+        [["state", "price"], 94],
+        [["cardPrice"], 60]
       ];
-      for (const path of paths) {
+      for (const [path, score] of paths) {
         const nested = getPath(value, path);
         if (nested !== undefined) {
-          candidates.push([`${key}.${path.join(".")}`, nested]);
+          candidates.push([`${key}.${path.join(".")}`, nested, score]);
         }
       }
     }

@@ -61,6 +61,43 @@ describe("Ozon private API parsing", () => {
     });
   });
 
+  it("prefers the plain price over the bank-subsidized card price (2026 ozon.ru webPrice)", () => {
+    // Live shape from ozon.ru product 4446864009: cardPrice ("С банками") and
+    // price ("С другими банками") coexist; this must not read as ambiguous.
+    const json = {
+      widgetStates: {
+        "webPrice-3121879-default-1": JSON.stringify({
+          isAvailable: true,
+          cardPrice: "1 126 ₽",
+          price: "1 251 ₽",
+          originalPrice: "8 000 ₽",
+          showOriginalPrice: true,
+          pricePerUnit: "1 126 ₽"
+        })
+      }
+    };
+
+    expect(extractOzonPrice(json, "RUB")).toEqual({
+      amount: 1251,
+      currency: "RUB",
+      rawText: "1 251 ₽"
+    });
+  });
+
+  it("falls back to the card price when no plain price exists", () => {
+    const json = {
+      widgetStates: {
+        webPrice: JSON.stringify({ cardPrice: "1 126 ₽" })
+      }
+    };
+
+    expect(extractOzonPrice(json, "RUB")).toEqual({
+      amount: 1126,
+      currency: "RUB",
+      rawText: "1 126 ₽"
+    });
+  });
+
   it("rejects ambiguous equal-score price candidates", () => {
     const json = {
       priceBlock: {

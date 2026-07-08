@@ -603,3 +603,21 @@ updates, and non-trivial implementation changes.
   swept point's alias (same exposure as visible-text learning); deleting and
   re-adding the point clears wrong aliases.
 - Verified: typecheck, 118 tests, build, qa:ozon (BROWSER_QA_OK), live probe.
+
+## 2026-07-08 — ozon.ru bank-price widget broke sweep price extraction
+
+- After the sweep-learning fix the user still saw the old symptom. Live
+  reproduction on their exact product (4446864009) found the real remaining
+  cause: ozon.ru's webPrice widget now ships `cardPrice` («С банками») and
+  `price` («С другими банками») side by side; `extractOzonPrice` scored all
+  preferred paths a flat 100, read two different amounts as ambiguous and
+  returned null — so every reload-sweep capture on ozon.ru failed
+  ("no unambiguous product price"), burned the retriedHead reload, and gave
+  up uncaptured. ozon.kz has no Ozon Карта pricing, which is why kz-side
+  rows always priced.
+- Fix: distinct preference scores in `preferredPricePaths` — plain `price`
+  first, `cardPrice` last (60) so it only wins when no plain price exists.
+  The recorded amount is the unsubsidized price, matching kz-side captures.
+- Live end-to-end (user's config + product, kz page, Astana active): 3 page
+  loads (kz → ru → kz), Buinsk 1251 RUB captured first try, no retry reload,
+  session restored to Astana (areaid 40723), 0×403.
